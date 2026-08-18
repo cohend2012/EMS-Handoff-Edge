@@ -61,7 +61,7 @@ class HandoffAI:
         # since loading the model takes a couple seconds — no reason to pay
         # that cost if the user never records live audio.
         self._whisper_model = None
-        self.whisper_model_size = "small"  # "base" is faster/lighter, "medium" is more accurate
+        self.whisper_model_size = "medium"  # "base" is faster/lighter, "medium" is more accurate
         
         if provider == "ollama":
             # Ollama runs locally - completely FREE!
@@ -230,8 +230,8 @@ class HandoffAI:
             logger.info(f"Loading local faster-whisper model ({self.whisper_model_size})...")
             self._whisper_model = WhisperModel(
                 self.whisper_model_size,
-                device="cpu",
-                compute_type="int8"
+                device="cuda",
+                compute_type="float16"
             )
             logger.info("faster-whisper model loaded.")
         return self._whisper_model
