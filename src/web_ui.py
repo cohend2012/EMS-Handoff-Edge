@@ -13,6 +13,7 @@ from difflib import SequenceMatcher
 import numpy as np
 import scipy.io.wavfile as wav
 import sounddevice as sd
+sd.default.device = (24, None)   # input index, output unchanged
 from flask import Flask, jsonify
 from flask_cors import CORS
 from typing import Optional
