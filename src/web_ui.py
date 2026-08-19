@@ -13,6 +13,7 @@ from difflib import SequenceMatcher
 import numpy as np
 import scipy.io.wavfile as wav
 import sounddevice as sd
+sd.default.device = (24, None)   # input index, output unchanged
 from flask import Flask, jsonify
 from flask_cors import CORS
 from typing import Optional
@@ -163,9 +164,9 @@ _INDEX_HTML = """
 
 TIMEOUT_SECONDS = 10 * 60
 WARNING_THRESHOLD = 3 * 60
-SAMPLE_RATE = 16000
+SAMPLE_RATE = 48000
 CHUNK_DURATION = 3.0
-MIN_AUDIO_LEVEL = 0.05
+MIN_AUDIO_LEVEL = 0.01
 KEYWORD_WINDOW_SECONDS = 6.0
 
 logger = logging.getLogger(__name__)
