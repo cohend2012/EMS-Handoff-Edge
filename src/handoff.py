@@ -230,8 +230,8 @@ class HandoffAI:
             logger.info(f"Loading local faster-whisper model ({self.whisper_model_size})...")
             self._whisper_model = WhisperModel(
                 self.whisper_model_size,
-                device="cuda",
-                compute_type="float16"
+                device="cpu",
+                compute_type="int8"
             )
             logger.info("faster-whisper model loaded.")
         return self._whisper_model
