@@ -1,6 +1,11 @@
 """
 Retrieves the subset of the medical lexicon that is actually relevant to a
 given EMS report, and formats it for injection into the extraction prompt.
+
+    lexicon side:   lexicon.py (data)      -> lexicon_rag.py (LexiconStore, whisper_hint)
+
+The lexicon layer runs BEFORE/DURING extraction (terminology for Whisper and the
+extraction prompt). 
 """
 
 import logging

@@ -13,7 +13,10 @@ ENV/
 .env
 .env.*
 
+# local-only data 
+/dataset/*
+!/dataset/.gitkeep
+/database/
+
 # Generated results 
-output/
-*.wav
-*.json
+/output/

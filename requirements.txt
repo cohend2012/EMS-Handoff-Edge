@@ -6,3 +6,4 @@ numpy
 scipy
 python-dotenv
 faster-whisper
+pypdf

@@ -16,7 +16,6 @@ import sounddevice as sd
 sd.default.device = (24, None)   # input index, output unchanged
 from flask import Flask, jsonify
 from flask_cors import CORS
-from typing import Optional
 
 _INDEX_HTML = """
 <!DOCTYPE html>
@@ -352,9 +351,9 @@ def _run_recording_worker(state, transcribe_chunk_fn) -> None:
                     continue
  
                 recent = audio[-int(CHUNK_DURATION * SAMPLE_RATE):]
-                level = float(np.sqrt(np.mean(recent ** 2))) if recent.size else 0.0
+                level = AudioValidator.get_rms_level(recent) if recent.size else 0.0
                 state.audio_level = level
-                if level < MIN_AUDIO_LEVEL:
+                if level < MIN_AUDIO_LEVEL: 
                     silent_checks += 1
                     if silent_checks > 2 and not mic_issue_warned:
                         logger.warning("Audio level very low - check microphone")

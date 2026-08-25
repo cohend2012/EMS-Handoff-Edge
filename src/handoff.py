@@ -1,5 +1,7 @@
+import copy
 import json
 import os
+import re
 import logging 
 import time 
  
@@ -7,10 +9,15 @@ from openai import OpenAI, APIConnectionError, APIError
 from faster_whisper import WhisperModel
 from typing import Optional, Dict, Any, List
  
-from .prompt import EXTRACTION_PROMPT 
-from .rag import LexiconStore, whisper_hint
+from .prompt import EXTRACTION_PROMPT, GUIDANCE_PROMPT
+from .lexicon_rag import LexiconStore, whisper_hint          
+from .database_rag import TextbookRAG                
+from .transcript_corrector import format_suspects_for_llm, Flag
 
 logger = logging.getLogger(__name__)
+
+# Resolve the vector store relative to the project root (parent of src/)
+_PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 class HandoffAI:
     """
@@ -42,7 +49,7 @@ class HandoffAI:
         "data_quality": {"confidence": "MEDIUM"}
     }
     
-    def __init__(self, api_key: Optional[str] = None, provider: str = "ollama", use_lexicon: bool = True):
+    def __init__(self, api_key=None, provider="ollama", use_lexicon=True, use_textbook_rag=True, textbook_store_dir=None):
         """
         Initialize with your choice of FREE AI provider.
         
@@ -53,15 +60,22 @@ class HandoffAI:
         self.provider = provider
         self.use_lexicon = use_lexicon
         self.lexicon_store = LexiconStore() if use_lexicon else None
+        self.use_textbook_rag = use_textbook_rag
+        store_dir = textbook_store_dir or os.path.join(_PROJECT_ROOT, "database")
+        self._textbook_rag = TextbookRAG(store_dir=store_dir) if use_textbook_rag else None
         self._whisper_prompt = whisper_hint()
         self.max_retries = 3
         self.retry_delay = 1.0
+        self._colors = ColorScheme() 
 
-        # Local speech-to-text (faster-whisper). Loaded lazily on first use
-        # since loading the model takes a couple seconds — no reason to pay
-        # that cost if the user never records live audio.
-        self._whisper_model = None
-        self.whisper_model_size = "medium"  # "base" is faster/lighter, "medium" is more accurate
+        # Two Whisper models, each loaded lazily and cached by size:
+        #   - a small/fast model for live keyword detection (short chunks)
+        #   - a large, accurate model for the final full-report transcription
+        self._whisper_models: Dict[str, WhisperModel] = {}
+        self.chunk_model_size = "small"           # fast; catches the stop phrase live
+        self.final_model_size = "large-v3-turbo"  # accurate; the real transcript
+        self.whisper_device = "cpu"               
+        self.whisper_compute_type = "int8"
         
         if provider == "ollama":
             # Ollama runs locally - completely FREE!
@@ -69,8 +83,8 @@ class HandoffAI:
                 base_url="http://localhost:11434/v1",
                 api_key="ollama"  # Ollama doesn't need a real key
             )
-            # Use smaller 1B model as it uses less RAM and runs on all laptops
-            self.model = "llama3.2:1b"
+            # qwen3:8b — good extraction quality, but an ~8B model (~5 GB RAM quantized)
+            self.model = "qwen3:8b"
             logger.info(f"Initialized Ollama client (model: {self.model})")
             
         elif provider == "groq":
@@ -94,13 +108,18 @@ class HandoffAI:
         else:
             raise ValueError(f"Unknown provider: {provider}. Use 'ollama', 'groq', or 'openrouter'")
     
-    def process_ems_report(self, ems_report: str) -> dict:
+    def process_ems_report(self, ems_report: str, suspects: Optional[List[Flag]] = None) -> dict:
         """
         Process a paramedic's verbal radio report and extract structured data.
-        
+
         Args:
-            ems_report: The raw text of what the paramedic said on the radio
-            
+            ems_report: The raw text of what the paramedic said on the radio.
+                        Expected to be already run through the transcript
+                        corrector by the caller.
+            suspects:   Flagged mis-hearings from the corrector, left in place
+                        for the LLM to resolve from context. Injected into the
+                        extraction prompt; pass None if there are none.
+
         Returns:
             Structured handoff data for the hospital
         """
@@ -112,7 +131,7 @@ class HandoffAI:
         print("-" * 50)
 
         # Ask the LLM for structured JSON, then parse and validate it
-        json_response = self._call_llm(ems_report)
+        json_response = self._call_llm(ems_report, suspects)
 
         try: 
             handoff_data = json.loads(json_response)
@@ -128,12 +147,13 @@ class HandoffAI:
         logger.info("Report processed successfully.")
         return handoff_data
     
-    def _call_llm(self, ems_report: str) -> str:
+    def _call_llm(self, ems_report: str, suspects: Optional[List[Flag]] = None) -> str:
         """
         Call LLM to extract structured data with exponential backoff retry.
 
         Args: 
             ems_report: Raw EMS report text
+            suspects:   Flagged mis-hearings to surface to the model, or None
 
         Returns: 
             Raw JSON string from LLM 
@@ -143,6 +163,13 @@ class HandoffAI:
             logger.info(f"Lexicon context: {len(lexicon_context)} chars")
         else:
             lexicon_context = ""
+
+        suspect_block = format_suspects_for_llm(suspects or [])
+        if suspect_block:
+            lexicon_context = (f"{lexicon_context}\n{suspect_block}"
+                               if lexicon_context else suspect_block)
+        if lexicon_context:
+            logger.info(f"Lexicon/suspect context: {len(lexicon_context)} chars")
 
         prompt = EXTRACTION_PROMPT.format(
             ems_report=ems_report,
@@ -158,8 +185,31 @@ class HandoffAI:
                     messages=[{"role": "user", "content": prompt}]
                 )
 
-                json_text = response.choices[0].message.content
-                json_text = json_text.replace("```json", "").replace("```", "").strip()
+                json_text = self._strip_llm_json(response.choices[0].message.content)
+
+                # A "successful" call can still yield nothing to parse: a
+                # reasoning model (qwen3) may spend the whole max_tokens budget
+                # inside <think>...</think> and stop right after the close tag,
+                # leaving _strip_llm_json with an empty string. That is not a
+                # transport error, so it never hits the except blocks below —
+                # guard it here, and retry rather than returning "" straight
+                # into json.loads (which surfaces as a confusing "invalid JSON").
+                if not json_text.strip():
+                    attempt_num = attempt + 1
+                    logger.warning(
+                        "Empty completion (reasoning-only, no JSON) on attempt "
+                        f"{attempt_num}/{self.max_retries}."
+                    )
+                    if attempt_num < self.max_retries:
+                        wait = self.retry_delay * (2 ** attempt)  # 1s, 2s, 4s, ...
+                        print(f"    [!] Empty response. Retrying in {wait}s...")
+                        time.sleep(wait)
+                        continue
+                    raise ValueError(
+                        "LLM returned an empty response after "
+                        f"{self.max_retries} attempts (reasoning trace likely "
+                        "consumed the token budget)."
+                    )
 
                 logger.info(f"LLM call successful on attempt {attempt + 1}")
                 return json_text
@@ -183,6 +233,24 @@ class HandoffAI:
                 self._print_error(e)
                 raise
 
+    @staticmethod
+    def _strip_llm_json(text: str) -> str:
+        """
+        Normalize raw LLM output down to (hopefully) parseable JSON.
+
+        Handles the two things every provider/model here can add around the
+        JSON: a reasoning-model ``<think>...</think>`` trace (qwen3) and
+        Markdown code fences. Shared by both the extraction and guidance paths
+        so the cleanup can't drift between them. Array isolation and the
+        object-comma repair stay in the guidance path, since they're specific
+        to its array-of-objects output.
+        """
+        if not text:
+            return ""
+        if "</think>" in text:                    
+            text = text.split("</think>", 1)[-1]
+        return text.replace("```json", "").replace("```", "").strip()
+
     def _validate_response(self, data: Dict[str, Any]) -> None:
         """
         Validate that LLM response has required fields and fill in optional ones.
@@ -198,15 +266,20 @@ class HandoffAI:
         if missing_fields:
             raise ValueError(f"Missing required fields: {', '.join(sorted(missing_fields))}")
         
-        # Fill in missing optional fields with sensible defaults
+        # Fill in missing optional fields with sensible defaults. deepcopy is
+        # essential: OPTIONAL_FIELDS holds mutable objects ([], {}), so assigning
+        # the raw default would share one object across every handoff. Callers
+        # (e.g. main.process_case appending to data_quality.assumptions) mutate
+        # these in place, which would otherwise leak one patient's data into the
+        # next report that happens to omit the same field.
         for field, default_value in self.OPTIONAL_FIELDS.items():
             if field not in data:
-                data[field] = default_value
+                data[field] = copy.deepcopy(default_value)
                 logger.info(f"Filled missing optional field '{field}' with default value")
         
         if data.get("alert_type") not in [
             "STEMI", "STROKE", "TRAUMA", "SEPSIS", "CARDIAC_ARREST",
-            "PEDIATRIC", "OBSTETRIC", "MEDICAL", "PSYCHIATRIC"
+            "PEDIATRIC", "OBSTETRIC", "MEDICAL", "PSYCHIATRIC", "ENDOCRINE"
         ]:
             logger.warning(f"Unexpected alert_type: {data.get('alert_type')}")
         
@@ -218,23 +291,29 @@ class HandoffAI:
         
         logger.info("Response validation passed (all required + optional fields present)")
 
-    def _get_whisper_model(self) -> WhisperModel:
+    def _get_whisper_model(self, size: str) -> WhisperModel:
         """
-        Lazily load the local faster-whisper model (once per HandoffAI instance).
+        Lazily load (and cache) a local faster-whisper model by size.
 
-        device="cpu" works everywhere (MacBook, most machines). On a Jetson
-        (or any machine with an NVIDIA GPU + CUDA installed), change to
-        device="cuda" for a large speed boost — same code otherwise.
+        Models are cached per size, so the small keyword-detection model and the
+        large final-transcription model each load at most once, and only if
+        actually used. (If both sizes were set to the same value they'd share a
+        single instance.)
+
+        device="cpu" works everywhere. On a Jetson or any NVIDIA+CUDA machine,
+        set self.whisper_device = "cuda" for a large speedup — same code otherwise.
         """
-        if self._whisper_model is None:
-            logger.info(f"Loading local faster-whisper model ({self.whisper_model_size})...")
-            self._whisper_model = WhisperModel(
-                self.whisper_model_size,
-                device="cpu",
-                compute_type="int8"
+        model = self._whisper_models.get(size)
+        if model is None:
+            logger.info(f"Loading local faster-whisper model ({size})...")
+            model = WhisperModel(
+                size,
+                device=self.whisper_device,
+                compute_type=self.whisper_compute_type,
             )
-            logger.info("faster-whisper model loaded.")
-        return self._whisper_model
+            self._whisper_models[size] = model
+            logger.info(f"faster-whisper model loaded ({size}).")
+        return model
 
     def transcribe_audio_chunk(self, filename: str) -> str: 
         """
@@ -248,7 +327,7 @@ class HandoffAI:
             Transcribed text or empty string
         """
         try:
-            model = self._get_whisper_model()
+            model = self._get_whisper_model(self.chunk_model_size)
             segments, _ = model.transcribe(filename, language="en", beam_size=1)
             return " ".join(segment.text for segment in segments).strip()
         except Exception as e:
@@ -268,7 +347,7 @@ class HandoffAI:
         """
         print("\n[*] Transcribing full report with local faster-whisper...")
         try:
-            model = self._get_whisper_model()
+            model = self._get_whisper_model(self.final_model_size)
             # self._whisper_prompt comes from rag.py's whisper_hint(), which
             # builds the EMS terminology list from lexicon.py dynamically —
             # unchanged from before, just passed as initial_prompt instead of
@@ -295,7 +374,7 @@ class HandoffAI:
         Args: 
             data: structured handoff data from LLM
         """
-        colors = ColorScheme()
+        colors = self._colors
 
         print("\n" + "=" * 60)
         print(f"{colors.bold}[HOSPITAL] HOSPITAL ER DASHBOARD - INCOMING PATIENT{colors.reset}")
@@ -434,6 +513,92 @@ class HandoffAI:
             print(f"  Missing: {', '.join(quality['missing_info'])}")
         if quality.get("assumptions"):
             print(f"  Assumptions: {', '.join(quality['assumptions'])}")
+            
+    def suggest_courses_of_action(self, handoff_data, top_k: int = 6):
+        """Retrieve textbook references for this handoff and generate grounded,
+        cited courses of action. Returns a list of dicts, or None if no store."""
+        if not self.use_textbook_rag or self._textbook_rag is None:
+            return None
+        if not self._textbook_rag.available:
+            logger.info("Textbook vector store not found; skipping guidance.")
+            return None
+        try:
+            reference = self._textbook_rag.guidance_context(handoff_data, top_k=top_k)
+        except Exception as e:
+            logger.warning(f"Textbook retrieval failed: {e}")
+            return None
+        if not reference:
+            return None
+
+        prompt = GUIDANCE_PROMPT.format(
+            handoff_json=json.dumps(handoff_data, indent=2),
+            reference=reference,
+        )
+
+        # Same failure mode as extraction: qwen3 doesn't always honor the
+        # /no_think in GUIDANCE_PROMPT, and when it thinks anyway the reasoning
+        # trace can eat the whole token budget and stop right at </think>,
+        # leaving _strip_llm_json with an empty string. A single empty response
+        # then surfaced as a confusing "Expecting value" JSON error and dropped
+        # guidance entirely. Retry the call on an empty completion (as _call_llm
+        # does) before giving up. Unlike extraction, guidance fails soft: if
+        # every attempt is empty or the parse fails, return None so the ER
+        # dashboard still renders without the (optional) courses of action.
+        text = ""
+        for attempt in range(self.max_retries):
+            try:
+                resp = self.client.chat.completions.create(
+                    model=self.model, max_tokens=4096, temperature=0.1,
+                    messages=[{"role": "user", "content": prompt}],
+                )
+                text = self._strip_llm_json(resp.choices[0].message.content or "")
+
+                if not text.strip():
+                    attempt_num = attempt + 1
+                    logger.warning(
+                        "Guidance empty completion (reasoning-only, no JSON) on "
+                        f"attempt {attempt_num}/{self.max_retries}."
+                    )
+                    if attempt_num < self.max_retries:
+                        time.sleep(self.retry_delay * (2 ** attempt))  # 1s, 2s, 4s
+                        continue
+                    logger.warning("Guidance skipped: empty after "
+                                   f"{self.max_retries} attempts.")
+                    return None
+
+                # isolate the JSON array in case the model added prose around it
+                start, end = text.find("["), text.rfind("]")
+                if start != -1 and end != -1 and end > start:
+                    text = text[start:end + 1]
+
+                # qwen3 sometimes omits the comma between array objects: "} {" -> "}, {"
+                text = re.sub(r"\}\s*\{", "}, {", text)
+
+                guidance = json.loads(text)
+                if isinstance(guidance, dict):
+                    guidance = guidance.get("courses_of_action") or guidance.get("actions") or [guidance]
+                logger.info(f"Generated {len(guidance)} textbook-grounded recommendations")
+                return guidance
+            except Exception as e:
+                logger.warning(f"Guidance generation failed: {e}")
+                logger.warning(f"Raw guidance output (first 600 chars): {text[:600]!r}")
+                return None
+
+    def display_courses_of_action(self, guidance) -> None:
+        if not guidance:
+            return
+        colors = self._colors
+        print(f"\n{colors.bold}[+] SUGGESTED COURSES OF ACTION (textbook-grounded):{colors.reset}")
+        for i, g in enumerate(guidance, 1):
+            if isinstance(g, dict):
+                print(f"  {i}. {g.get('action', '')}")
+                if g.get("rationale"):
+                    print(f"     Rationale: {g['rationale']}")
+                if g.get("source"):
+                    print(f"     Source: {g['source']}")
+            else:
+                print(f"  {i}. {g}")
+        print("  (Decision support only — clinical judgment required.)")
 
     def _print_error(self, e: Exception) -> None:
         """Print provider-specific error message."""

@@ -22,6 +22,7 @@ from typing import Optional, Tuple
 from .handoff import HandoffAI
 from .samples import SAMPLE_STEMI, SAMPLE_TRAUMA, SAMPLE_SEPSIS
 from .web_ui import start_web_ui
+from .transcript_corrector import correct_transcript, assumption_notes
 
 # Load environment variables from a local .env file if present
 load_dotenv()
@@ -118,7 +119,7 @@ def _select_provider() -> Tuple[str, Optional[str]]:
     elif provider == "ollama":
         print("\n[*] Using Ollama (Local)")
         print("    Make sure Ollama is running: 'ollama serve'")
-        print("    Model: llama3.2:1b (lightweight)")
+        print("    Model: qwen3:8b")
         input("    Press Enter to continue...")
         logger.info("Using Ollama (local)")
         
@@ -170,7 +171,7 @@ def _prompt_custom_report() -> Optional[str]:
     logger.info(f"Custom report entered: {len(report)} characters")
     return report
 
-def _record_live_audio(handoff: HandoffAI, provider: str) -> Optional[str]:
+def _record_live_audio(handoff: HandoffAI) -> Optional[str]:
     """Record live audio via web UI. Transcription runs locally via
     faster-whisper, so this works regardless of which LLM provider is selected."""
     logger.info("Starting live audio recording")
@@ -196,10 +197,10 @@ def _record_live_audio(handoff: HandoffAI, provider: str) -> Optional[str]:
     print("TRANSCRIBED REPORT:")
     print("="*60)
     print(ems_report)
-    
+    print("\n")
     return ems_report
 
-def _select_case(handoff: HandoffAI, provider: str) -> Optional[str]:
+def _select_case(handoff: HandoffAI) -> Optional[str]:
     """Interactive case selection."""
     print("Select a sample case to process:\n")
     print("  1. STEMI (Heart Attack) - 67yo male, chest pain, cath lab activation")
@@ -217,7 +218,7 @@ def _select_case(handoff: HandoffAI, provider: str) -> Optional[str]:
     elif choice == "4":
         return _prompt_custom_report()
     elif choice == "5":
-        return _record_live_audio(handoff, provider)
+        return _record_live_audio(handoff)
     elif choice == "6":
         print("\n[OK] Goodbye!")
         return None
@@ -227,28 +228,54 @@ def _select_case(handoff: HandoffAI, provider: str) -> Optional[str]:
         return SAMPLE_STEMI
 
 def process_case(handoff: HandoffAI, ems_report: str) -> bool:
-    """Process a single EMS report. Returns: True or False"""
-    print("\n" + "="*60)
-    print("EMS RADIO REPORT (INPUT):")
-    print("="*60)
-    print(ems_report)
+    """Process a single EMS report. Returns True on success, else False."""
+    fix = correct_transcript(ems_report)
+    corrected = fix.text
 
-    try: 
-        # Extract structured data, then render the hospital-facing dashboard
-        handoff_data = handoff.process_ems_report(ems_report)
+    for c in fix.corrections:
+        print(f"[*] Corrected: {c.original} -> {c.replacement}")
+    for fl in fix.flagged:
+        print(f"[?] Possible mis-hearing: {fl.token} -> {fl.best_guess} "
+              f"({fl.canonical})? — left in place for the LLM to judge")
+
+    n = len(fix.corrections)
+    header = (f"CORRECTED REPORT ({n} fix{'es' if n != 1 else ''} applied)"
+              if n else "EMS RADIO REPORT (INPUT)")
+
+    print("\n" + "=" * 60)
+    print(header + ":")
+    print("=" * 60)
+    print(corrected)
+
+    try:
+        handoff_data = handoff.process_ems_report(corrected, suspects=fix.flagged)
+
+        # Surface each correction as an assumption the ED can veto.
+        notes = assumption_notes(fix)
+        if notes:
+            handoff_data.setdefault("data_quality", {}) \
+                        .setdefault("assumptions", []).extend(notes)
+
+        guidance = handoff.suggest_courses_of_action(handoff_data)
+        if guidance:
+            handoff_data["clinical_guidance"] = guidance
+
         handoff.display_hospital_view(handoff_data)
+        if guidance:
+            handoff.display_courses_of_action(guidance)
 
         output_file = "output/handoff_report.json"
-        with open(output_file, "w") as f: 
+        with open(output_file, "w") as f:
             json.dump(handoff_data, f, indent=2)
         print(f"\n[SAVE] Full JSON: {output_file}")
         logger.info(f"Report saved to {output_file}")
         return True
-    
-    except json.JSONDecodeError as e: 
+
+    except json.JSONDecodeError as e:
         print(f"\n[!] LLM returned invalid JSON: {e}")
         logger.error(f"JSON decode error: {e}")
         return False
+
     except KeyboardInterrupt:
         print("\n\n[!] Cancelled by user.")
         logger.info("User cancelled processing")
@@ -297,7 +324,7 @@ def main() -> None:
             
     # Main loop
     while True: 
-        ems_report = _select_case(handoff, provider)
+        ems_report = _select_case(handoff)
         if ems_report is None: 
             break
 

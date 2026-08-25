@@ -13,7 +13,7 @@ EMS RADIO REPORT:
 
 Generate a JSON response with this EXACT structure (return ONLY valid JSON, no markdown):
 {{
-  "alert_type": "STEMI" | "STROKE" | "TRAUMA" | "SEPSIS" | "CARDIAC_ARREST" | "PEDIATRIC" | "OBSTETRIC" | "MEDICAL" | "PSYCHIATRIC",
+  "alert_type": "STEMI" | "STROKE" | "TRAUMA" | "SEPSIS" | "CARDIAC_ARREST" | "PEDIATRIC" | "OBSTETRIC" | "ENDOCRINE" | "MEDICAL" | "PSYCHIATRIC",
   "alert_level": "RED" | "YELLOW" | "GREEN",
   "eta_minutes": number,
   
@@ -79,4 +79,36 @@ Generate a JSON response with this EXACT structure (return ONLY valid JSON, no m
     "assumptions": ["Any assumptions made from context"]
   }}
 }}
+
+Guidance:
+- Use "ENDOCRINE" as the alert_type for metabolic/endocrine emergencies such as diabetic ketoacidosis (DKA), hyperosmolar hyperglycemic state, severe hypo/hyperglycemia, thyroid storm, or adrenal crisis.
+- For any field with no information, use null or omit it — never output the literal word "Null".
+/no_think
+"""
+
+GUIDANCE_PROMPT = """
+You are HANDOFF.AI's clinical decision-support module. A patient handoff has already
+been extracted from a paramedic's radio report. Using ONLY the textbook reference
+excerpts provided below, suggest concise, evidence-based courses of action for the
+RECEIVING hospital team to prepare or consider before the patient arrives.
+
+Rules:
+- Ground every recommendation in the provided excerpts. Do NOT introduce doses,
+  facts, or protocols not supported by the excerpts.
+- If the excerpts don't support a recommendation for some concern, say so rather
+  than inventing one.
+- This is decision support, not a directive. Keep each action specific and brief.
+- cite the specific bracketed source that supports each action; do not reuse one citation for all.
+
+PATIENT HANDOFF (structured):
+{handoff_json}
+
+{reference}
+
+Return ONLY a valid JSON array (no markdown) of 3-6 objects with this shape:
+[
+  {{"action": "...", "rationale": "grounded in the excerpts", "source": "citation"}}
+]
+Do not use double quotes inside any string value — paraphrase instead. No trailing commas, no text before or after the array. Separate every object in the array with a comma.
+/no_think
 """
