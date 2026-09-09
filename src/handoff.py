@@ -74,8 +74,10 @@ class HandoffAI:
         self._whisper_models: Dict[str, WhisperModel] = {}
         self.chunk_model_size = "small"           # fast; catches the stop phrase live
         self.final_model_size = "large-v3-turbo"  # accurate; the real transcript
-        self.whisper_device = "cpu"               
+        self.whisper_device = "cpu"
         self.whisper_compute_type = "int8"
+        self.final_beam_size = 1
+        self.last_transcription_secs: Optional[float] = None
         
         if provider == "ollama":
             # Ollama runs locally - completely FREE!
@@ -352,13 +354,18 @@ class HandoffAI:
             # builds the EMS terminology list from lexicon.py dynamically —
             # unchanged from before, just passed as initial_prompt instead of
             # Whisper API's `prompt` param (faster-whisper's naming).
+            t0 = time.perf_counter()
             segments, info = model.transcribe(
                 filename,
                 language="en",
-                beam_size=5,
-                initial_prompt=self._whisper_prompt
+                beam_size=self.final_beam_size,
+                initial_prompt=self._whisper_prompt,
+                vad_filter=True,                              
+                vad_parameters={"min_silence_duration_ms": 500},
             )
             text = " ".join(segment.text for segment in segments).strip()
+            self.last_transcription_secs = time.perf_counter() - t0
+            logger.info("Timing | full retranscription: %.2fs", self.last_transcription_secs)
             logger.info("Audio transcribed successfully (local faster-whisper)")
             return text
         except Exception as e:

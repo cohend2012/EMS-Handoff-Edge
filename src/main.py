@@ -14,6 +14,7 @@ NOT 911 dispatch, but the actual paramedic transporting the patient.
 import json
 import os
 import sys
+import time
 import logging
 import codecs
 from dotenv import load_dotenv
@@ -21,7 +22,7 @@ from typing import Optional, Tuple
 
 from .handoff import HandoffAI
 from .samples import SAMPLE_STEMI, SAMPLE_TRAUMA, SAMPLE_SEPSIS
-from .web_ui import start_web_ui
+from .web_ui import run_live_session, publish_result, publish_transcript, publish_stage
 from .transcript_corrector import correct_transcript, assumption_notes
 
 # Load environment variables from a local .env file if present
@@ -64,6 +65,11 @@ PROVIDERS = {
 }
 
 USE_LEXICON = os.getenv("HANDOFF_USE_LEXICON", "1") != "0"
+
+# Sentinel returned by the live-audio path: the browser session already
+# recorded, processed, displayed and saved its report(s), so the main loop must
+# not run process_case again on it.
+_LIVE_HANDLED = object()
 
 def _fix_windows_encoding() -> None:
     """Fix UTF-8 encoding on Windows."""
@@ -171,34 +177,42 @@ def _prompt_custom_report() -> Optional[str]:
     logger.info(f"Custom report entered: {len(report)} characters")
     return report
 
-def _record_live_audio(handoff: HandoffAI) -> Optional[str]:
-    """Record live audio via web UI. Transcription runs locally via
-    faster-whisper, so this works regardless of which LLM provider is selected."""
-    logger.info("Starting live audio recording")
-    # Hand the chunk-transcriber to the web UI until a recording is captured
-    filename = start_web_ui(transcribe_chunk_fn=handoff.transcribe_audio_chunk)
-
-    # No file means the user cancelled or recording failed
-    if not filename: 
-        print("\n[!] No recording captured.")
-        logger.warning("Live audio recording failed or cancelled")
-        return None
-    
-    # Re-transcribe the complete recording
+def _process_live_recording(handoff: HandoffAI, final_wav: str) -> None:
+    """Per-recording callback for the live session: re-transcribe the full
+    audio, then run the same corrector + extraction + display + save pipeline as
+    any other case. process_case() publishes the result to the web dashboard."""
+    publish_stage("Transcribing full recording…")
     print("\n[*] Transcribing full audio...")
-    ems_report = handoff.transcribe_audio_final(filename)
-    
+    ems_report = handoff.transcribe_audio_final(final_wav)
+
     if not ems_report:
         print("\n[!] Transcription failed.")
         logger.error("Audio transcription returned None")
-        return None
+        publish_result({"error": "Transcription failed. Please try recording again."})
+        return
     
-    print("\n" + "="*60)
+    publish_transcript(ems_report)
+
+    print("\n" + "=" * 60)
     print("TRANSCRIBED REPORT:")
-    print("="*60)
+    print("=" * 60)
     print(ems_report)
     print("\n")
-    return ems_report
+
+    process_case(handoff, ems_report)
+
+def _record_live_audio(handoff: HandoffAI):
+    """Run a browser-driven live session. The user can record a report, view the
+    hospital dashboard, and record again — all from the web UI — until they click
+    Finish. Each recording is processed in-session, so this returns the
+    _LIVE_HANDLED sentinel to tell the main loop no further processing is needed.
+    Transcription always runs locally via faster-whisper."""
+    logger.info("Starting live audio session")
+    run_live_session(
+        transcribe_chunk_fn=handoff.transcribe_audio_chunk,
+        process_fn=lambda wav: _process_live_recording(handoff, wav),
+    )
+    return _LIVE_HANDLED
 
 def _select_case(handoff: HandoffAI) -> Optional[str]:
     """Interactive case selection."""
@@ -229,8 +243,21 @@ def _select_case(handoff: HandoffAI) -> Optional[str]:
 
 def process_case(handoff: HandoffAI, ems_report: str) -> bool:
     """Process a single EMS report. Returns True on success, else False."""
+    # Transcription stage = full retranscription (live audio only) + corrector
+    transcribe_secs = handoff.last_transcription_secs or 0.0
+    handoff.last_transcription_secs = None
+
+    publish_stage("Extracting structured results…")
+    t0 = time.perf_counter()
     fix = correct_transcript(ems_report)
+    corrector_secs = time.perf_counter() - t0
     corrected = fix.text
+
+    transcription_stage_secs = transcribe_secs + corrector_secs
+    logger.info("Timing | corrector: %.2fs", corrector_secs)
+    logger.info("Timing | TRANSCRIPTION STAGE: %.2fs "
+                "(retranscribe %.2fs + corrector %.2fs)",
+                transcription_stage_secs, transcribe_secs, corrector_secs)
 
     for c in fix.corrections:
         print(f"[*] Corrected: {c.original} -> {c.replacement}")
@@ -248,7 +275,11 @@ def process_case(handoff: HandoffAI, ems_report: str) -> bool:
     print(corrected)
 
     try:
+        # Extraction stage = structured JSON extraction + (optional) guidance.
+        t0 = time.perf_counter()
         handoff_data = handoff.process_ems_report(corrected, suspects=fix.flagged)
+        extraction_secs = time.perf_counter() - t0
+        logger.info("Timing | JSON extraction: %.2fs", extraction_secs)
 
         # Surface each correction as an assumption the ED can veto.
         notes = assumption_notes(fix)
@@ -256,9 +287,21 @@ def process_case(handoff: HandoffAI, ems_report: str) -> bool:
             handoff_data.setdefault("data_quality", {}) \
                         .setdefault("assumptions", []).extend(notes)
 
+        publish_stage("Generating clinical suggestions…")
+        t0 = time.perf_counter()
         guidance = handoff.suggest_courses_of_action(handoff_data)
+        suggestion_secs = time.perf_counter() - t0
+        logger.info("Timing | suggestion generation: %.2fs%s",
+                    suggestion_secs, "" if guidance else " (skipped/empty)")
         if guidance:
             handoff_data["clinical_guidance"] = guidance
+
+        extraction_stage_secs = extraction_secs + suggestion_secs
+        logger.info("Timing | EXTRACTION STAGE: %.2fs "
+                    "(extraction %.2fs + suggestion %.2fs)",
+                    extraction_stage_secs, extraction_secs, suggestion_secs)
+        logger.info("Timing | TOTAL (transcription + extraction stages): %.2fs",
+                    transcription_stage_secs + extraction_stage_secs)
 
         handoff.display_hospital_view(handoff_data)
         if guidance:
@@ -269,11 +312,17 @@ def process_case(handoff: HandoffAI, ems_report: str) -> bool:
             json.dump(handoff_data, f, indent=2)
         print(f"\n[SAVE] Full JSON: {output_file}")
         logger.info(f"Report saved to {output_file}")
+
+        # If this came from live audio, the web UI is waiting on /get_result;
+        # hand it the finished handoff so it can render the dashboard. Harmless
+        # no-op for terminal cases (no browser is polling).
+        publish_result(handoff_data)
         return True
 
     except json.JSONDecodeError as e:
         print(f"\n[!] LLM returned invalid JSON: {e}")
         logger.error(f"JSON decode error: {e}")
+        publish_result({"error": f"LLM returned invalid JSON: {e}"})
         return False
 
     except KeyboardInterrupt:
@@ -283,6 +332,7 @@ def process_case(handoff: HandoffAI, ems_report: str) -> bool:
     except Exception as e:
         print(f"\n[!] Unexpected error: {type(e).__name__}: {e}")
         logger.exception("Unexpected error during processing")
+        publish_result({"error": f"{type(e).__name__}: {e}"})
         return False
 
 def main() -> None:
@@ -328,7 +378,12 @@ def main() -> None:
         if ems_report is None: 
             break
 
-        success = process_case(handoff, ems_report)
+        if ems_report is _LIVE_HANDLED:
+            # The live session already recorded, processed and displayed its
+            # report(s) in the browser; just fall through to the loop prompt.
+            success = True
+        else:
+            success = process_case(handoff, ems_report)
         prompt = "Process another case?" if success else "Try again?"
         
         print("\n" + "="*60)

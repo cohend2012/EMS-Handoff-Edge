@@ -39,7 +39,6 @@ logger = logging.getLogger(__name__)
 
 _EPS = 1e-8
 
-
 # =============================================================================
 # DATA MODEL
 # =============================================================================
@@ -67,7 +66,6 @@ class Retrieved:
     chunk: Chunk
     score: float
 
-
 # =============================================================================
 # EMBEDDING BACKEND
 # =============================================================================
@@ -80,7 +78,6 @@ def l2_normalize(mat: np.ndarray) -> np.ndarray:
     norms = np.linalg.norm(mat, axis=1, keepdims=True)
     norms = np.where(norms > _EPS, norms, 1.0)
     return (mat / norms).astype(np.float32)
-
 
 class OllamaEmbedder:
     """
