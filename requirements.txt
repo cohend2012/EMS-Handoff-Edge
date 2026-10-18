@@ -1,9 +1,12 @@
-openai
-flask
-flask-cors
-sounddevice
-numpy
-scipy
-python-dotenv
-faster-whisper
-pypdf
+# HANDOFF.AI runtime dependencies (Python 3.10+; tested on 3.13 x86_64, targets aarch64 Jetson)
+flask>=3.0,<4
+openai>=1.40
+python-dotenv>=1.0
+numpy>=1.26
+scipy>=1.11
+sounddevice>=0.4.6          # needs the system package libportaudio2
+faster-whisper>=1.1         # local Whisper (final transcript offline, caption fallback)
+vosk>=0.3.45                # streaming live captions + stop-phrase spotter
+pypdf>=4.0                  # textbook embedding (optional feature)
+pyspellchecker>=0.8         # lets the transcript corrector fix mis-heard drug names safely
+jellyfish>=1.0              # phonetic tie-break for the corrector
