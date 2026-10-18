@@ -102,7 +102,7 @@ class Settings:
 
     # --- app ---------------------------------------------------------------
     host: str = "127.0.0.1"
-    port: int = 5000
+    port: int = 5050                             # not 5000: the old EMS-Handoff app uses 5000
     output_dir: Path = PROJECT_ROOT / "output"
     textbook_dir: Path = PROJECT_ROOT / "database"
     use_lexicon: bool = True
