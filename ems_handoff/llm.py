@@ -48,6 +48,37 @@ BASE_URLS = {
 }
 JSON_MODE_PROVIDERS = {"groq", "ollama"}
 
+# Groq retires models over time. When the configured model is gone, the first
+# of these that the account can use is picked instead (and the app says so).
+GROQ_LLM_PREFERENCES = [
+    "llama-3.3-70b-versatile",
+    "openai/gpt-oss-120b",
+    "meta-llama/llama-4-maverick-17b-128e-instruct",
+    "moonshotai/kimi-k2-instruct",
+    "qwen/qwen3-32b",
+    "meta-llama/llama-4-scout-17b-16e-instruct",
+    "openai/gpt-oss-20b",
+    "llama-3.1-8b-instant",
+]
+_NOT_CHAT = ("whisper", "guard", "tts", "playai", "orpheus", "embed", "distil", "compound", "allam")
+_RESOLVED: dict = {}   # (provider, configured model) -> (model actually used, note)
+
+
+def pick_model(available, wanted: str, preferences=GROQ_LLM_PREFERENCES) -> Tuple[Optional[str], str]:
+    """Choose the model to use from what the provider offers. Returns (model, note-for-the-user)."""
+    available = set(available)
+    if wanted in available:
+        return wanted, ""
+    for p in preferences:
+        if p in available:
+            return p, f"'{wanted}' is no longer offered; using '{p}'"
+    chat = sorted(m for m in available if not any(x in m.lower() for x in _NOT_CHAT))
+    big = [m for m in chat if any(t in m.lower() for t in ("120b", "70b", "maverick", "32b"))]
+    choice = (big or chat or [None])[0]
+    if choice:
+        return choice, f"'{wanted}' is no longer offered; using '{choice}'"
+    return None, f"no chat model is available (wanted '{wanted}')"
+
 
 class LLMError(RuntimeError):
     """A provider failure, worded for the person using the app."""
@@ -96,12 +127,37 @@ class LLMClient:
         return OpenAI(base_url=base_url, api_key=key,
                       timeout=s.llm_timeout_s, max_retries=0)
 
+    # -- model selection --------------------------------------------------
+    def list_models(self, timeout: float = 10) -> set:
+        client = self._client.with_options(timeout=timeout) if hasattr(self._client, "with_options") else self._client
+        return {m.id for m in client.models.list().data}
+
+    def resolve_model(self) -> str:
+        """Groq only: if the configured model was retired, switch to the best available one (cached)."""
+        if self.provider != "groq":
+            return ""
+        key = (self.provider, self.settings.llm_model())
+        if key not in _RESOLVED:
+            try:
+                model, note = pick_model(self.list_models(), self.model)
+            except Exception as e:  # noqa: BLE001 - cannot list: keep the configured model
+                logger.debug("Model list unavailable (%s); using %s", e, self.model)
+                return ""
+            if model is None:
+                return note
+            _RESOLVED[key] = (model, note)
+            if note:
+                logger.warning("Groq: %s. Set GROQ_LLM_MODEL in .env to choose another.", note)
+        self.model, note = _RESOLVED[key]
+        return note
+
     # -- calls ------------------------------------------------------------
     def complete_json(self, prompt: str, temperature: float = 0.0,
                       max_tokens: int = 4096) -> str:
         """Return the model's JSON text, retrying empty replies and dropped connections."""
         from openai import APIConnectionError, APIStatusError, APITimeoutError
 
+        self.resolve_model()
         kwargs = dict(model=self.model, temperature=temperature, max_tokens=max_tokens,
                       messages=[{"role": "user", "content": prompt}])
         if self.provider in JSON_MODE_PROVIDERS:
@@ -125,7 +181,13 @@ class LLMClient:
             except APIConnectionError:
                 last_problem = self._connection_hint()
             except APIStatusError as e:
-                # 4xx are not worth retrying: bad key, unknown model, bad request.
+                # A model without JSON mode answers 400: ask again without it (once).
+                if (getattr(e, "status_code", None) == 400 and "response_format" in kwargs
+                        and re.search(r"json|response_format", str(e), re.I)):
+                    logger.warning("%s does not support JSON mode; retrying without it", self.model)
+                    kwargs.pop("response_format")
+                    continue
+                # Other 4xx are not worth retrying: bad key, unknown model, bad request.
                 raise LLMError(self._status_hint(e)) from e
             logger.warning("LLM attempt %d/%d failed: %s", attempt, self.attempts, last_problem)
             if attempt < self.attempts:
@@ -138,10 +200,14 @@ class LLMClient:
         try:
             if self.provider == "ollama":
                 return self._check_ollama()
-            client = self._client
-            if hasattr(client, "with_options"):
-                client = client.with_options(timeout=10)
-            ids = {m.id for m in client.models.list().data}
+            ids = self.list_models()
+            if self.provider == "groq":
+                model, note = pick_model(ids, self.settings.llm_model())
+                if model is None:
+                    return False, f"groq is reachable but {note}."
+                _RESOLVED[(self.provider, self.settings.llm_model())] = (model, note)
+                self.model = model
+                return True, f"groq ready ({model})" + (f"; {note}" if note else "")
             if self.model not in ids:
                 return False, f"{self.provider} is reachable but has no model '{self.model}'."
             return True, f"{self.provider} ready ({self.model})"
@@ -177,7 +243,8 @@ class LLMClient:
         if code in (401, 403):
             return f"{self.provider} rejected the API key (HTTP {code}). Create a new key and update .env."
         if code == 404:
-            return f"{self.provider} does not know the model '{self.model}' (HTTP 404)."
+            return (f"{self.provider} does not know the model '{self.model}' (HTTP 404). "
+                    "Set GROQ_LLM_MODEL in .env to a model your account lists.")
         if code == 429:
             return f"{self.provider} rate limit reached (HTTP 429). Wait a minute and retry."
         msg = re.sub(r"\s+", " ", str(e))[:200]

@@ -45,6 +45,7 @@ from .lexicon_rag import whisper_hint
 logger = logging.getLogger(__name__)
 
 SAMPLE_RATE = 16000
+GROQ_WHISPER_PREFERENCES = ["whisper-large-v3-turbo", "whisper-large-v3"]
 
 
 class TranscriptionError(RuntimeError):
@@ -72,9 +73,27 @@ class GroqTranscriber:
             client = OpenAI(base_url="https://api.groq.com/openai/v1",
                             api_key=settings.groq_api_key, timeout=60, max_retries=1)
         self._client = client
+        self._resolved = False
 
     def describe(self) -> str:
         return f"Groq {self.model}"
+
+    def _resolve_model(self) -> None:
+        """If Groq retired the configured Whisper model, use another Whisper it still offers."""
+        if self._resolved:
+            return
+        self._resolved = True
+        try:
+            ids = {m.id for m in self._client.models.list().data}
+        except Exception:  # noqa: BLE001 - cannot list: keep the configured model
+            return
+        if self.model in ids:
+            return
+        for candidate in GROQ_WHISPER_PREFERENCES + sorted(i for i in ids if "whisper" in i):
+            if candidate in ids:
+                logger.warning("Groq no longer offers %s; using %s", self.model, candidate)
+                self.model = candidate
+                return
 
     def warm_up(self) -> None:  # nothing to preload for a cloud model
         return None
@@ -82,6 +101,7 @@ class GroqTranscriber:
     def transcribe(self, audio: np.ndarray) -> str:
         if audio is None or len(audio) < SAMPLE_RATE // 2:
             raise TranscriptionError("The recording is too short (under half a second).")
+        self._resolve_model()
         t0 = time.perf_counter()
         try:
             result = self._client.audio.transcriptions.create(

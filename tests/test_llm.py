@@ -100,3 +100,47 @@ def test_bad_key_is_not_retried():
 def test_missing_key_is_reported_before_any_call():
     with pytest.raises(LLMError, match="No API key"):
         LLMClient(Settings(provider="groq", groq_api_key=""))
+
+
+# -- retired models ------------------------------------------------------------
+from ems_handoff.llm import _RESOLVED, pick_model
+
+
+def _models(*ids):
+    return SimpleNamespace(list=lambda: SimpleNamespace(data=[SimpleNamespace(id=i) for i in ids]))
+
+
+@pytest.fixture(autouse=True)
+def clear_model_cache():
+    _RESOLVED.clear()
+    yield
+    _RESOLVED.clear()
+
+
+def test_pick_model_keeps_configured_when_offered():
+    assert pick_model({"llama-3.3-70b-versatile", "x"}, "llama-3.3-70b-versatile") == ("llama-3.3-70b-versatile", "")
+
+
+def test_pick_model_uses_preference_list_then_heuristic():
+    model, note = pick_model({"openai/gpt-oss-120b", "llama-3.1-8b-instant", "whisper-large-v3"}, "llama-3.3-70b-versatile")
+    assert model == "openai/gpt-oss-120b" and "no longer offered" in note
+    model, _ = pick_model({"whisper-large-v3", "newco/mega-70b-chat", "tiny-1b"}, "gone")
+    assert model == "newco/mega-70b-chat"
+    assert pick_model({"whisper-large-v3"}, "gone")[0] is None
+
+
+def test_retired_groq_model_is_replaced_automatically():
+    fake = FakeOpenAI(['{"ok": 1}'])
+    fake.models = _models("openai/gpt-oss-120b", "whisper-large-v3-turbo")
+    client = LLMClient(Settings(groq_api_key="k"), client=fake)
+    client.complete_json("p")
+    assert fake.calls[0]["model"] == "openai/gpt-oss-120b"
+    ok, msg = LLMClient(Settings(groq_api_key="k"), client=fake).check()
+    assert ok and "using 'openai/gpt-oss-120b'" in msg
+
+
+def test_model_without_json_mode_is_retried_without_it():
+    err = _exc(openai.APIStatusError, status=400, message="response_format json_object is not supported by this model")
+    fake = FakeOpenAI([err, '{"ok": 1}'])
+    assert LLMClient(Settings(groq_api_key="k"), client=fake).complete_json("p") == '{"ok": 1}'
+    assert "response_format" in fake.calls[0] and "response_format" not in fake.calls[1]

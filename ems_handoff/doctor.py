@@ -75,7 +75,19 @@ def run_checks(settings: Settings) -> int:
     print("\nTranscription")
     mode = settings.effective_transcriber()
     if mode == "groq":
-        _line("OK", "final transcript", f"Groq {settings.groq_whisper_model} (local Whisper is the backup)")
+        try:
+            from .llm import LLMClient as _C
+            ids = _C(settings).list_models()
+            have = settings.groq_whisper_model in ids
+            alt = next((m for m in ("whisper-large-v3-turbo", "whisper-large-v3") if m in ids), None)
+            if have:
+                _line("OK", "final transcript", f"Groq {settings.groq_whisper_model} (local Whisper is the backup)")
+            elif alt:
+                _line("OK", "final transcript", f"Groq {alt} ({settings.groq_whisper_model} is no longer offered)")
+            else:
+                _line("WARN", "final transcript", "Groq offers no Whisper model; local Whisper will be used")
+        except Exception as e:  # noqa: BLE001
+            _line("WARN", "final transcript", f"could not ask Groq ({type(e).__name__}); local Whisper is the backup")
     else:
         _line("OK", "final transcript", f"local faster-whisper {settings.local_whisper_model}")
     for size in {settings.local_whisper_model, settings.caption_whisper_model}:
