@@ -112,3 +112,17 @@ def test_parse_guidance_accepts_list_or_object():
     assert parse_guidance(json.dumps({"courses_of_action": [item]})) == [item]
     assert parse_guidance(json.dumps({"courses_of_action": []})) is None
     assert parse_guidance("nope") is None
+
+
+def test_groq_whisper_falls_back_to_an_offered_model():
+    from types import SimpleNamespace
+    import numpy as np
+    from ems_handoff.config import Settings
+    from ems_handoff.transcribe import GroqTranscriber
+    used = []
+    client = SimpleNamespace(
+        models=SimpleNamespace(list=lambda: SimpleNamespace(data=[SimpleNamespace(id="whisper-large-v3")])),
+        audio=SimpleNamespace(transcriptions=SimpleNamespace(
+            create=lambda **kw: used.append(kw["model"]) or SimpleNamespace(text="hello"))))
+    t = GroqTranscriber(Settings(groq_api_key="k"), client=client)
+    assert t.transcribe(np.zeros(16000, np.float32)) == "hello" and used == ["whisper-large-v3"]
