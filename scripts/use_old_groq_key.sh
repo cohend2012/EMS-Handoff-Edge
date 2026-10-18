@@ -5,7 +5,8 @@
 #
 # Reads the key from the old prototype file on this machine (default
 # ~/EMS-Handoff/option_a_ems_handoff.py), tests it against Groq, and if Groq
-# accepts it (HTTP 200) writes GROQ_API_KEY into this app's .env.
+# accepts it (HTTP 200) saves it in the one shared key file,
+# ~/.config/handoff-ai/secrets.env, that every copy of the app reads.
 # Nothing is committed; the key only moves between local files.
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -24,7 +25,9 @@ if [ "$CODE" != "200" ]; then
   echo "Create a new key at https://console.groq.com/keys and set GROQ_API_KEY in .env."
   exit 1
 fi
-[ -f .env ] || cp .env.example .env
-sed -i '/^GROQ_API_KEY=/d' .env
-echo "GROQ_API_KEY=$KEY" >> .env
-echo "Groq accepted the key from $OLD. Saved to .env."
+SECRETS="${HANDOFF_SECRETS:-$HOME/.config/handoff-ai/secrets.env}"
+mkdir -p "$(dirname "$SECRETS")"
+touch "$SECRETS" && chmod 600 "$SECRETS"
+sed -i '/^GROQ_API_KEY=/d' "$SECRETS"
+echo "GROQ_API_KEY=$KEY" >> "$SECRETS"
+echo "Groq accepted the key from $OLD. Saved once, in $SECRETS."

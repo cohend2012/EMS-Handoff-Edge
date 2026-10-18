@@ -6,9 +6,12 @@ Purpose
     model names, the Ollama URL, the stop phrase) with one ``Settings`` object.
 
 Inputs
-    Environment variables. ``__main__.py`` loads ``.env`` from the project root
-    first, so a ``.env`` file works the same as exported variables. See
-    ``.env.example`` for every variable with its default.
+    Environment variables, filled by ``load_env_files()`` from two files:
+      1. ~/.config/handoff-ai/secrets.env   API keys, set once for every copy of
+         the app (written by scripts/set_groq_key.sh). HANDOFF_SECRETS overrides the path.
+      2. <project>/.env                     everything else (see .env.example)
+    A value already in the environment always wins. The secrets file loads first,
+    so a blank GROQ_API_KEY= line in .env cannot hide the shared key.
 
 Outputs
     ``load_settings()`` returns an immutable ``Settings``. To change a value at
@@ -27,6 +30,18 @@ from pathlib import Path
 from typing import Mapping, Optional
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
+SECRETS_FILE = Path(os.environ.get("HANDOFF_SECRETS", "~/.config/handoff-ai/secrets.env")).expanduser()
+
+
+def load_env_files() -> None:
+    """Load the shared secrets file, then the project .env (neither overrides the real environment)."""
+    try:
+        from dotenv import load_dotenv
+    except ImportError:
+        return
+    if SECRETS_FILE.exists():
+        load_dotenv(SECRETS_FILE)
+    load_dotenv(PROJECT_ROOT / ".env")
 
 PROVIDERS = ("groq", "ollama", "openrouter")
 TRANSCRIBERS = ("auto", "groq", "local")

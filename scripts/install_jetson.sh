@@ -6,7 +6,7 @@
 # What it does
 #   1. installs system packages: PortAudio (mic), venv, unzip
 #   2. creates .venv and installs requirements.txt
-#   3. creates .env from .env.example if there is none (then edit it: GROQ_API_KEY)
+#   3. creates .env from .env.example; finds a working Groq key (key is set once, see set_groq_key.sh)
 #   4. downloads the speech models (Vosk captions + Whisper) for offline use
 #   5. adds a "HANDOFF.AI" launcher to the app menu and the desktop
 #   6. runs the setup check
@@ -30,7 +30,8 @@ if [ ! -f .env ]; then
   cp .env.example .env
   echo "Created .env."
 fi
-if ! grep -q '^GROQ_API_KEY=gsk_' .env; then
+SECRETS="${HANDOFF_SECRETS:-$HOME/.config/handoff-ai/secrets.env}"
+if ! grep -qs '^GROQ_API_KEY=gsk_' "$SECRETS" .env; then
   bash scripts/use_old_groq_key.sh || echo "No working Groq key yet. Create one at console.groq.com/keys, then run: bash scripts/set_groq_key.sh"
 fi
 
