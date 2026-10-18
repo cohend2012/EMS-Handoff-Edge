@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<!--
+  index.html — the HANDOFF.AI app window.
+
+  Screens (one visible at a time, switched by app.js from server events):
+    home     start a live recording, or make a report from text / a sample
+    live     script and live transcript side by side, DONE and Cancel
+    working  progress while transcribing and writing the report
+    report   the hospital dashboard
+    error    what went wrong, in plain words, with a way back
+
+  No external resources: it works on a Jetson with no internet.
+-->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>HANDOFF.AI</title>
+  <link rel="stylesheet" href="/web/app.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-mark" aria-hidden="true"></span>
+      <div>
+        <div class="brand-name">HANDOFF.AI</div>
+        <div class="brand-sub">EMS radio report → hospital handoff</div>
+      </div>
+    </div>
+    <div class="top-actions">
+      <button class="chip" id="providerChip" type="button" title="AI provider (click to change)">
+        <span class="dot" id="providerDot"></span><span id="providerText">Connecting…</span>
+      </button>
+      <button class="btn ghost" id="settingsBtn" type="button">Settings</button>
+      <button class="btn ghost" id="quitBtn" type="button">Quit</button>
+    </div>
+  </header>
+
+  <main>
+    <!-- HOME -->
+    <section class="screen" id="screen-home">
+      <div class="home-grid">
+        <article class="card hero-card">
+          <h1>Live radio report</h1>
+          <p class="lead">Press start and give your report as you would on the radio. Words appear as you talk.
+            Press <strong>Done</strong> when you finish, or say <strong id="phraseHint">“confirm report ready”</strong>.</p>
+          <label class="field-label" for="scriptSelect">Practice script (optional)</label>
+          <select id="scriptSelect"></select>
+          <button class="btn record big" id="startBtn" type="button">
+            <span class="rec-dot" aria-hidden="true"></span> Start recording
+          </button>
+          <p class="fine" id="engineLine"></p>
+        </article>
+
+        <article class="card">
+          <h2>From text</h2>
+          <p class="muted">Use a sample case or paste a report. Good for checking the AI without the mic.</p>
+          <div class="sample-row" id="sampleRow"></div>
+          <label class="field-label" for="reportText">Report text</label>
+          <textarea id="reportText" rows="10" placeholder="Paste a paramedic radio report…"></textarea>
+          <button class="btn primary" id="textBtn" type="button">Make report</button>
+        </article>
+      </div>
+      <p class="fine center" id="lastReportLine" hidden><button class="link" id="showLastBtn" type="button">Show the last report</button></p>
+    </section>
+
+    <!-- LIVE -->
+    <section class="screen" id="screen-live" hidden>
+      <div class="live-bar">
+        <div class="rec-state"><span class="rec-dot pulse" aria-hidden="true"></span>REC <span id="recTime">0:00</span></div>
+        <div class="meter" title="Microphone level"><div class="meter-fill" id="meterFill"></div></div>
+        <div class="fine" id="micLine"></div>
+      </div>
+      <div class="live-grid" id="liveGrid">
+        <article class="panel" id="scriptPanel">
+          <h3>Script</h3>
+          <div class="panel-body script-text" id="scriptText"></div>
+        </article>
+        <article class="panel transcript-panel">
+          <h3>Live transcript <span class="fine" id="captionEngine"></span></h3>
+          <div class="panel-body transcript" id="liveTranscript" aria-live="polite">
+            <span class="placeholder">Listening… start talking.</span>
+          </div>
+        </article>
+      </div>
+      <div class="action-bar">
+        <button class="btn ghost" id="cancelBtn" type="button">Cancel</button>
+        <div class="phrase-tip">or say <strong id="phraseTip">“confirm report ready”</strong></div>
+        <button class="btn done big" id="doneBtn" type="button">Done — make report</button>
+      </div>
+    </section>
+
+    <!-- WORKING -->
+    <section class="screen" id="screen-working" hidden>
+      <div class="working">
+        <div class="spinner" aria-hidden="true"></div>
+        <h1 id="workingTitle">Making the handoff report</h1>
+        <div class="fine">Elapsed <span id="workTime">0:00</span></div>
+        <ol class="stages" id="stageList"></ol>
+        <article class="panel transcript-preview" id="finalTranscriptPanel" hidden>
+          <h3>Transcript</h3>
+          <div class="panel-body" id="finalTranscript"></div>
+        </article>
+      </div>
+    </section>
+
+    <!-- REPORT -->
+    <section class="screen" id="screen-report" hidden>
+      <div id="dashboard"></div>
+      <div class="action-bar">
+        <button class="btn ghost" id="homeBtn" type="button">New report</button>
+        <button class="btn record" id="againBtn" type="button"><span class="rec-dot" aria-hidden="true"></span> Record another</button>
+      </div>
+    </section>
+
+    <!-- ERROR -->
+    <section class="screen" id="screen-error" hidden>
+      <div class="card error-card">
+        <h1>That didn’t work</h1>
+        <p id="errorText"></p>
+        <div class="action-row">
+          <button class="btn primary" id="errorBackBtn" type="button">Back</button>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <dialog id="settingsDialog">
+    <form method="dialog" class="settings">
+      <h2>Settings</h2>
+      <fieldset>
+        <legend>AI that writes the report</legend>
+        <div id="providerOptions"></div>
+        <div class="check-row">
+          <button class="btn ghost" id="checkBtn" type="button">Check connection</button>
+          <span id="checkResult" class="fine"></span>
+        </div>
+      </fieldset>
+      <fieldset>
+        <legend>Microphone</legend>
+        <select id="micSelect"></select>
+      </fieldset>
+      <p class="fine" id="settingsInfo"></p>
+      <div class="action-row">
+        <button class="btn ghost" value="cancel" type="submit">Close</button>
+        <button class="btn primary" id="saveSettingsBtn" type="button">Save</button>
+      </div>
+    </form>
+  </dialog>
+
+  <script src="/web/app.js"></script>
+</body>
+</html>
