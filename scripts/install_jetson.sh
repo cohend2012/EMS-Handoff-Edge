@@ -28,7 +28,10 @@ echo "== 2/6 python environment"
 echo "== 3/6 settings"
 if [ ! -f .env ]; then
   cp .env.example .env
-  echo "Created .env. Edit it and set GROQ_API_KEY (nano $APP_DIR/.env)."
+  echo "Created .env."
+fi
+if ! grep -q '^GROQ_API_KEY=gsk_' .env; then
+  bash scripts/use_old_groq_key.sh || echo "Set GROQ_API_KEY in $APP_DIR/.env (nano $APP_DIR/.env)."
 fi
 
 echo "== 4/6 speech models"
