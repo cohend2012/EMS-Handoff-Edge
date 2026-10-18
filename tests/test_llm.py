@@ -144,3 +144,20 @@ def test_model_without_json_mode_is_retried_without_it():
     fake = FakeOpenAI([err, '{"ok": 1}'])
     assert LLMClient(Settings(groq_api_key="k"), client=fake).complete_json("p") == '{"ok": 1}'
     assert "response_format" in fake.calls[0] and "response_format" not in fake.calls[1]
+
+
+def test_gpt_oss_gets_low_reasoning_effort_and_room_to_answer():
+    fake = FakeOpenAI(['{"ok": 1}'])
+    fake.models = _models("openai/gpt-oss-120b")
+    LLMClient(Settings(groq_api_key="k"), client=fake).complete_json("p")
+    call = fake.calls[0]
+    assert call["model"] == "openai/gpt-oss-120b"
+    assert call["reasoning_effort"] == "low" and call["max_tokens"] >= 8192
+
+
+def test_rejected_reasoning_effort_is_dropped_and_retried():
+    err = _exc(openai.APIStatusError, status=400, message="unknown parameter: reasoning_effort")
+    fake = FakeOpenAI([err, '{"ok": 1}'])
+    fake.models = _models("openai/gpt-oss-120b")
+    assert LLMClient(Settings(groq_api_key="k"), client=fake).complete_json("p") == '{"ok": 1}'
+    assert "reasoning_effort" not in fake.calls[1]
