@@ -34,11 +34,8 @@ def main() -> int:
     ap.add_argument("--no-final", action="store_true")
     args = ap.parse_args()
 
-    try:
-        from dotenv import load_dotenv
-        load_dotenv(ROOT / ".env")
-    except ImportError:
-        pass
+    from ems_handoff.config import load_env_files
+    load_env_files()
     import logging
     logging.basicConfig(level=logging.WARNING, format="%(levelname)s %(name)s: %(message)s")
 

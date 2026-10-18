@@ -66,11 +66,8 @@ def main(argv=None) -> int:
     parser.add_argument("--port", type=int, help="port (default 5000)")
     args = parser.parse_args(argv)
 
-    try:
-        from dotenv import load_dotenv
-        load_dotenv(PROJECT_ROOT / ".env")
-    except ImportError:
-        pass
+    from .config import load_env_files
+    load_env_files()
 
     from .server import create_app, load_user_settings
     settings = load_user_settings(load_settings())

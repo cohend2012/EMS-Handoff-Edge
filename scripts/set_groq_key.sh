@@ -1,13 +1,21 @@
 #!/usr/bin/env bash
-# set_groq_key.sh — paste a Groq API key, check it with Groq, and save it for both apps.
+# set_groq_key.sh — set the Groq API key ONCE for every copy of HANDOFF.AI on this machine.
 #
 #   bash scripts/set_groq_key.sh
 #
-# Shows the key while you paste, confirms what it received, tests it with Groq,
-# and only then writes GROQ_API_KEY into:
-#     ~/EMS-Handoff/.env       (the old app)
-#     ~/EMS-Handoff-app/.env   (the new app)
-# Any older GROQ_API_KEY line is replaced. The files are made readable only by you.
+# The key is stored in one file:  ~/.config/handoff-ai/secrets.env   (readable only by you)
+#   * the new app (~/EMS-Handoff-app) reads that file automatically
+#   * the old app (~/EMS-Handoff) has its .env turned into a link to that file, so it
+#     reads the same key. Any other settings in the old .env are kept (moved into the
+#     shared file) and the original is backed up as .env.bak.
+# To change the key later, run this script again. That is the only place to change it.
+#
+# You see the key as you paste it, then a masked summary, then Groq's verdict.
+# Nothing is saved unless Groq accepts the key.
+
+SECRETS="${HANDOFF_SECRETS:-$HOME/.config/handoff-ai/secrets.env}"
+OLD_APP="$HOME/EMS-Handoff"
+NEW_APP="$HOME/EMS-Handoff-app"
 
 echo
 echo "Step 1 of 3: paste your Groq API key (it starts with gsk_), then press Enter."
@@ -38,15 +46,32 @@ case "$CODE" in
   *) echo "  Unexpected answer from Groq (HTTP $CODE). Nothing was saved."; exit 1 ;;
 esac
 
+# --- the one place the key lives -------------------------------------------
+mkdir -p "$(dirname "$SECRETS")"
+touch "$SECRETS"
+chmod 600 "$SECRETS"
+
+# old app: keep its other settings, then point its .env at the shared file
+if [ -d "$OLD_APP" ]; then
+  if [ -f "$OLD_APP/.env" ] && [ ! -L "$OLD_APP/.env" ]; then
+    grep -v '^GROQ_API_KEY=' "$OLD_APP/.env" | grep -v '^[[:space:]]*$' | while IFS= read -r line; do
+      grep -qxF "$line" "$SECRETS" || echo "$line" >> "$SECRETS"
+    done
+    mv "$OLD_APP/.env" "$OLD_APP/.env.bak"
+  fi
+  ln -sfn "$SECRETS" "$OLD_APP/.env"
+fi
+
+sed -i '/^GROQ_API_KEY=/d' "$SECRETS"
+echo "GROQ_API_KEY=$KEY" >> "$SECRETS"
+
+# new app: make sure no stale key in its own .env competes with the shared one
+if [ -f "$NEW_APP/.env" ] && [ ! -L "$NEW_APP/.env" ]; then
+  sed -i '/^GROQ_API_KEY=/d' "$NEW_APP/.env"
+fi
+
 echo
-SAVED=0
-for DIR in "$HOME/EMS-Handoff" "$HOME/EMS-Handoff-app"; do
-  [ -d "$DIR" ] || continue
-  touch "$DIR/.env"
-  sed -i '/^GROQ_API_KEY=/d' "$DIR/.env"
-  echo "GROQ_API_KEY=$KEY" >> "$DIR/.env"
-  chmod 600 "$DIR/.env"
-  echo "Saved to $DIR/.env"
-  SAVED=1
-done
-[ "$SAVED" = 1 ] || echo "Neither ~/EMS-Handoff nor ~/EMS-Handoff-app exists, so nothing was saved."
+echo "Saved once, in $SECRETS"
+[ -d "$OLD_APP" ] && echo "  old app ($OLD_APP/.env) -> links to it"
+[ -d "$NEW_APP" ] && echo "  new app ($NEW_APP) -> reads it automatically"
+exit 0

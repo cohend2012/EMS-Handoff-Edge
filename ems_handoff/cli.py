@@ -50,11 +50,8 @@ def main(argv=None) -> int:
     ap.add_argument("--json", action="store_true", help="print the full JSON report")
     args = ap.parse_args(argv)
 
-    try:
-        from dotenv import load_dotenv
-        load_dotenv(PROJECT_ROOT / ".env")
-    except ImportError:
-        pass
+    from .config import load_env_files
+    load_env_files()
     import logging
     logging.basicConfig(level=logging.WARNING, format="%(levelname)s %(name)s: %(message)s")
 

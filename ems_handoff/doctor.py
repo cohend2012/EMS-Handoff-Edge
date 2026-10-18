@@ -85,6 +85,15 @@ def run_checks(settings: Settings) -> int:
             _line("WARN", f"Whisper {size} not cached", "it downloads on first use (needs internet). "
                   "Run: python scripts/download_models.py")
 
+    print("\nAPI key")
+    from .config import SECRETS_FILE
+    if settings.groq_api_key:
+        k = settings.groq_api_key
+        where = str(SECRETS_FILE) if SECRETS_FILE.exists() and k in SECRETS_FILE.read_text() else "environment / .env"
+        _line("OK", "Groq key", f"{k[:8]}...{k[-4:]} from {where}")
+    else:
+        _line("WARN", "no Groq key", "run: bash scripts/set_groq_key.sh")
+
     print("\nAI provider")
     from .llm import LLMClient, LLMError
     try:

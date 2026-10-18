@@ -62,11 +62,8 @@ def main() -> int:
     args = ap.parse_args()
     both = not (args.vosk or args.whisper)
 
-    try:
-        from dotenv import load_dotenv
-        load_dotenv(ROOT / ".env")
-    except ImportError:
-        pass
+    from ems_handoff.config import load_env_files
+    load_env_files()
     from ems_handoff.config import load_settings
     s = load_settings()
 

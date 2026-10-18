@@ -19,11 +19,8 @@ pytestmark = pytest.mark.jetson
 
 @pytest.fixture(scope="module")
 def real_settings():
-    try:
-        from dotenv import load_dotenv
-        load_dotenv(PROJECT_ROOT / ".env")
-    except ImportError:
-        pass
+    from ems_handoff.config import load_env_files
+    load_env_files()
     return load_settings()
 
 

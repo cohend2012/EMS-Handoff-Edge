@@ -20,6 +20,7 @@ cd ~/EMS-Handoff-app
 bash scripts/install_jetson.sh        # packages, venv, speech models, desktop icon, setup check
 # the installer reuses the Groq key from ~/EMS-Handoff if Groq still accepts it;
 # otherwise create a key at console.groq.com/keys and run: bash scripts/set_groq_key.sh
+# (the key is stored once, in ~/.config/handoff-ai/secrets.env, for every copy of the app)
 .venv/bin/python -m ems_handoff --check
 ```
 
@@ -85,7 +86,7 @@ Copy `.env.example` to `.env`. Everything has a sensible default except the API 
 | Variable | Default | Meaning |
 |---|---|---|
 | `HANDOFF_PROVIDER` | `groq` | AI that writes the report: `groq`, `ollama`, `openrouter` (also changeable in the app) |
-| `GROQ_API_KEY` | — | Groq key. Never commit it. |
+| `GROQ_API_KEY` | — | Groq key. Set it once with `bash scripts/set_groq_key.sh`; it lives in `~/.config/handoff-ai/secrets.env`, shared by every copy of the app. Never commit it. |
 | `OLLAMA_MODEL` | `qwen3:8b` | Local model; `qwen3:4b` is faster on an 8 GB Orin Nano |
 | `HANDOFF_TRANSCRIBER` | `auto` | Final transcript: `groq`, `local`, or `auto` (Groq if a key is set) |
 | `LOCAL_WHISPER_MODEL` | `large-v3-turbo` | Offline transcript model (`small.en` is ~4× faster on CPU) |
@@ -120,7 +121,7 @@ threads, state machine, API and screens anywhere (UI screenshots land in `tests/
 | "No microphone found" | Plug in the USB mic; `python -m sounddevice` lists devices; set `HANDOFF_MIC_DEVICE` to part of its name. |
 | Level bar does not move | Mic muted or gain low: `alsamixer -c 2` (card number from `arecord -l`). |
 | Captions say "Whisper tiny.en (fallback)" | Run `python scripts/download_models.py --vosk`. |
-| "groq rejected the API key" | Create a new key (console.groq.com/keys, org *Personal*) and update `.env`. |
+| "groq rejected the API key" | Create a new key (console.groq.com/keys, org *Personal*) and run `bash scripts/set_groq_key.sh`. |
 | "cannot reach Ollama" / "model not pulled" | `ollama serve` / `ollama pull qwen3:8b`. A crash-looping Docker `ollama` container fighting for port 11434 can be stopped with `docker update --restart no ollama && docker stop ollama`. |
 | Slow final transcript with no Groq key | Use Groq, or set `LOCAL_WHISPER_MODEL=small.en`. |
 | Logs | `output/handoff.log` |

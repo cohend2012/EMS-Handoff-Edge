@@ -53,3 +53,19 @@ def test_strip_phrase_only_at_the_end():
     long = "confirm report ready " + "word " * 30 + "end"
     assert strip_phrase(long, PHRASE).startswith("confirm report ready")   # not in the tail -> kept
     assert strip_phrase("no phrase here at all", PHRASE) == "no phrase here at all"
+
+
+def test_shared_secrets_file_beats_blank_key_in_project_env(tmp_path, monkeypatch):
+    import ems_handoff.config as config
+    secrets = tmp_path / "secrets.env"
+    secrets.write_text("GROQ_API_KEY=gsk_shared123\n")
+    project = tmp_path / "proj"
+    project.mkdir()
+    (project / ".env").write_text("GROQ_API_KEY=\nHANDOFF_PROVIDER=ollama\n")
+    monkeypatch.setattr(config, "SECRETS_FILE", secrets)
+    monkeypatch.setattr(config, "PROJECT_ROOT", project)
+    monkeypatch.delenv("GROQ_API_KEY", raising=False)
+    monkeypatch.delenv("HANDOFF_PROVIDER", raising=False)
+    config.load_env_files()
+    s = config.load_settings()
+    assert s.groq_api_key == "gsk_shared123" and s.provider == "ollama"
