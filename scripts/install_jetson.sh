@@ -31,7 +31,7 @@ if [ ! -f .env ]; then
   echo "Created .env."
 fi
 if ! grep -q '^GROQ_API_KEY=gsk_' .env; then
-  bash scripts/use_old_groq_key.sh || echo "Set GROQ_API_KEY in $APP_DIR/.env (nano $APP_DIR/.env)."
+  bash scripts/use_old_groq_key.sh || echo "No working Groq key yet. Create one at console.groq.com/keys, then run: bash scripts/set_groq_key.sh"
 fi
 
 echo "== 4/6 speech models"

@@ -19,7 +19,7 @@ git clone -b handoff-app https://github.com/AllyBeary/EMS-Handoff ~/EMS-Handoff-
 cd ~/EMS-Handoff-app
 bash scripts/install_jetson.sh        # packages, venv, speech models, desktop icon, setup check
 # the installer reuses the Groq key from ~/EMS-Handoff if Groq still accepts it;
-# otherwise: nano .env and set GROQ_API_KEY=gsk_... (console.groq.com/keys)
+# otherwise create a key at console.groq.com/keys and run: bash scripts/set_groq_key.sh
 .venv/bin/python -m ems_handoff --check
 ```
 
