@@ -1,3 +1,10 @@
+"""
+samples.py — three realistic paramedic radio reports (STEMI, trauma, sepsis).
+
+Used as practice scripts on the live screen, as one-click text cases in the
+app, by the command line (--case), and as test fixtures.
+"""
+
 # =============================================================================
 # SAMPLE EMS RADIO REPORTS (What paramedics actually say to hospitals)
 # =============================================================================

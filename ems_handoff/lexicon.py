@@ -1,3 +1,18 @@
+"""
+lexicon.py — EMS terminology: canonical terms, the aliases paramedics say, and short clinical notes.
+
+Structure
+    LEXICON         {category: {canonical_term: [alias, ...]}}  (14 categories, ~850 surface forms)
+    CLINICAL_NOTES  {canonical_term: one-line note shown to the LLM}
+
+Used by
+    lexicon_rag.py            finds the terms present in a report and builds prompt context,
+                              and builds the vocabulary hint given to Whisper
+    transcript_corrector.py   the correction targets for mis-heard drug names
+
+Data only. Edit freely, then run the tests (tests/test_corrector_lexicon.py).
+"""
+
 from typing import Dict, List, Tuple
 
 # =============================================================================
