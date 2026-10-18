@@ -15,7 +15,7 @@ on the device; the report-writing AI can be Groq (cloud, fastest), Ollama (on th
 ## Quick start (Jetson)
 
 ```bash
-git clone -b handoff-app https://github.com/AllyBeary/EMS-Handoff ~/EMS-Handoff-app
+git clone -b handoff-app https://github.com/cohend2012/EMS-Handoff-Edge ~/EMS-Handoff-app
 cd ~/EMS-Handoff-app
 bash scripts/install_jetson.sh        # packages, venv, speech models, desktop icon, setup check
 # the installer reuses the Groq key from ~/EMS-Handoff if Groq still accepts it;
@@ -30,7 +30,11 @@ Then start **HANDOFF.AI** from the desktop icon or app menu, or:
 .venv/bin/python -m ems_handoff
 ```
 
-An app window opens. No terminal menus.
+An app window opens. No terminal menus. The terminal prints the address, normally
+**http://127.0.0.1:5050/**. The header reads *"new app v2.0.0"*.
+
+**http://127.0.0.1:5000 is the old EMS-Handoff app** (the intern version or its Docker container), not this
+one. The new app never uses port 5000. If 5050 is taken, it uses the next free port and prints it.
 
 ## Using the app
 

@@ -22,7 +22,7 @@ def test_env_overrides_and_bad_values_fall_back():
     assert s.provider == "ollama" and s.llm_model() == "qwen3:4b"
     assert s.groq_api_key == "gsk_x"
     assert s.mic_device == "PnP"
-    assert s.port == 5000
+    assert s.port == 5050
     assert s.caption_engine == "auto"
     assert s.use_lexicon is False
     assert s.effective_transcriber() == "groq"   # auto + key -> Groq Whisper

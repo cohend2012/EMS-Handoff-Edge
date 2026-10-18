@@ -61,6 +61,7 @@
   function applyStatus(st) {
     ui.status = st;
     const s = st.settings;
+    if (st.version) $("appVersion").textContent = `new app v${st.version}`;
     $("providerText").textContent = `${s.provider} · ${s.model}`;
     const dot = $("providerDot");
     dot.className = "dot " + (s.keys[s.provider] ? "warn" : "bad");

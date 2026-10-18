@@ -51,6 +51,7 @@ import numpy as np
 import scipy.io.wavfile as wavfile
 from flask import Flask, Response, jsonify, request, send_from_directory
 
+from . import __version__
 from .audio.capture import AudioCapture, MicError, list_input_devices
 from .audio.listeners import make_listeners
 from .audio.session import LiveSession
@@ -61,6 +62,8 @@ from .samples import SAMPLE_SEPSIS, SAMPLE_STEMI, SAMPLE_TRAUMA
 from .transcribe import LocalTranscriber, TranscriptionError, make_transcriber
 
 logger = logging.getLogger(__name__)
+
+APP_ID = "handoff-app"   # /api/status says this, so the launcher can tell this app from the old one
 
 WEB_DIR = Path(__file__).resolve().parent / "web"
 USER_SETTINGS_FILE = PROJECT_ROOT / "user_settings.json"
@@ -193,7 +196,7 @@ class Controller:
             transcriber = self._transcriber("primary").describe()
         except Exception as e:  # noqa: BLE001
             transcriber = f"unavailable: {e}"
-        return {"state": self.state, "settings": s.public_dict(),
+        return {"app": APP_ID, "version": __version__, "state": self.state, "settings": s.public_dict(),
                 "captions": self.captions_label, "transcriber": transcriber,
                 "has_result": self.last_result is not None, "error": self.last_error}
 
