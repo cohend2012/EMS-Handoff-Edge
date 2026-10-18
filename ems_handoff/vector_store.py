@@ -207,7 +207,7 @@ class TextbookStore:
         if not cls.exists(store_dir):
             raise FileNotFoundError(
                 f"No vector store at {store_dir}. Build it first with:\n"
-                f"    python -m src.embed_documents --pdf-dir <your_pdfs>"
+                f"    python -m ems_handoff.embed_documents --pdf-dir <your_pdfs>"
             )
 
         matrix = np.load(os.path.join(store_dir, cls.EMB_FILE))

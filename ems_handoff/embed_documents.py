@@ -7,7 +7,7 @@ Build (and incrementally update) the textbook vector store from PDFs.
     2. Build the store (default output: ``database/``):
 
            ollama pull nomic-embed-text # one-time
-           python -m src.embed_documents
+           python -m ems_handoff.embed_documents
 
     3. Add more PDFs to ``dataset/`` later, then run the SAME command again.
        Only the new PDFs are embedded; files already in the store are skipped.

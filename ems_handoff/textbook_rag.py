@@ -3,7 +3,7 @@ textbook_rag.py
 ===============
 Semantic retrieval over the embedded-textbook VECTOR DATABASE.
 
-    database side:  vector_store.py (store) -> database_rag.py (TextbookRAG)   
+    database side:  vector_store.py (store) -> textbook_rag.py (TextbookRAG)   
 
 This layer runs AFTER extraction: it takes the structured
 handoff, retrieves relevant passages from the embedded textbooks, and formats
