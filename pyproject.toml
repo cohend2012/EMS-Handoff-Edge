@@ -1,0 +1,14 @@
+[project]
+name = "ems-handoff"
+version = "2.0.0"
+description = "HANDOFF.AI: paramedic radio report to structured hospital handoff"
+requires-python = ">=3.10"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra -m 'not jetson'"
+markers = [
+    "jetson: needs the real device (mic, models, network). Run on vox-ai with: pytest -m jetson",
+    "ui: drives the app in headless Chromium",
+]
+filterwarnings = ["ignore::DeprecationWarning"]

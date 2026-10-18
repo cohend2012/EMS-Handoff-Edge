@@ -1,0 +1,162 @@
+"""
+config.py — every tunable setting for HANDOFF.AI, in one place.
+
+Purpose
+    Replace the values that used to be hardcoded across the code (mic device 24,
+    model names, the Ollama URL, the stop phrase) with one ``Settings`` object.
+
+Inputs
+    Environment variables. ``__main__.py`` loads ``.env`` from the project root
+    first, so a ``.env`` file works the same as exported variables. See
+    ``.env.example`` for every variable with its default.
+
+Outputs
+    ``load_settings()`` returns an immutable ``Settings``. To change a value at
+    runtime (for example the provider picked in the app), use
+    ``dataclasses.replace(settings, provider="ollama")``.
+
+Threads
+    None. Settings are read-only once built.
+"""
+
+from __future__ import annotations
+
+import os
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Mapping, Optional
+
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+
+PROVIDERS = ("groq", "ollama", "openrouter")
+TRANSCRIBERS = ("auto", "groq", "local")
+CAPTION_ENGINES = ("auto", "vosk", "whisper", "off")
+
+
+def _bool(value: Optional[str], default: bool) -> bool:
+    if value is None or value.strip() == "":
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _float(value: Optional[str], default: float) -> float:
+    try:
+        return float(value) if value not in (None, "") else default
+    except ValueError:
+        return default
+
+
+def _int(value: Optional[str], default: int) -> int:
+    try:
+        return int(value) if value not in (None, "") else default
+    except ValueError:
+        return default
+
+
+def _choice(value: Optional[str], allowed: tuple, default: str) -> str:
+    v = (value or "").strip().lower()
+    return v if v in allowed else default
+
+
+@dataclass(frozen=True)
+class Settings:
+    # --- which AI writes the report -------------------------------------
+    provider: str = "groq"                       # groq | ollama | openrouter
+    groq_api_key: str = field(default="", repr=False)
+    openrouter_api_key: str = field(default="", repr=False)
+    groq_llm_model: str = "llama-3.3-70b-versatile"
+    ollama_url: str = "http://localhost:11434/v1"
+    ollama_model: str = "qwen3:8b"
+    openrouter_model: str = "meta-llama/llama-3.2-3b-instruct:free"
+    llm_timeout_s: float = 180.0                 # per request; local models are slow
+
+    # --- final transcript (runs once, after DONE) -------------------------
+    transcriber: str = "auto"                    # auto | groq | local
+    groq_whisper_model: str = "whisper-large-v3-turbo"
+    local_whisper_model: str = "large-v3-turbo"
+    local_whisper_device: str = "cpu"            # cpu | cuda
+    local_whisper_compute: str = "int8"
+
+    # --- live listening ----------------------------------------------------
+    mic_device: str = ""                         # index, or part of the name; "" = auto (prefers USB)
+    caption_engine: str = "auto"                 # auto | vosk | whisper | off
+    vosk_model_dir: Path = PROJECT_ROOT / "models" / "vosk-model-small-en-us-0.15"
+    caption_whisper_model: str = "tiny.en"       # fallback caption model when Vosk is missing
+    stop_phrase: str = "confirm report ready"
+    max_recording_s: int = 600                   # auto-DONE after 10 minutes
+
+    # --- app ---------------------------------------------------------------
+    host: str = "127.0.0.1"
+    port: int = 5000
+    output_dir: Path = PROJECT_ROOT / "output"
+    textbook_dir: Path = PROJECT_ROOT / "database"
+    use_lexicon: bool = True
+    use_textbook_rag: bool = True
+
+    # --- derived helpers ---------------------------------------------------
+    def has_key(self, provider: Optional[str] = None) -> bool:
+        p = provider or self.provider
+        if p == "groq":
+            return bool(self.groq_api_key)
+        if p == "openrouter":
+            return bool(self.openrouter_api_key)
+        return True  # ollama needs no key
+
+    def llm_model(self, provider: Optional[str] = None) -> str:
+        p = provider or self.provider
+        return {"groq": self.groq_llm_model,
+                "ollama": self.ollama_model,
+                "openrouter": self.openrouter_model}[p]
+
+    def effective_transcriber(self) -> str:
+        """'groq' or 'local'. 'auto' uses Groq when a Groq key exists."""
+        if self.transcriber in ("groq", "local"):
+            return self.transcriber
+        return "groq" if self.groq_api_key else "local"
+
+    def public_dict(self) -> dict:
+        """Settings safe to show in the app (no secrets)."""
+        return {
+            "provider": self.provider,
+            "model": self.llm_model(),
+            "keys": {p: self.has_key(p) for p in PROVIDERS},
+            "transcriber": self.effective_transcriber(),
+            "caption_engine": self.caption_engine,
+            "mic_device": self.mic_device or "auto",
+            "stop_phrase": self.stop_phrase,
+            "max_recording_s": self.max_recording_s,
+        }
+
+
+def load_settings(env: Optional[Mapping[str, str]] = None) -> Settings:
+    """Build Settings from environment variables (or a supplied mapping)."""
+    e = os.environ if env is None else env
+    g = e.get
+    defaults = Settings()
+    return Settings(
+        provider=_choice(g("HANDOFF_PROVIDER"), PROVIDERS, defaults.provider),
+        groq_api_key=(g("GROQ_API_KEY") or "").strip(),
+        openrouter_api_key=(g("OPENROUTER_API_KEY") or "").strip(),
+        groq_llm_model=g("GROQ_LLM_MODEL") or defaults.groq_llm_model,
+        ollama_url=g("OLLAMA_URL") or defaults.ollama_url,
+        ollama_model=g("OLLAMA_MODEL") or defaults.ollama_model,
+        openrouter_model=g("OPENROUTER_MODEL") or defaults.openrouter_model,
+        llm_timeout_s=_float(g("HANDOFF_LLM_TIMEOUT_S"), defaults.llm_timeout_s),
+        transcriber=_choice(g("HANDOFF_TRANSCRIBER"), TRANSCRIBERS, defaults.transcriber),
+        groq_whisper_model=g("GROQ_WHISPER_MODEL") or defaults.groq_whisper_model,
+        local_whisper_model=g("LOCAL_WHISPER_MODEL") or defaults.local_whisper_model,
+        local_whisper_device=g("LOCAL_WHISPER_DEVICE") or defaults.local_whisper_device,
+        local_whisper_compute=g("LOCAL_WHISPER_COMPUTE") or defaults.local_whisper_compute,
+        mic_device=(g("HANDOFF_MIC_DEVICE") or "").strip(),
+        caption_engine=_choice(g("HANDOFF_CAPTIONS"), CAPTION_ENGINES, defaults.caption_engine),
+        vosk_model_dir=Path(g("VOSK_MODEL_DIR")) if g("VOSK_MODEL_DIR") else defaults.vosk_model_dir,
+        caption_whisper_model=g("CAPTION_WHISPER_MODEL") or defaults.caption_whisper_model,
+        stop_phrase=(g("HANDOFF_STOP_PHRASE") or defaults.stop_phrase).strip().lower(),
+        max_recording_s=_int(g("HANDOFF_MAX_RECORDING_S"), defaults.max_recording_s),
+        host=g("HANDOFF_HOST") or defaults.host,
+        port=_int(g("HANDOFF_PORT"), defaults.port),
+        output_dir=Path(g("HANDOFF_OUTPUT_DIR")) if g("HANDOFF_OUTPUT_DIR") else defaults.output_dir,
+        textbook_dir=Path(g("HANDOFF_TEXTBOOK_DIR")) if g("HANDOFF_TEXTBOOK_DIR") else defaults.textbook_dir,
+        use_lexicon=_bool(g("HANDOFF_USE_LEXICON"), True),
+        use_textbook_rag=_bool(g("HANDOFF_USE_TEXTBOOK_RAG"), True),
+    )

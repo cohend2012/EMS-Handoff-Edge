@@ -1,3 +1,19 @@
+"""
+prompt.py — the two prompts sent to the language model.
+
+EXTRACTION_PROMPT
+    Turns a paramedic radio report into the structured handoff JSON shown on the
+    dashboard. Placeholders: {ems_report}, {lexicon_context}.
+GUIDANCE_PROMPT
+    Optional second call. It suggests courses of action grounded only in
+    retrieved textbook excerpts. Placeholders: {handoff_json}, {reference}.
+    Returns {"courses_of_action": [...]}. That is a JSON object, so providers
+    with JSON mode can enforce it.
+
+Both prompts end with "/no_think" for qwen3 models. The LLM client also turns
+thinking off in the request itself.
+"""
+
 # =============================================================================
 # AI PROMPT FOR STRUCTURED EXTRACTION
 # =============================================================================
@@ -105,10 +121,10 @@ PATIENT HANDOFF (structured):
 
 {reference}
 
-Return ONLY a valid JSON array (no markdown) of 3-6 objects with this shape:
-[
+Return ONLY a valid JSON object (no markdown) with this shape, holding 3-6 actions:
+{{"courses_of_action": [
   {{"action": "...", "rationale": "grounded in the excerpts", "source": "citation"}}
-]
-Do not use double quotes inside any string value — paraphrase instead. No trailing commas, no text before or after the array. Separate every object in the array with a comma.
+]}}
+Do not use double quotes inside any string value — paraphrase instead. No trailing commas, no text before or after the object.
 /no_think
 """
