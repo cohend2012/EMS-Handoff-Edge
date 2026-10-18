@@ -164,6 +164,10 @@ class LLMClient:
             kwargs["response_format"] = {"type": "json_object"}
         if self.provider == "ollama":
             kwargs["extra_body"] = {"think": False}
+        if self.provider == "groq" and "gpt-oss" in self.model:
+            # gpt-oss reasons before answering; low effort is faster and leaves room for the JSON
+            kwargs["reasoning_effort"] = "low"
+            kwargs["max_tokens"] = max(max_tokens, 8192)
 
         last_problem = "no reply"
         for attempt in range(1, self.attempts + 1):
@@ -182,6 +186,11 @@ class LLMClient:
                 last_problem = self._connection_hint()
             except APIStatusError as e:
                 # A model without JSON mode answers 400: ask again without it (once).
+                if getattr(e, "status_code", None) == 400 and "reasoning_effort" in kwargs \
+                        and "reasoning" in str(e).lower():
+                    logger.warning("%s rejected reasoning_effort; retrying without it", self.model)
+                    kwargs.pop("reasoning_effort")
+                    continue
                 if (getattr(e, "status_code", None) == 400 and "response_format" in kwargs
                         and re.search(r"json|response_format", str(e), re.I)):
                     logger.warning("%s does not support JSON mode; retrying without it", self.model)
