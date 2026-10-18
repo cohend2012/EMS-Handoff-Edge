@@ -144,6 +144,8 @@ class ReportPipeline:
         prompt = EXTRACTION_PROMPT.format(ems_report=fix.text, lexicon_context=context)
 
         # 3. extract
+        if hasattr(self.llm, "resolve_model"):
+            self.llm.resolve_model()   # name the model actually used, not a retired one
         self.on_stage(f"Writing the handoff ({self.llm.provider} · {self.llm.model})")
         t0 = time.perf_counter()
         try:

@@ -91,14 +91,18 @@ class LiveSession:
                     "spotter": spotter is not None, "mic": self.capture.device_name,
                     "problems": self.problems})
 
-    def finish(self, reason: str) -> bool:
-        """Mark the recording finished. Returns False if it already was."""
+    def finish(self, reason: str, detail: str = "") -> bool:
+        """Mark the recording finished. Returns False if it already was.
+
+        ``detail`` says which listener heard the phrase and what it heard (logged only).
+        """
         with self._lock:
             if self._finished.is_set():
                 return False
             self.finish_reason = reason
             self._finished.set()
-        logger.info("Recording finished: %s after %.1fs", reason, time.time() - self.started_at)
+        logger.info("Recording finished: %s after %.1fs%s", reason, time.time() - self.started_at,
+                    f" ({detail})" if detail else "")
         self._on_finish(reason)
         return True
 
@@ -140,7 +144,7 @@ class LiveSession:
                 self.final_text = update.final
                 self._emit({"type": "caption", "final": update.final, "partial": update.partial})
             if update.heard_phrase and not self.is_finished:
-                self.finish("phrase")
+                self.finish("phrase", f"live captions heard: '{' '.join((update.final + ' ' + update.partial).split()[-8:])}'")
 
     def _spotter_loop(self, spotter, q: "queue.Queue") -> None:
         while not self._stopped.is_set():
@@ -152,7 +156,7 @@ class LiveSession:
                 return
             try:
                 if spotter.feed(block) and not self.is_finished:
-                    self.finish("phrase")
+                    self.finish("phrase", "stop-phrase spotter")
             except Exception:  # noqa: BLE001
                 logger.exception("Stop-phrase spotter error; use the DONE button")
                 return
