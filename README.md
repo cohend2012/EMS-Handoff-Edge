@@ -18,7 +18,8 @@ on the device; the report-writing AI can be Groq (cloud, fastest), Ollama (on th
 git clone -b handoff-app https://github.com/AllyBeary/EMS-Handoff ~/EMS-Handoff-app
 cd ~/EMS-Handoff-app
 bash scripts/install_jetson.sh        # packages, venv, speech models, desktop icon, setup check
-nano .env                             # set GROQ_API_KEY=gsk_...  (create one at console.groq.com/keys)
+# the installer reuses the Groq key from ~/EMS-Handoff if Groq still accepts it;
+# otherwise: nano .env and set GROQ_API_KEY=gsk_... (console.groq.com/keys)
 .venv/bin/python -m ems_handoff --check
 ```
 
