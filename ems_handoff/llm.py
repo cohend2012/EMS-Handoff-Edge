@@ -114,6 +114,21 @@ def pick_ollama_model(models: Dict[str, float], wanted: str,
                     "or run: ollama pull qwen3:4b")
 
 
+def _usage_note(resp, took_s: float) -> str:
+    """': 2100 prompt + 850 output tokens, 11 tok/s' when the provider reports usage; else ''.
+
+    The output rate says where a slow local model spends its time: a low rate
+    means generation (or a model running on the CPU), a normal rate with a long
+    total means the model was still loading.
+    """
+    usage = getattr(resp, "usage", None)
+    out = getattr(usage, "completion_tokens", None)
+    if not out:
+        return ""
+    rate = f", {out / took_s:.0f} tok/s" if took_s > 0 else ""
+    return f": {getattr(usage, 'prompt_tokens', 0) or 0} prompt + {out} output tokens{rate}"
+
+
 class LLMError(RuntimeError):
     """A provider failure, worded for the person using the app."""
 
@@ -214,6 +229,28 @@ class LLMClient:
         self.model, note = _RESOLVED[key]
         return note
 
+    def preload(self, keep_alive: str = "30m") -> str:
+        """Ollama: load the model into memory now, so the first report does not wait for it.
+
+        Ollama unloads a model 5 minutes after its last use by default; ``keep_alive``
+        asks it to keep this one for longer. Returns the model-choice note, if any.
+        Other providers have nothing to preload.
+        """
+        if self.provider != "ollama":
+            return ""
+        note = self.resolve_model()
+        root = self.settings.ollama_url.rstrip("/")
+        if root.endswith("/v1"):
+            root = root[:-3]
+        body = json.dumps({"model": self.model, "keep_alive": keep_alive}).encode()
+        req = urllib.request.Request(f"{root}/api/generate", data=body,
+                                     headers={"Content-Type": "application/json"})
+        t0 = time.perf_counter()
+        with urllib.request.urlopen(req, timeout=self.settings.llm_timeout_s) as r:
+            r.read()
+        logger.info("Ollama %s loaded in %.1fs (kept for %s)", self.model, time.perf_counter() - t0, keep_alive)
+        return note
+
     # -- calls ------------------------------------------------------------
     def complete_json(self, prompt: str, temperature: float = 0.0,
                       max_tokens: int = 4096) -> str:
@@ -238,8 +275,9 @@ class LLMClient:
             try:
                 resp = self._client.chat.completions.create(**kwargs)
                 text = strip_to_json(resp.choices[0].message.content)
-                logger.info("LLM %s/%s replied in %.1fs (attempt %d)", self.provider,
-                            self.model, time.perf_counter() - started, attempt)
+                took = time.perf_counter() - started
+                logger.info("LLM %s/%s replied in %.1fs (attempt %d)%s", self.provider,
+                            self.model, took, attempt, _usage_note(resp, took))
                 if text.strip():
                     return text
                 last_problem = "the model returned an empty reply"

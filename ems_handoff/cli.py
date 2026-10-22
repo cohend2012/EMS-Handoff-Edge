@@ -47,6 +47,8 @@ def main(argv=None) -> int:
     src.add_argument("--text-file")
     src.add_argument("--wav")
     ap.add_argument("--provider", choices=PROVIDERS)
+    ap.add_argument("--show-context", action="store_true",
+                    help="print the lexicon terms and textbook excerpts the model was given")
     ap.add_argument("--json", action="store_true", help="print the full JSON report")
     args = ap.parse_args(argv)
 
@@ -100,6 +102,20 @@ def main(argv=None) -> int:
     except (LLMError, PipelineError) as e:
         print(f"Report failed: {e}", file=sys.stderr)
         return 1
+    if args.show_context:
+        print("=" * 60 + "\nCONTEXT GIVEN TO THE MODEL\n" + "=" * 60)
+        print("Lexicon terms + flagged suspects (in the extraction prompt):")
+        print(pipeline.last_context or "  (none: HANDOFF_USE_LEXICON=0)")
+        rag = engines.textbook_rag
+        if rag is None:
+            print("\nTextbook guidance: off (HANDOFF_USE_TEXTBOOK_RAG=0)")
+        elif not rag.available:
+            print(f"\nTextbook guidance: no vector store at {settings.textbook_dir} "
+                  "(put PDFs in dataset/ and run: python -m ems_handoff.embed_documents)")
+        else:
+            print("\nTextbook excerpts (in the guidance prompt):")
+            print(pipeline.last_reference or "  (store present, nothing relevant found)")
+        print("=" * 60 + "\n")
     path = save_report(settings.output_dir, report)
     print(json.dumps(report, indent=2) if args.json else summarize(report))
     print(f"\nSaved: {path}")

@@ -126,3 +126,12 @@ def test_groq_whisper_falls_back_to_an_offered_model():
             create=lambda **kw: used.append(kw["model"]) or SimpleNamespace(text="hello"))))
     t = GroqTranscriber(Settings(groq_api_key="k"), client=client)
     assert t.transcribe(np.zeros(16000, np.float32)) == "hello" and used == ["whisper-large-v3"]
+
+
+def test_pipeline_exposes_the_context_it_gave_the_model():
+    report, _, pipe = run(SAMPLE_STEMI, textbook_rag=FakeTextbook(),
+                          llm=FakeLLM([json.dumps(report_dict()), json.dumps({"courses_of_action": []})]))
+    assert "MEDICAL LEXICON" in pipe.last_context and "Unit 41" not in pipe.last_context
+    assert pipe.last_reference.startswith("CLINICAL REFERENCE")
+    # the same lexicon block is inside the prompt the model received
+    assert pipe.last_context in pipe.llm.prompts[0]

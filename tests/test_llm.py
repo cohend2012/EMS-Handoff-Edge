@@ -221,3 +221,31 @@ def test_ollama_check_warns_when_nothing_smaller_is_pulled(monkeypatch):
     monkeypatch.setattr("ems_handoff.llm.available_memory_gb", lambda: 7.5)
     ok, msg = LLMClient(Settings(provider="ollama"), client=FakeOpenAI([])).check()
     assert ok and msg == "ollama ready (qwen3:8b); needs ~6.8 GB, 7.5 GB free"
+
+
+def test_ollama_preload_loads_the_model_that_fits(monkeypatch):
+    _tags(monkeypatch, **{"qwen3:8b": 5.2, "qwen3:4b": 2.5})
+    monkeypatch.setattr("ems_handoff.llm.available_memory_gb", lambda: 3.6)
+    posted = []
+    real = __import__("ems_handoff.llm", fromlist=["urllib"]).urllib.request.urlopen
+
+    def urlopen(req, timeout):
+        if isinstance(req, str):
+            return real(req, timeout=timeout)
+        posted.append(json.loads(req.data))
+        return real("tags", timeout=timeout)
+    monkeypatch.setattr("ems_handoff.llm.urllib.request.urlopen", urlopen)
+    note = LLMClient(Settings(provider="ollama", ollama_model="qwen3:8b"), client=FakeOpenAI([])).preload()
+    assert posted == [{"model": "qwen3:4b", "keep_alive": "30m"}] and "using 'qwen3:4b'" in note
+    assert LLMClient(Settings(groq_api_key="k"), client=FakeOpenAI([])).preload() == ""
+
+
+def test_usage_is_logged_when_the_provider_reports_it(caplog):
+    import logging
+    reply = _reply('{"ok": 1}')
+    reply.usage = SimpleNamespace(prompt_tokens=2100, completion_tokens=850)
+    fake = FakeOpenAI([])
+    fake.chat.completions.create = lambda **kw: reply     # a reply object with usage
+    with caplog.at_level(logging.INFO, logger="ems_handoff.llm"):
+        LLMClient(Settings(provider="ollama"), client=fake).complete_json("p")
+    assert "2100 prompt + 850 output tokens" in caplog.text and "tok/s" in caplog.text
