@@ -36,7 +36,7 @@ import logging
 import re
 import time
 import urllib.request
-from typing import Any, Optional, Tuple
+from typing import Any, Dict, Optional, Tuple
 
 from .config import Settings
 
@@ -78,6 +78,40 @@ def pick_model(available, wanted: str, preferences=GROQ_LLM_PREFERENCES) -> Tupl
     if choice:
         return choice, f"'{wanted}' is no longer offered; using '{choice}'"
     return None, f"no chat model is available (wanted '{wanted}')"
+
+
+# Ollama models in order of preference, largest first. When the configured model
+# cannot fit in free memory, the first of these that is pulled and fits is used.
+OLLAMA_PREFERENCES = ["qwen3:8b", "qwen3:4b", "llama3.2:3b", "qwen3:1.7b", "llama3.2:1b", "qwen3:0.6b"]
+
+
+def ollama_need_gb(size_gb: float) -> float:
+    """Memory a model needs to run: its weights plus context cache and runtime (rule of thumb)."""
+    return size_gb * 1.3
+
+
+def pick_ollama_model(models: Dict[str, float], wanted: str,
+                      free_gb: Optional[float]) -> Tuple[Optional[str], str]:
+    """Choose the Ollama model to use from {name: size GB}. Returns (model, note-for-the-user).
+
+    The wanted model is kept when it is pulled and fits in free memory (or memory
+    is unknown). Otherwise the largest preferred model that is pulled and fits is
+    used, and the note says why. A model that does not fit gets killed while
+    loading, which Ollama reports as HTTP 500 "signal: killed".
+    """
+    want = wanted if ":" in wanted else f"{wanted}:latest"
+    if want not in models:
+        return None, ""
+    if free_gb is None or ollama_need_gb(models[want]) <= free_gb:
+        return wanted, ""
+    need = ollama_need_gb(models[want])
+    for name in OLLAMA_PREFERENCES:
+        if name in models and name != want and ollama_need_gb(models[name]) <= free_gb:
+            return name, (f"'{wanted}' needs ~{need:.1f} GB but only {free_gb:.1f} GB is free; "
+                          f"using '{name}'")
+    return wanted, (f"'{wanted}' needs ~{need:.1f} GB but only {free_gb:.1f} GB is free and no "
+                    "smaller model is pulled. It may be killed while loading: close other apps, "
+                    "or run: ollama pull qwen3:4b")
 
 
 class LLMError(RuntimeError):
@@ -145,7 +179,24 @@ class LLMClient:
         return {m.id for m in client.models.list().data}
 
     def resolve_model(self) -> str:
-        """Groq only: if the configured model was retired, switch to the best available one (cached)."""
+        """Pick the model actually used; returns a note for the user when it differs.
+
+        Groq: if the configured model was retired, the best available one (cached).
+        Ollama: if the configured model does not fit in free memory, the largest
+        pulled model that does (checked per report, because free memory changes).
+        """
+        if self.provider == "ollama":
+            try:
+                models = self._ollama_models()
+            except Exception as e:  # noqa: BLE001 - Ollama down: the call itself will say so
+                logger.debug("Ollama model list unavailable (%s); using %s", e, self.model)
+                return ""
+            model, note = pick_ollama_model(models, self.model, available_memory_gb())
+            if model:
+                self.model = model
+            if note:
+                logger.warning("Ollama: %s", note)
+            return note
         if self.provider != "groq":
             return ""
         key = (self.provider, self.settings.llm_model())
@@ -242,26 +293,26 @@ class LLMClient:
                 return False, self._connection_hint()
             return False, f"{self.provider} check failed: {name}: {e}"
 
-    def _check_ollama(self) -> Tuple[bool, str]:
+    def _ollama_models(self) -> Dict[str, float]:
+        """{model name: size in GB} for every model Ollama has pulled."""
         root = self.settings.ollama_url.rstrip("/")
         if root.endswith("/v1"):
             root = root[:-3]
         with urllib.request.urlopen(f"{root}/api/tags", timeout=5) as r:
-            models = {m.get("name", ""): m for m in json.load(r).get("models", [])}
+            return {m.get("name", ""): m.get("size", 0) / 1e9 for m in json.load(r).get("models", [])}
+
+    def _check_ollama(self) -> Tuple[bool, str]:
+        models = self._ollama_models()
         want = self.model if ":" in self.model else f"{self.model}:latest"
         if want not in models:
             return False, f"Ollama is running but '{self.model}' is not pulled. Run: ollama pull {self.model}"
-        msg = f"ollama ready ({self.model})"
-        # A model that does not fit in free memory gets killed while loading (HTTP 500 "signal: killed").
-        size_gb = models[want].get("size", 0) / 1e9
         free_gb = available_memory_gb()
-        if size_gb and free_gb is not None:
-            need = size_gb * 1.3   # weights plus KV cache and runtime, a safe rule of thumb
-            msg += f"; needs ~{need:.1f} GB, {free_gb:.1f} GB free"
-            if free_gb < need:
-                msg += (". It may be killed for lack of memory: close other apps or use a smaller "
-                        "model (ollama pull qwen3:4b, then OLLAMA_MODEL=qwen3:4b in .env)")
-        return True, msg
+        model, note = pick_ollama_model(models, self.model, free_gb)
+        self.model = model or self.model
+        msg = f"ollama ready ({self.model})"
+        if free_gb is not None:
+            msg += f"; needs ~{ollama_need_gb(models.get(self.model, 0)):.1f} GB, {free_gb:.1f} GB free"
+        return True, msg + (f"; {note}" if note else "")
 
     # -- wording ------------------------------------------------------------
     def _connection_hint(self) -> str:
@@ -282,7 +333,7 @@ class LLMClient:
             free = available_memory_gb()
             return (f"Ollama ran out of memory loading '{self.model}'"
                     + (f" ({free:.1f} GB free)" if free is not None else "")
-                    + ". Close other apps, or use a smaller model: "
-                      "ollama pull qwen3:4b, then set OLLAMA_MODEL=qwen3:4b in .env.")
+                    + ". Close other apps, or pull a smaller model (ollama pull qwen3:4b): "
+                      "the app switches to it by itself.")
         msg = re.sub(r"\s+", " ", str(e))[:200]
         return f"{self.provider} error HTTP {code}: {msg}"

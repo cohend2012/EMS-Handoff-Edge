@@ -91,7 +91,7 @@ Copy `.env.example` to `.env`. Everything has a sensible default except the API 
 |---|---|---|
 | `HANDOFF_PROVIDER` | `groq` | AI that writes the report: `groq`, `ollama`, `openrouter` (also changeable in the app) |
 | `GROQ_API_KEY` | — | Groq key. Set it once with `bash scripts/set_groq_key.sh`; it lives in `~/.config/handoff-ai/secrets.env`, shared by every copy of the app. Never commit it. |
-| `OLLAMA_MODEL` | `qwen3:8b` | Local model; `qwen3:4b` is faster on an 8 GB Orin Nano |
+| `OLLAMA_MODEL` | `qwen3:8b` | Local model. If it does not fit in free memory, the app uses the largest pulled smaller model that does (`qwen3:4b`, `qwen3:1.7b`, ...) and says so |
 | `HANDOFF_TRANSCRIBER` | `auto` | Final transcript: `groq`, `local`, or `auto` (Groq if a key is set) |
 | `LOCAL_WHISPER_MODEL` | `large-v3-turbo` | Offline transcript model (`small.en` is ~4× faster on CPU) |
 | `HANDOFF_MIC_DEVICE` | auto (USB) | Device number or part of its name (`PnP`). Names survive reboots; numbers may not. |
@@ -127,6 +127,7 @@ threads, state machine, API and screens anywhere (UI screenshots land in `tests/
 | Captions say "Whisper tiny.en (fallback)" | Run `python scripts/download_models.py --vosk`. |
 | "groq rejected the API key" | Create a new key (console.groq.com/keys, org *Personal*) and run `bash scripts/set_groq_key.sh`. |
 | "cannot reach Ollama" / "model not pulled" | `ollama serve` / `ollama pull qwen3:8b`. A crash-looping Docker `ollama` container fighting for port 11434 can be stopped with `docker update --restart no ollama && docker stop ollama`. |
+| "Ollama ran out of memory loading ..." | The Jetson shares its 8 GB between CPU and GPU. `qwen3:8b` needs about 6.8 GB free. Pull a smaller model (`ollama pull qwen3:4b`): the app switches to it by itself. Close Chromium, the old app and the Docker `ollama` container to free memory. `free -h` shows what is available. |
 | Slow final transcript with no Groq key | Use Groq, or set `LOCAL_WHISPER_MODEL=small.en`. |
 | Logs | `output/handoff.log` |
 

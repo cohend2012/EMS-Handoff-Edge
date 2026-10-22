@@ -174,9 +174,9 @@ def test_ollama_killed_by_oom_gives_a_memory_hint(monkeypatch):
     assert len(fake.calls) == 1
 
 
-def test_ollama_check_warns_when_the_model_will_not_fit(monkeypatch):
+def _tags(monkeypatch, **sizes_gb):
     import io
-    tags = json.dumps({"models": [{"name": "qwen3:8b", "size": 5_200_000_000}]}).encode()
+    tags = json.dumps({"models": [{"name": n, "size": int(s * 1e9)} for n, s in sizes_gb.items()]}).encode()
 
     class Resp(io.BytesIO):
         def __enter__(self):
@@ -186,9 +186,38 @@ def test_ollama_check_warns_when_the_model_will_not_fit(monkeypatch):
             return False
 
     monkeypatch.setattr("ems_handoff.llm.urllib.request.urlopen", lambda url, timeout: Resp(tags))
+
+
+def test_pick_ollama_model_by_free_memory():
+    from ems_handoff.llm import pick_ollama_model
+    models = {"qwen3:8b": 5.2, "qwen3:4b": 2.5, "qwen3:1.7b": 1.4}
+    assert pick_ollama_model(models, "qwen3:8b", 7.5) == ("qwen3:8b", "")
+    assert pick_ollama_model(models, "qwen3:8b", None) == ("qwen3:8b", "")      # memory unknown: trust it
+    model, note = pick_ollama_model(models, "qwen3:8b", 2.8)
+    assert model == "qwen3:1.7b"
+    assert note == "'qwen3:8b' needs ~6.8 GB but only 2.8 GB is free; using 'qwen3:1.7b'"
+    assert pick_ollama_model(models, "qwen3:8b", 4.0)[0] == "qwen3:4b"
+    model, note = pick_ollama_model({"qwen3:8b": 5.2}, "qwen3:8b", 2.8)
+    assert model == "qwen3:8b" and "no smaller model is pulled" in note
+    assert pick_ollama_model(models, "missing:1b", 7.5) == (None, "")
+
+
+def test_ollama_report_uses_a_model_that_fits(monkeypatch):
+    _tags(monkeypatch, **{"qwen3:8b": 5.2, "qwen3:4b": 2.5})
+    monkeypatch.setattr("ems_handoff.llm.available_memory_gb", lambda: 3.6)   # 4b needs ~3.3 GB
+    fake = FakeOpenAI(['{"ok": 1}'])
+    client = LLMClient(Settings(provider="ollama", ollama_model="qwen3:8b"), client=fake)
+    client.complete_json("p")
+    assert fake.calls[0]["model"] == "qwen3:4b"
+    ok, msg = LLMClient(Settings(provider="ollama", ollama_model="qwen3:8b"), client=fake).check()
+    assert ok and msg.startswith("ollama ready (qwen3:4b)") and "using 'qwen3:4b'" in msg
+
+
+def test_ollama_check_warns_when_nothing_smaller_is_pulled(monkeypatch):
+    _tags(monkeypatch, **{"qwen3:8b": 5.2})
     monkeypatch.setattr("ems_handoff.llm.available_memory_gb", lambda: 2.0)
     ok, msg = LLMClient(Settings(provider="ollama"), client=FakeOpenAI([])).check()
-    assert ok and "needs ~6.8 GB, 2.0 GB free" in msg and "killed for lack of memory" in msg
+    assert ok and "needs ~6.8 GB, 2.0 GB free" in msg and "ollama pull qwen3:4b" in msg
     monkeypatch.setattr("ems_handoff.llm.available_memory_gb", lambda: 7.5)
     ok, msg = LLMClient(Settings(provider="ollama"), client=FakeOpenAI([])).check()
-    assert ok and "killed" not in msg
+    assert ok and msg == "ollama ready (qwen3:8b); needs ~6.8 GB, 7.5 GB free"
