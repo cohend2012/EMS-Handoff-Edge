@@ -19,8 +19,8 @@ Device selection (Settings.mic_device / HANDOFF_MIC_DEVICE)
     Device numbers can change after a reboot. Names do not, so prefer a name.
 
 Sample rate
-    16 kHz is requested first. Raw ALSA devices (hw:X,Y) often only offer
-    44.1/48 kHz, so on failure the device's native rate is used and resampled.
+    The device's native rate is opened (raw ALSA devices, hw:X,Y, usually only
+    offer 44.1/48 kHz) and resampled to 16 kHz. 16 kHz is tried if that fails.
 
 Threads
     PortAudio callback thread -> queue -> "audio-capture" worker thread -> subscribers.
@@ -139,7 +139,10 @@ class AudioCapture:
         index, name, native = self._device_info
         self.device_name = name
         last_error = None
-        for rate in (TARGET_RATE, int(native), 48000, 44100):
+        # The device's own rate first: asking a raw ALSA device for 16 kHz fails and makes
+        # PortAudio print errors. Resampling 100 ms blocks costs nothing noticeable.
+        rates = [int(native), TARGET_RATE, 48000, 44100]
+        for rate in dict.fromkeys(rates):
             try:
                 self._stream = self._stream_factory(index, rate, int(rate * self.block_ms / 1000),
                                                     self._callback)

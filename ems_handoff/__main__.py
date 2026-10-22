@@ -162,7 +162,10 @@ def main(argv=None) -> int:
     except KeyboardInterrupt:
         pass
     log.info("Shutting down")
-    server.shutdown()
+    # shutdown() waits for the serve loop; a stuck request must not make Ctrl+C hang
+    closer = threading.Thread(target=server.shutdown, daemon=True)
+    closer.start()
+    closer.join(timeout=3)
     return 0
 
 
