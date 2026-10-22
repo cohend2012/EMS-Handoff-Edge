@@ -161,3 +161,34 @@ def test_rejected_reasoning_effort_is_dropped_and_retried():
     fake.models = _models("openai/gpt-oss-120b")
     assert LLMClient(Settings(groq_api_key="k"), client=fake).complete_json("p") == '{"ok": 1}'
     assert "reasoning_effort" not in fake.calls[1]
+
+
+# -- Ollama memory ---------------------------------------------------------------
+def test_ollama_killed_by_oom_gives_a_memory_hint(monkeypatch):
+    monkeypatch.setattr("ems_handoff.llm.available_memory_gb", lambda: 1.9)
+    err = _exc(openai.APIStatusError, status=500,
+               message="llama-server process has terminated: signal: killed")
+    fake = FakeOpenAI([err])
+    with pytest.raises(LLMError, match=r"ran out of memory loading 'qwen3:8b' \(1.9 GB free\).*qwen3:4b"):
+        LLMClient(Settings(provider="ollama"), client=fake).complete_json("p")
+    assert len(fake.calls) == 1
+
+
+def test_ollama_check_warns_when_the_model_will_not_fit(monkeypatch):
+    import io
+    tags = json.dumps({"models": [{"name": "qwen3:8b", "size": 5_200_000_000}]}).encode()
+
+    class Resp(io.BytesIO):
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+    monkeypatch.setattr("ems_handoff.llm.urllib.request.urlopen", lambda url, timeout: Resp(tags))
+    monkeypatch.setattr("ems_handoff.llm.available_memory_gb", lambda: 2.0)
+    ok, msg = LLMClient(Settings(provider="ollama"), client=FakeOpenAI([])).check()
+    assert ok and "needs ~6.8 GB, 2.0 GB free" in msg and "killed for lack of memory" in msg
+    monkeypatch.setattr("ems_handoff.llm.available_memory_gb", lambda: 7.5)
+    ok, msg = LLMClient(Settings(provider="ollama"), client=FakeOpenAI([])).check()
+    assert ok and "killed" not in msg

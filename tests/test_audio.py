@@ -57,7 +57,7 @@ def test_capture_fans_out_and_keeps_full_recording():
     assert [q1.get() for _ in range(6)][-1] is None
 
 
-def test_capture_falls_back_to_native_rate():
+def test_capture_opens_native_rate_first_and_resamples():
     opened = []
 
     def factory(dev, rate, block, cb):
@@ -72,8 +72,25 @@ def test_capture_falls_back_to_native_rate():
     cap.start()
     cap.feed(np.zeros(4800, np.float32))          # 100 ms at 48 kHz
     assert wait_for(lambda: cap.seconds > 0)
-    assert opened[:2] == [16000, 48000] and cap.native_rate == 48000
+    assert opened == [48000] and cap.native_rate == 48000   # no failed 16 kHz attempt
     assert len(cap.stop()) == 1600
+
+
+def test_capture_tries_16k_when_native_rate_fails():
+    opened = []
+
+    def factory(dev, rate, block, cb):
+        opened.append(rate)
+        if rate == 44100:
+            raise RuntimeError("busy")
+        from fakes import FakeStream
+        return FakeStream()
+
+    from ems_handoff.audio.capture import AudioCapture
+    cap = AudioCapture("", stream_factory=factory, device_info=(2, "Mic", 44100.0))
+    cap.start()
+    assert opened == [44100, 16000] and cap.native_rate == 16000
+    cap.stop()
 
 
 # -- live session -------------------------------------------------------------------

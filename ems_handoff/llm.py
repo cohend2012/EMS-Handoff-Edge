@@ -84,6 +84,18 @@ class LLMError(RuntimeError):
     """A provider failure, worded for the person using the app."""
 
 
+def available_memory_gb() -> Optional[float]:
+    """Free RAM in GB from /proc/meminfo (Linux), else None. On a Jetson the GPU shares this RAM."""
+    try:
+        with open("/proc/meminfo") as f:
+            for line in f:
+                if line.startswith("MemAvailable:"):
+                    return int(line.split()[1]) / 1e6
+    except OSError:
+        pass
+    return None
+
+
 def strip_to_json(text: Optional[str]) -> str:
     """Cut LLM output down to the JSON it contains.
 
@@ -235,11 +247,21 @@ class LLMClient:
         if root.endswith("/v1"):
             root = root[:-3]
         with urllib.request.urlopen(f"{root}/api/tags", timeout=5) as r:
-            names = {m.get("name", "") for m in json.load(r).get("models", [])}
+            models = {m.get("name", ""): m for m in json.load(r).get("models", [])}
         want = self.model if ":" in self.model else f"{self.model}:latest"
-        if want not in names:
+        if want not in models:
             return False, f"Ollama is running but '{self.model}' is not pulled. Run: ollama pull {self.model}"
-        return True, f"ollama ready ({self.model})"
+        msg = f"ollama ready ({self.model})"
+        # A model that does not fit in free memory gets killed while loading (HTTP 500 "signal: killed").
+        size_gb = models[want].get("size", 0) / 1e9
+        free_gb = available_memory_gb()
+        if size_gb and free_gb is not None:
+            need = size_gb * 1.3   # weights plus KV cache and runtime, a safe rule of thumb
+            msg += f"; needs ~{need:.1f} GB, {free_gb:.1f} GB free"
+            if free_gb < need:
+                msg += (". It may be killed for lack of memory: close other apps or use a smaller "
+                        "model (ollama pull qwen3:4b, then OLLAMA_MODEL=qwen3:4b in .env)")
+        return True, msg
 
     # -- wording ------------------------------------------------------------
     def _connection_hint(self) -> str:
@@ -256,5 +278,11 @@ class LLMClient:
                     "Set GROQ_LLM_MODEL in .env to a model your account lists.")
         if code == 429:
             return f"{self.provider} rate limit reached (HTTP 429). Wait a minute and retry."
+        if self.provider == "ollama" and re.search(r"killed|terminated|out of memory", str(e), re.I):
+            free = available_memory_gb()
+            return (f"Ollama ran out of memory loading '{self.model}'"
+                    + (f" ({free:.1f} GB free)" if free is not None else "")
+                    + ". Close other apps, or use a smaller model: "
+                      "ollama pull qwen3:4b, then set OLLAMA_MODEL=qwen3:4b in .env.")
         msg = re.sub(r"\s+", " ", str(e))[:200]
         return f"{self.provider} error HTTP {code}: {msg}"

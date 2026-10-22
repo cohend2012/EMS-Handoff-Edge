@@ -19,6 +19,7 @@ Press Ctrl+C to stop early. The recording is still transcribed.
 from __future__ import annotations
 
 import argparse
+import shutil
 import sys
 import threading
 import time
@@ -75,8 +76,10 @@ def main() -> int:
     try:
         while not done.wait(0.2):
             bar = "#" * min(30, int(state["level"] * 300))
-            text = state["caption"][-90:]
-            print(f"\r{state['secs']:5.1f}s |{bar:<30}| {text}", end="", flush=True)
+            head = f"{state['secs']:5.1f}s |{bar:<30}| "
+            room = max(10, shutil.get_terminal_size().columns - len(head) - 1)
+            text = state["caption"][-room:]          # fit the line, so it never wraps and floods
+            print(f"\r\033[K{head}{text}", end="", flush=True)
     except KeyboardInterrupt:
         session.finish("ctrl-c")
     audio = session.stop()
