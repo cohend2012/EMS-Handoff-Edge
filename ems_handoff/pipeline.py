@@ -117,6 +117,9 @@ class ReportPipeline:
         self.lexicon_store = lexicon_store
         self.textbook_rag = textbook_rag
         self.on_stage = on_stage or (lambda _msg: None)
+        # what the last run gave the model, for `cli --show-context` and the tests
+        self.last_context = ""        # lexicon terms + flagged suspects block
+        self.last_reference = ""      # textbook excerpts ("" when no store / nothing found)
 
     def run(self, transcript: str, source: str = "text",
             timings: Optional[Dict[str, float]] = None) -> Dict[str, Any]:
@@ -141,6 +144,7 @@ class ReportPipeline:
         suspects = format_suspects_for_llm(fix.flagged)
         if suspects:
             context = f"{context}\n{suspects}" if context else suspects
+        self.last_context, self.last_reference = context, ""
         prompt = EXTRACTION_PROMPT.format(ems_report=fix.text, lexicon_context=context)
 
         # 3. extract
@@ -182,6 +186,7 @@ class ReportPipeline:
         t0 = time.perf_counter()
         try:
             reference = rag.guidance_context(report, top_k=6)
+            self.last_reference = reference or ""
             if not reference:
                 return None
             prompt = GUIDANCE_PROMPT.format(handoff_json=json.dumps(report, indent=2),

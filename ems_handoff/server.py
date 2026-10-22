@@ -188,6 +188,11 @@ class Controller:
                         primary.describe())
         except Exception as e:  # noqa: BLE001 - the app still works; engines load on first use
             logger.warning("Warm-up incomplete: %s", e)
+        if self.settings.provider == "ollama":
+            try:   # load the local model now, not during the first report
+                self.engines.make_llm(self.settings).preload()
+            except Exception as e:  # noqa: BLE001 - Ollama down or model missing: Check says why
+                logger.warning("Ollama preload skipped: %s", e)
         self.broker.publish({"type": "status", "status": self.status()})
 
     def status(self) -> dict:
