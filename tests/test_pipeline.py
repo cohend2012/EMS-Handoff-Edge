@@ -135,3 +135,23 @@ def test_pipeline_exposes_the_context_it_gave_the_model():
     assert pipe.last_reference.startswith("CLINICAL REFERENCE")
     # the same lexicon block is inside the prompt the model received
     assert pipe.last_context in pipe.llm.prompts[0]
+
+
+def test_schema_placeholders_echoed_by_a_small_model_become_null():
+    bad = report_dict()
+    bad["vital_signs"]["gcs"] = "Total and breakdown if mentioned"
+    bad["vital_signs"]["temperature"] = "if mentioned"
+    bad["history"]["medications"] = ["List of medications", "aspirin"]
+    bad["chief_complaint"] = "Chest pain"
+    report = parse_report(json.dumps(bad))
+    assert report["vital_signs"]["gcs"] is None and report["vital_signs"]["temperature"] is None
+    assert report["history"]["medications"] == ["aspirin"]
+    assert report["chief_complaint"] == "Chest pain"
+
+
+def test_token_stats_are_kept_in_timings():
+    llm = FakeLLM()
+    llm.last_usage = {"tokens_in": 2100, "tokens_out": 850, "tok_s": 10.7}
+    report, _, _ = run(SAMPLE_STEMI, llm)
+    t = report["_meta"]["timings"]
+    assert t["tokens_out"] == 850 and t["tok_s"] == 10.7 and "extract_s" in t

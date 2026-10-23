@@ -198,7 +198,7 @@ def test_pick_ollama_model_by_free_memory():
     assert note == "'qwen3:8b' needs ~6.8 GB but only 2.8 GB is free; using 'qwen3:1.7b'"
     assert pick_ollama_model(models, "qwen3:8b", 4.0)[0] == "qwen3:4b"
     model, note = pick_ollama_model({"qwen3:8b": 5.2}, "qwen3:8b", 2.8)
-    assert model == "qwen3:8b" and "no smaller model is pulled" in note
+    assert model == "qwen3:8b" and "no smaller model" in note
     assert pick_ollama_model(models, "missing:1b", 7.5) == (None, "")
 
 

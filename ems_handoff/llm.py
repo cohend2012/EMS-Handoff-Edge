@@ -82,7 +82,10 @@ def pick_model(available, wanted: str, preferences=GROQ_LLM_PREFERENCES) -> Tupl
 
 # Ollama models in order of preference, largest first. When the configured model
 # cannot fit in free memory, the first of these that is pulled and fits is used.
-OLLAMA_PREFERENCES = ["qwen3:8b", "qwen3:4b", "llama3.2:3b", "qwen3:1.7b", "llama3.2:1b", "qwen3:0.6b"]
+# Models under ~1.7B parameters are not on the list: in a test llama3.2:1b echoed the
+# schema's placeholder text as findings. A wrong handoff is worse than a clear error.
+# They can still be chosen on purpose with OLLAMA_MODEL.
+OLLAMA_PREFERENCES = ["qwen3:8b", "qwen3:4b", "llama3.2:3b", "qwen3:1.7b"]
 
 
 def ollama_need_gb(size_gb: float) -> float:
@@ -110,8 +113,19 @@ def pick_ollama_model(models: Dict[str, float], wanted: str,
             return name, (f"'{wanted}' needs ~{need:.1f} GB but only {free_gb:.1f} GB is free; "
                           f"using '{name}'")
     return wanted, (f"'{wanted}' needs ~{need:.1f} GB but only {free_gb:.1f} GB is free and no "
-                    "smaller model is pulled. It may be killed while loading: close other apps, "
-                    "or run: ollama pull qwen3:4b")
+                    "smaller model (qwen3:4b, llama3.2:3b, qwen3:1.7b) is pulled. It may be killed "
+                    "while loading: close other apps (a browser can hold 2 GB), or run: ollama pull qwen3:4b")
+
+
+def _usage_dict(resp, took_s: float) -> dict:
+    usage = getattr(resp, "usage", None)
+    out = getattr(usage, "completion_tokens", None)
+    if not out:
+        return {}
+    d = {"tokens_in": getattr(usage, "prompt_tokens", 0) or 0, "tokens_out": out}
+    if took_s > 0:
+        d["tok_s"] = round(out / took_s, 1)
+    return d
 
 
 def _usage_note(resp, took_s: float) -> str:
@@ -170,6 +184,7 @@ class LLMClient:
         self.provider = settings.provider
         self.model = settings.llm_model()
         self.attempts = max(1, attempts)
+        self.last_usage: dict = {}     # tokens_in / tokens_out / tok_s of the last reply, when reported
         self._client = client if client is not None else self._make_client()
 
     # -- construction -----------------------------------------------------
@@ -276,6 +291,7 @@ class LLMClient:
                 resp = self._client.chat.completions.create(**kwargs)
                 text = strip_to_json(resp.choices[0].message.content)
                 took = time.perf_counter() - started
+                self.last_usage = _usage_dict(resp, took)
                 logger.info("LLM %s/%s replied in %.1fs (attempt %d)%s", self.provider,
                             self.model, took, attempt, _usage_note(resp, took))
                 if text.strip():
