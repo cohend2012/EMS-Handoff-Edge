@@ -65,6 +65,36 @@ class PipelineError(RuntimeError):
     """A report could not be produced. The message is shown to the user."""
 
 
+# Descriptive strings from EXTRACTION_PROMPT that a small model sometimes copies back
+# as if they were values ("gcs": "Total and breakdown if mentioned"). They become null.
+_PLACEHOLDERS = {
+    "systolic/diastolic or null", "number or null", "percentage and oxygen delivery method",
+    "if mentioned", "total and breakdown if mentioned", "brief one-line summary",
+    "how/when this started", "alert/verbal/pain/unresponsive and orientation",
+    "patent/compromised/secured", "description of respiratory effort and lung sounds",
+    "skin signs, pulses, bleeding", "pupils, movement, deficits", "list of other significant findings",
+    "what was done", "specifics (dose, route, size, etc.)", "patient response if mentioned",
+    "list of conditions", "list of medications", "list or nkda",
+    "full code / dnr / dni / other if mentioned",
+    "what the paramedic requested (cath lab, trauma team, etc.)",
+    "list specific resources, teams, equipment", "actions to initiate before patient arrival",
+    "single sentence for quick verbal handoff", "top 2-3 clinical concerns",
+    "what patient will need immediately on arrival", "important information not provided",
+    "any assumptions made from context", "null",
+}
+
+
+def scrub_placeholders(value: Any) -> Any:
+    """Replace prompt placeholder text with None, recursively. Lists lose placeholder items."""
+    if isinstance(value, str):
+        return None if value.strip().lower() in _PLACEHOLDERS else value
+    if isinstance(value, list):
+        return [v for v in (scrub_placeholders(x) for x in value) if v is not None]
+    if isinstance(value, dict):
+        return {k: scrub_placeholders(v) for k, v in value.items()}
+    return value
+
+
 def parse_report(text: str) -> Dict[str, Any]:
     """Parse and validate the LLM's JSON. Fills optional defaults (deep copies)."""
     try:
@@ -73,6 +103,7 @@ def parse_report(text: str) -> Dict[str, Any]:
         raise PipelineError(f"The AI returned malformed JSON ({e.msg}). Try again.") from e
     if not isinstance(data, dict):
         raise PipelineError("The AI returned JSON that is not an object.")
+    data = scrub_placeholders(data)
     missing = sorted(REQUIRED_FIELDS - data.keys())
     if missing:
         raise PipelineError(f"The AI left out required fields: {', '.join(missing)}.")
@@ -158,6 +189,9 @@ class ReportPipeline:
             raise PipelineError(str(e)) from e
         report = parse_report(reply)
         timings["extract_s"] = round(time.perf_counter() - t0, 3)
+        usage = getattr(self.llm, "last_usage", None)
+        if usage:
+            timings.update(usage)      # tokens_in, tokens_out, tok_s: says where a slow model spent its time
         report["data_quality"]["assumptions"].extend(assumption_notes(fix))
 
         # 4. optional textbook guidance (never fails the report)
