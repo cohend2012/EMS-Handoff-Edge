@@ -20,6 +20,9 @@ def test_env_overrides_and_bad_values_fall_back():
                        "HANDOFF_MIC_DEVICE": "PnP", "HANDOFF_PORT": "not-a-number",
                        "HANDOFF_CAPTIONS": "nonsense", "HANDOFF_USE_LEXICON": "0"})
     assert s.provider == "ollama" and s.llm_model() == "qwen3:4b"
+    assert s.ollama_model_pinned is True and s.public_dict()["model_pinned"] is True
+    assert load_settings({}).ollama_model_pinned is False
+    assert load_settings({"OLLAMA_MODEL": "  "}).ollama_model == "qwen3:8b"   # blank = unset
     assert s.groq_api_key == "gsk_x"
     assert s.mic_device == "PnP"
     assert s.port == 5050

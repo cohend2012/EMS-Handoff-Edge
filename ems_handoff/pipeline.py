@@ -259,11 +259,11 @@ class ReportPipeline:
         prompt = EXTRACTION_PROMPT.format(ems_report=fix.text, lexicon_context=context)
 
         # 3. extract
-        if hasattr(self.llm, "resolve_model"):
-            self.llm.resolve_model()   # name the model actually used, not a retired one
-        self.on_stage(f"Writing the handoff ({self.llm.provider} · {self.llm.model})")
         t0 = time.perf_counter()
         try:
+            if hasattr(self.llm, "resolve_model"):
+                self.llm.resolve_model()   # name the model actually used, not a retired one
+            self.on_stage(f"Writing the handoff ({self.llm.provider} · {self.llm.model})")
             reply = self.llm.complete_json(prompt, temperature=0.0)
         except LLMError as e:
             raise PipelineError(str(e)) from e
