@@ -6,7 +6,7 @@ import pytest
 
 from ems_handoff.lexicon_rag import LexiconStore
 from ems_handoff.llm import LLMError
-from ems_handoff.pipeline import PipelineError, ReportPipeline, parse_guidance, parse_report
+from ems_handoff.pipeline import REQUIRED_FIELDS, PipelineError, ReportPipeline, parse_guidance, parse_report
 from ems_handoff.samples import SAMPLE_SEPSIS, SAMPLE_STEMI
 from fakes import FakeLLM, report_dict
 
@@ -60,6 +60,7 @@ def test_optional_fields_get_independent_defaults():
     ("[1, 2]", "not an object"),
     (json.dumps({"alert_type": "STEMI"}), "left out required fields"),
     (json.dumps(report_dict(alert_level="PURPLE")), "invalid alert level"),
+    (json.dumps(report_dict(alert_level=None)), "invalid alert level"),   # a named alert type needs a priority
     (json.dumps(report_dict(patient="67M")), "'patient' field"),
 ])
 def test_bad_llm_output_gives_a_readable_error(reply, message):
@@ -77,11 +78,74 @@ def test_llm_failure_becomes_pipeline_error():
         run(SAMPLE_STEMI, FakeLLM([LLMError("groq failed after 3 tries: cannot reach groq")]))
 
 
-def test_too_short_report_is_rejected_without_calling_the_llm():
+# What a model honestly returns for a few words: whole sections null, lists null.
+SPARSE_REPLY = json.dumps({
+    "alert_type": "UNCLEAR", "alert_level": None, "patient": None, "chief_complaint": None,
+    "vital_signs": None, "assessment_findings": None,
+    "history": {"past_medical": None, "medications": None, "allergies": None, "code_status": None},
+    "handoff_summary": None,
+    "data_quality": {"confidence": "MEDIUM", "missing_info": None, "assumptions": None},
+})
+
+
+def assert_complete_unclear(report):
+    assert REQUIRED_FIELDS <= set(report)
+    assert report["alert_type"] == "UNCLEAR" and report["alert_level"] is None
+    assert report["data_quality"]["confidence"] == "LOW"
+    missing = report["data_quality"]["missing_info"]
+    assert "patient age" in missing and "vital signs" in missing and "chief complaint" in missing
+    assert report["patient"] == {"age": None, "age_unit": None, "sex": None}
+    assert report["vital_signs"]["heart_rate"] is None and report["chief_complaint"] is None
+    assert report["history"]["medications"] == [] and report["ems_interventions"] == []
+    assert report["handoff_summary"]["key_concerns"] == [] and report["data_quality"]["assumptions"] == []
+
+
+def test_three_word_transcript_is_processed_into_a_complete_unclear_report():
+    report, stages, pipe = run("How old? Sorry.", FakeLLM([SPARSE_REPLY]))      # CS015, verbatim
+    assert_complete_unclear(report)
+    assert "How old? Sorry." in pipe.llm.prompts[0]        # the model was asked, however short
+    assert report["_meta"]["transcript"] == "How old? Sorry."
+    assert stages[1].startswith("Writing the handoff")
+
+
+def test_one_word_transcript_is_processed():
+    report, _, pipe = run("Copy.", FakeLLM([SPARSE_REPLY]))
+    assert_complete_unclear(report)
+    assert len(pipe.llm.prompts) == 1
+
+
+@pytest.mark.parametrize("text", ["", "   \n", "confirm report ready"])   # the stop phrase alone leaves no words
+def test_empty_transcript_gets_a_report_that_says_so_without_calling_the_llm(text):
     llm = FakeLLM()
-    with pytest.raises(PipelineError, match="too short"):
-        run("confirm report ready", llm)
-    assert llm.prompts == []
+    report, stages, _ = run(text, llm)
+    assert_complete_unclear(report)
+    assert report["data_quality"]["missing_info"][0] == "Transcript is empty (no words)"
+    assert "empty" in report["handoff_summary"]["one_liner"]
+    assert report["_meta"]["transcript"] == "" and report["_meta"]["note"].startswith("empty transcript")
+    assert llm.prompts == [] and stages == ["Nothing to extract: the transcript is empty"]
+
+
+def test_unclear_alert_forces_low_confidence_and_lists_what_is_missing():
+    reply = report_dict(alert_type="UNCLEAR", alert_level="GREEN", eta_minutes=None,
+                        patient={"age": None, "age_unit": None, "sex": "Male"},
+                        data_quality={"confidence": "HIGH", "missing_info": [], "assumptions": []})
+    report, _, _ = run(SAMPLE_STEMI, FakeLLM([json.dumps(reply)]))
+    assert report["alert_level"] == "GREEN"                    # a level the model did give is kept
+    assert report["data_quality"]["confidence"] == "LOW"
+    assert report["data_quality"]["missing_info"] == ["patient age", "ETA"]   # filled from the null fields
+
+
+def test_null_lists_and_sections_from_the_model_become_empty_shapes():
+    # the CS022 / S007_01 baseline failure: data_quality.assumptions was null and .extend crashed
+    reply = report_dict(ems_interventions=None, hospital_recommendations=None,
+                        history={"past_medical": None, "medications": "metformin", "allergies": None, "code_status": None},
+                        data_quality={"confidence": "MEDIUM", "missing_info": None, "assumptions": None})
+    report, _, _ = run(SAMPLE_SEPSIS.replace("furosemide", "ferosemide"), FakeLLM([json.dumps(reply)]))
+    assert report["alert_type"] == "STEMI" and report["data_quality"]["confidence"] == "MEDIUM"
+    assert report["data_quality"]["missing_info"] == []
+    assert any("ferosemide" in a for a in report["data_quality"]["assumptions"])
+    assert report["ems_interventions"] == [] and report["history"]["medications"] == ["metformin"]
+    assert report["history"]["allergies"] == [] and report["hospital_recommendations"]["resources_to_prepare"] == []
 
 
 class FakeTextbook:
