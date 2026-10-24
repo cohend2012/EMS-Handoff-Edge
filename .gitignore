@@ -31,3 +31,14 @@ user_settings.json
 # test screenshots
 tests/artifacts/
 .pytest_cache/
+
+# corpus data stays outside the repo (~/calls, ~/segments, ~/callsets, ~/reports, see scripts/corpus/README.md)
+*.wav
+*.m4a
+*.mp3
+/transcripts/
+/segments/
+/callsets/
+/reports/
+/reports_postfix/
+/backups/
