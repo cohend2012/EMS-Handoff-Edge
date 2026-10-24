@@ -230,6 +230,46 @@ def test_ollama_counts_a_loaded_model_as_free_memory(monkeypatch):
     assert ok and "nothing pulled fits" in msg and "killed" in msg
 
 
+def test_pinned_ollama_model_is_never_substituted(monkeypatch):
+    # OLLAMA_MODEL set: the 8b model is used although only the 4b one fits, with a warning
+    _tags(monkeypatch, **{"qwen3:8b": 5.2, "qwen3:4b-instruct": 2.5})
+    monkeypatch.setattr("ems_handoff.llm.available_memory_gb", lambda: 4.2)
+    pinned = Settings(provider="ollama", ollama_model="qwen3:8b", ollama_model_pinned=True)
+    fake = FakeOpenAI(['{"ok": 1}'])
+    LLMClient(pinned, client=fake).complete_json("p")
+    assert fake.calls[0]["model"] == "qwen3:8b"
+    ok, msg = LLMClient(pinned, client=FakeOpenAI([])).check()
+    assert ok and msg.startswith("ollama ready (qwen3:8b, pinned)") and "pinned by OLLAMA_MODEL" in msg
+    assert "killed" in msg and "using" not in msg
+
+
+def test_pinned_ollama_model_that_is_not_pulled_is_a_visible_error(monkeypatch):
+    _tags(monkeypatch, **{"qwen3:4b-instruct": 2.5})
+    monkeypatch.setattr("ems_handoff.llm.available_memory_gb", lambda: 7.0)
+    pinned = Settings(provider="ollama", ollama_model="qwen3:8b", ollama_model_pinned=True)
+    fake = FakeOpenAI(['{"ok": 1}'])
+    with pytest.raises(LLMError, match="ollama pull qwen3:8b"):
+        LLMClient(pinned, client=fake).complete_json("p")
+    assert fake.calls == []                       # nothing was sent to a substitute
+    ok, msg = LLMClient(pinned, client=fake).check()
+    assert not ok and "pinned by OLLAMA_MODEL" in msg and "ollama pull qwen3:8b" in msg
+
+
+def test_pinned_ollama_reply_from_another_model_is_rejected(monkeypatch):
+    _tags(monkeypatch, **{"qwen3:4b-instruct": 2.5})
+    monkeypatch.setattr("ems_handoff.llm.available_memory_gb", lambda: 7.0)
+    pinned = Settings(provider="ollama", ollama_model="qwen3:4b-instruct", ollama_model_pinned=True)
+    reply = _reply('{"ok": 1}'); reply.model = "llama3.2:3b"
+    fake = FakeOpenAI([reply])
+    fake._create = lambda **kw: (fake.calls.append(kw), fake.outcomes[0])[1]
+    fake.chat.completions.create = fake._create
+    with pytest.raises(LLMError, match="answered with 'llama3.2:3b'"):
+        LLMClient(pinned, client=fake).complete_json("p")
+    same = _reply('{"ok": 1}'); same.model = "qwen3:4b-instruct"
+    fake.outcomes = [same]
+    assert LLMClient(pinned, client=fake).complete_json("p") == '{"ok": 1}'
+
+
 def test_ollama_check_warns_when_nothing_smaller_is_pulled(monkeypatch):
     _tags(monkeypatch, **{"qwen3:8b": 5.2})
     monkeypatch.setattr("ems_handoff.llm.available_memory_gb", lambda: 2.0)

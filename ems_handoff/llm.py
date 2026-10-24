@@ -104,20 +104,30 @@ def ollama_need_gb(size_gb: float) -> float:
 
 
 def pick_ollama_model(models: Dict[str, float], wanted: str,
-                      free_gb: Optional[float]) -> Tuple[Optional[str], str]:
+                      free_gb: Optional[float], pinned: bool = False) -> Tuple[Optional[str], str]:
     """Choose the Ollama model to use from {name: size GB}. Returns (model, note-for-the-user).
 
     The wanted model is kept when it is pulled and fits in free memory (or memory
     is unknown). Otherwise the largest preferred model that is pulled and fits is
     used, and the note says why. A model that does not fit gets killed while
     loading, which Ollama reports as HTTP 500 "signal: killed".
+
+    ``pinned`` (OLLAMA_MODEL was set): the wanted model is the only acceptable one.
+    It is returned even when it does not fit, with a warning, and None when it is
+    not pulled. Nothing is ever substituted for a pinned model: a batch that must
+    run on one model, or a person who chose one, gets that model or an error.
     """
     want = wanted if ":" in wanted else f"{wanted}:latest"
     if want not in models:
-        return None, ""
+        return None, (f"'{wanted}' is not pulled (OLLAMA_MODEL pins it): run 'ollama pull {wanted}', "
+                      "or unset OLLAMA_MODEL to let the app choose a pulled model") if pinned else ""
     if free_gb is None or ollama_need_gb(models[want]) <= free_gb:
         return wanted, ""
     need = ollama_need_gb(models[want])
+    if pinned:
+        return wanted, (f"'{wanted}' needs ~{need:.1f} GB but only {free_gb:.1f} GB is free; it is pinned by "
+                        "OLLAMA_MODEL so nothing else will be used. It may be killed while loading. "
+                        "Close other apps, or add swap (see README).")
     for name in OLLAMA_PREFERENCES:
         if name in models and name != want and ollama_need_gb(models[name]) <= free_gb:
             return name, (f"'{wanted}' needs ~{need:.1f} GB but only {free_gb:.1f} GB is free; "
@@ -127,6 +137,14 @@ def pick_ollama_model(models: Dict[str, float], wanted: str,
         "no smaller model is pulled (ollama pull qwen3:4b-instruct, or qwen3:1.7b for a small machine)"
     return wanted, (f"'{wanted}' needs ~{need:.1f} GB but only {free_gb:.1f} GB is free; {what}. "
                     "It may be killed while loading. Close other apps, or add swap (see README).")
+
+
+def same_model(a: Optional[str], b: Optional[str]) -> bool:
+    """'qwen3:8b' == 'qwen3:8b'; a bare name means its ':latest' tag."""
+    if not a or not b:
+        return False
+    norm = lambda m: m if ":" in m else f"{m}:latest"  # noqa: E731
+    return norm(a) == norm(b)
 
 
 def _usage_dict(resp, took_s: float) -> dict:
@@ -233,7 +251,10 @@ class LLMClient:
             except Exception as e:  # noqa: BLE001 - Ollama down: the call itself will say so
                 logger.debug("Ollama model list unavailable (%s); using %s", e, self.model)
                 return ""
-            model, note = pick_ollama_model(models, self.model, self._ollama_free_gb())
+            pinned = self.settings.ollama_model_pinned
+            model, note = pick_ollama_model(models, self.settings.ollama_model, self._ollama_free_gb(), pinned)
+            if model is None and pinned:
+                raise LLMError(f"Ollama: {note}.")
             if model:
                 self.model = model
             if note:
@@ -301,8 +322,13 @@ class LLMClient:
             started = time.perf_counter()
             try:
                 resp = self._client.chat.completions.create(**kwargs)
-                text = strip_to_json(resp.choices[0].message.content)
                 took = time.perf_counter() - started
+                replied_with = getattr(resp, "model", None)
+                if (self.provider == "ollama" and self.settings.ollama_model_pinned
+                        and isinstance(replied_with, str) and not same_model(replied_with, self.model)):
+                    raise LLMError(f"Ollama answered with '{replied_with}' but OLLAMA_MODEL pins "
+                                   f"'{self.model}'. The report was discarded.")
+                text = strip_to_json(resp.choices[0].message.content)
                 self.last_usage = _usage_dict(resp, took)
                 logger.info("LLM %s/%s replied in %.1fs (attempt %d)%s", self.provider,
                             self.model, took, attempt, _usage_note(resp, took))
@@ -389,13 +415,15 @@ class LLMClient:
 
     def _check_ollama(self) -> Tuple[bool, str]:
         models = self._ollama_models()
-        want = self.model if ":" in self.model else f"{self.model}:latest"
+        wanted, pinned = self.settings.ollama_model, self.settings.ollama_model_pinned
+        want = wanted if ":" in wanted else f"{wanted}:latest"
         if want not in models:
-            return False, f"Ollama is running but '{self.model}' is not pulled. Run: ollama pull {self.model}"
+            how = " (pinned by OLLAMA_MODEL)" if pinned else ""
+            return False, f"Ollama is running but '{wanted}'{how} is not pulled. Run: ollama pull {wanted}"
         free_gb = self._ollama_free_gb()
-        model, note = pick_ollama_model(models, self.model, free_gb)
+        model, note = pick_ollama_model(models, wanted, free_gb, pinned)
         self.model = model or self.model
-        msg = f"ollama ready ({self.model})"
+        msg = f"ollama ready ({self.model}{', pinned' if pinned else ''})"
         if free_gb is not None:
             msg += f"; needs ~{ollama_need_gb(models.get(self.model, 0)):.1f} GB, {free_gb:.1f} GB free"
         return True, msg + (f"; {note}" if note else "")
