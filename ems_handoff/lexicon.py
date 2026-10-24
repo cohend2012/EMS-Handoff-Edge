@@ -275,7 +275,8 @@ LEXICON: Dict[str, Dict[str, List[str]]] = {
         "tourniquet": ["TQ", "TK"],
         "indwelling urinary catheter": ["Foley", "Foley catheter", "urinary catheter"],
         "supplemental oxygen": ["O2", "oxygen", "on oxygen", "liters",
-                             "liters per minute", "LPM"],
+                             "liters per minute", "LPM", "blow-by", "blow-by oxygen",
+                             "blow by oxygen"],
         "normal saline bolus": ["fluid bolus", "saline bolus", "fluids wide open",
                              "running wide open", "500 mL bolus"],
     },
@@ -340,6 +341,7 @@ LEXICON: Dict[str, Dict[str, List[str]]] = {
         "phenylephrine": ["Neo-Synephrine", "neo"],
         "oxytocin": ["Pitocin"],
         "pralidoxime": ["2-PAM", "Protopam", "pralidoxime chloride"],
+        "racemic epinephrine": ["racemic epi", "rac epi", "racemic", "nebulized epinephrine"],
         "prednisone": [],
         "procainamide": ["Pronestyl"],
         "promethazine": ["Phenergan"],
@@ -440,7 +442,9 @@ CLINICAL_NOTES: Dict[str, str] = {
     # interventions
     "intravenous access": "Record gauge and site. 14-18G = large bore, 20G standard, 22-24G small.",
     "endotracheal intubation": "Definitive airway. Record tube size, depth, and confirmation method.",
-    "supplemental oxygen": "Always pair the saturation with the delivery device and flow rate.",
+    "supplemental oxygen": "Always pair the saturation with the delivery device and flow rate. Blow-by = mask or tubing held near a child's face, low effective FiO2.",
+    "racemic epinephrine": "Nebulized for croup or stridor in children. Symptoms can rebound in 2-4 hours; the child needs observation.",
+    "dexamethasone": "Steroid given for croup (0.6 mg/kg, max 10-16 mg), asthma, and allergic reactions; onset in hours.",
     "tourniquet": "Record anatomical site and time applied -- the ED needs the clock.",
  
     # code status
