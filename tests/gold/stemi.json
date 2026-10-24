@@ -1,0 +1,28 @@
+{
+  "case": "stemi",
+  "fields": [
+    {"path": "alert_type", "kind": "enum", "expect": "STEMI", "weight": 3},
+    {"path": "alert_level", "kind": "enum", "expect": "RED", "weight": 3},
+    {"path": "patient.age", "kind": "int", "expect": 67, "weight": 2},
+    {"path": "patient.sex", "kind": "enum", "expect": "Male", "weight": 2},
+    {"path": "eta_minutes", "kind": "int", "expect": 8, "weight": 2},
+    {"path": "vital_signs.blood_pressure", "kind": "contains", "expect": ["158/92"], "weight": 2},
+    {"path": "vital_signs.heart_rate", "kind": "int", "expect": 98, "weight": 2},
+    {"path": "vital_signs.heart_rate", "kind": "contains", "expect": ["irregular"], "weight": 1,
+     "note": "rhythm was stated; a bare number loses it", "search": ["vital_signs", "assessment_findings", "handoff_summary"]},
+    {"path": "vital_signs.respiratory_rate", "kind": "int", "expect": 22, "weight": 2},
+    {"path": "vital_signs.spo2", "kind": "contains", "expect": ["98"], "weight": 2},
+    {"path": "vital_signs.spo2", "kind": "contains", "expect": ["4 l", "4l", "nasal"], "weight": 2},
+    {"path": "vital_signs.gcs", "kind": "unknown", "weight": 1},
+    {"path": "history.past_medical", "kind": "list", "expect": [["hypertension", "htn"], ["diabetes", "dm"]], "weight": 2},
+    {"path": "history.medications", "kind": "list", "expect": [["metformin"], ["lisinopril"]], "weight": 3},
+    {"path": "history.allergies", "kind": "contains", "expect": ["no known", "nkda", "none"], "weight": 3},
+    {"path": "history.code_status", "kind": "unknown", "weight": 3},
+    {"path": "ems_interventions", "kind": "list", "expect": [["aspirin", "asa"], ["nitro"], ["iv", "18"]], "weight": 3},
+    {"path": "ems_interventions", "kind": "contains", "expect": ["324"], "weight": 3},
+    {"path": "ems_interventions", "kind": "contains", "expect": ["0.4"], "weight": 3},
+    {"path": "ems_interventions", "kind": "contains", "expect": ["left", "l ac", "left ac"], "weight": 1, "note": "IV side"},
+    {"path": "hospital_recommendations.activation_requested", "kind": "contains", "expect": ["cath"], "weight": 2},
+    {"path": "hospital_recommendations.suggested_destination", "kind": "enum", "expect": "Cath Lab", "weight": 3}
+  ]
+}

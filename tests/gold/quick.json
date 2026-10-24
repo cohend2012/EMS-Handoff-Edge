@@ -1,0 +1,27 @@
+{
+  "case": "quick",
+  "fields": [
+    {"path": "alert_type", "kind": "enum", "expect": "MEDICAL", "weight": 3,
+     "note": "found down, seizure history, no time-critical syndrome stated; NEURO-type labels also acceptable",
+     "accept": ["MEDICAL", "PSYCHIATRIC"]},
+    {"path": "patient.age", "kind": "int", "expect": 45, "weight": 2},
+    {"path": "patient.sex", "kind": "enum", "expect": "Male", "weight": 2},
+    {"path": "eta_minutes", "kind": "int", "expect": 5, "weight": 2},
+    {"path": "vital_signs.blood_pressure", "kind": "contains", "expect": ["140/90"], "weight": 2},
+    {"path": "vital_signs.heart_rate", "kind": "int", "expect": 110, "weight": 2},
+    {"path": "vital_signs.respiratory_rate", "kind": "unknown", "weight": 1},
+    {"path": "vital_signs.spo2", "kind": "contains", "expect": ["98"], "weight": 2},
+    {"path": "vital_signs.spo2", "kind": "not_contains", "expect": ["room air", "ambient", "nasal", "liters"], "weight": 1,
+     "note": "oxygen delivery was never stated"},
+    {"path": "vital_signs.gcs", "kind": "gcs", "expect": 14, "breakdown": null, "weight": 3},
+    {"path": "history.past_medical", "kind": "list", "expect": [["seizure"]], "weight": 2},
+    {"path": "history.medications", "kind": "unknown", "weight": 3},
+    {"path": "history.allergies", "kind": "unknown", "weight": 3},
+    {"path": "history.code_status", "kind": "unknown", "weight": 3},
+    {"path": "ems_interventions", "kind": "list", "expect": [["versed", "midazolam"], ["iv"]], "weight": 3},
+    {"path": "ems_interventions", "kind": "contains", "expect": ["5 mg", "5mg", "5 milligram"], "weight": 3},
+    {"path": "assessment_findings.neuro", "kind": "unknown", "weight": 2, "note": "pupils never mentioned"},
+    {"path": "assessment_findings.breathing", "kind": "unknown", "weight": 1, "note": "lung sounds never mentioned"},
+    {"path": "hospital_recommendations.activation_requested", "kind": "unknown", "weight": 2}
+  ]
+}
