@@ -195,7 +195,7 @@ def test_pick_ollama_model_by_free_memory():
     assert pick_ollama_model(models, "qwen3:8b", None) == ("qwen3:8b", "")      # memory unknown: trust it
     model, note = pick_ollama_model(models, "qwen3:8b", 2.8)
     assert model == "qwen3:1.7b"
-    assert note == "'qwen3:8b' needs ~6.8 GB but only 2.8 GB is free; using 'qwen3:1.7b'"
+    assert note == "'qwen3:8b' needs ~7.3 GB but only 2.8 GB is free; using 'qwen3:1.7b'"
     assert pick_ollama_model(models, "qwen3:8b", 4.0)[0] == "qwen3:4b"
     model, note = pick_ollama_model({"qwen3:8b": 5.2}, "qwen3:8b", 2.8)
     assert model == "qwen3:8b" and "no smaller model" in note
@@ -204,7 +204,7 @@ def test_pick_ollama_model_by_free_memory():
 
 def test_ollama_report_uses_a_model_that_fits(monkeypatch):
     _tags(monkeypatch, **{"qwen3:8b": 5.2, "qwen3:4b": 2.5})
-    monkeypatch.setattr("ems_handoff.llm.available_memory_gb", lambda: 3.6)   # 4b needs ~3.3 GB
+    monkeypatch.setattr("ems_handoff.llm.available_memory_gb", lambda: 4.2)   # 4b needs ~3.9 GB
     fake = FakeOpenAI(['{"ok": 1}'])
     client = LLMClient(Settings(provider="ollama", ollama_model="qwen3:8b"), client=fake)
     client.complete_json("p")
@@ -217,15 +217,15 @@ def test_ollama_check_warns_when_nothing_smaller_is_pulled(monkeypatch):
     _tags(monkeypatch, **{"qwen3:8b": 5.2})
     monkeypatch.setattr("ems_handoff.llm.available_memory_gb", lambda: 2.0)
     ok, msg = LLMClient(Settings(provider="ollama"), client=FakeOpenAI([])).check()
-    assert ok and "needs ~6.8 GB, 2.0 GB free" in msg and "ollama pull qwen3:4b" in msg
+    assert ok and "needs ~7.3 GB, 2.0 GB free" in msg and "ollama pull qwen3:4b" in msg
     monkeypatch.setattr("ems_handoff.llm.available_memory_gb", lambda: 7.5)
     ok, msg = LLMClient(Settings(provider="ollama"), client=FakeOpenAI([])).check()
-    assert ok and msg == "ollama ready (qwen3:8b); needs ~6.8 GB, 7.5 GB free"
+    assert ok and msg == "ollama ready (qwen3:8b); needs ~7.3 GB, 7.5 GB free"
 
 
 def test_ollama_preload_loads_the_model_that_fits(monkeypatch):
     _tags(monkeypatch, **{"qwen3:8b": 5.2, "qwen3:4b": 2.5})
-    monkeypatch.setattr("ems_handoff.llm.available_memory_gb", lambda: 3.6)
+    monkeypatch.setattr("ems_handoff.llm.available_memory_gb", lambda: 4.2)
     posted = []
     real = __import__("ems_handoff.llm", fromlist=["urllib"]).urllib.request.urlopen
 
@@ -249,3 +249,10 @@ def test_usage_is_logged_when_the_provider_reports_it(caplog):
     with caplog.at_level(logging.INFO, logger="ems_handoff.llm"):
         LLMClient(Settings(provider="ollama"), client=fake).complete_json("p")
     assert "2100 prompt + 850 output tokens" in caplog.text and "tok/s" in caplog.text
+
+
+def test_timeout_is_not_retried():
+    fake = FakeOpenAI([_exc(openai.APITimeoutError)])
+    with pytest.raises(LLMError, match="no reply within 180 s.*ollama ps"):
+        LLMClient(Settings(provider="ollama"), client=fake).complete_json("p")
+    assert len(fake.calls) == 1

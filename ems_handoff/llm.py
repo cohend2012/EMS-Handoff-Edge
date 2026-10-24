@@ -89,8 +89,14 @@ OLLAMA_PREFERENCES = ["qwen3:8b", "qwen3:4b", "llama3.2:3b", "qwen3:1.7b"]
 
 
 def ollama_need_gb(size_gb: float) -> float:
-    """Memory a model needs to run: its weights plus context cache and runtime (rule of thumb)."""
-    return size_gb * 1.3
+    """Memory a model needs to run: weights, the context cache, and the CUDA runtime.
+
+    Measured on the 8 GB Orin Nano: qwen3:4b (2.5 GB on disk) was killed with
+    3.4 GB free and ran with 3.7 GB, so a flat factor is too optimistic for small
+    models. Weights x 1.25 plus 0.8 GB for the context cache and runtime fits
+    what was seen (4b -> 3.9 GB, 8b -> 7.3 GB).
+    """
+    return round(size_gb * 1.25 + 0.8, 2)
 
 
 def pick_ollama_model(models: Dict[str, float], wanted: str,
@@ -112,9 +118,11 @@ def pick_ollama_model(models: Dict[str, float], wanted: str,
         if name in models and name != want and ollama_need_gb(models[name]) <= free_gb:
             return name, (f"'{wanted}' needs ~{need:.1f} GB but only {free_gb:.1f} GB is free; "
                           f"using '{name}'")
-    return wanted, (f"'{wanted}' needs ~{need:.1f} GB but only {free_gb:.1f} GB is free and no "
-                    "smaller model (qwen3:4b, llama3.2:3b, qwen3:1.7b) is pulled. It may be killed "
-                    "while loading: close other apps (a browser can hold 2 GB), or run: ollama pull qwen3:4b")
+    pulled = [f"{n} ~{ollama_need_gb(models[n]):.1f} GB" for n in OLLAMA_PREFERENCES if n in models and n != want]
+    what = f"nothing pulled fits ({', '.join(pulled)})" if pulled else \
+        "no smaller model is pulled (ollama pull qwen3:4b, or qwen3:1.7b for a small machine)"
+    return wanted, (f"'{wanted}' needs ~{need:.1f} GB but only {free_gb:.1f} GB is free; {what}. "
+                    "It may be killed while loading. Close other apps, or add swap (see README).")
 
 
 def _usage_dict(resp, took_s: float) -> dict:
@@ -298,7 +306,11 @@ class LLMClient:
                     return text
                 last_problem = "the model returned an empty reply"
             except APITimeoutError:
-                last_problem = f"no reply within {self.settings.llm_timeout_s:.0f} s"
+                # A timeout is not transient: repeating the same request wastes another 180 s.
+                hint = (" The model may be too big for this machine or running on the CPU; "
+                        "check 'ollama ps' while a report runs." if self.provider == "ollama" else "")
+                raise LLMError(f"{self.provider} gave no reply within "
+                               f"{self.settings.llm_timeout_s:.0f} s.{hint}")
             except APIConnectionError:
                 last_problem = self._connection_hint()
             except APIStatusError as e:
