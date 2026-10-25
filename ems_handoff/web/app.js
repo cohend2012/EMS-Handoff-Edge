@@ -7,12 +7,15 @@
 
   Server events: status, state, listening, caption, level, finished, stage,
   transcript, result, error. See ems_handoff/server.py for the producers.
+  Replay mode adds "replay" (the driver) and "incident" (the session) events,
+  and tags caption / level / transcript events with replay_burst; those go to
+  the replay screen and never touch the live screen's handlers.
 */
 (() => {
   "use strict";
 
   const $ = (id) => document.getElementById(id);
-  const SCREENS = ["home", "live", "working", "report", "error"];
+  const SCREENS = ["home", "live", "working", "report", "error", "replay"];
   const ui = {
     status: null,
     samples: [],
@@ -20,6 +23,8 @@
     stageStart: 0,
     workTimer: null,
     lastStageAt: 0,
+    suspect: new Set(),       // field paths to mark on the dashboard (replay attribution); empty on the live path
+    replay: { callsetsLoaded: false, startedAt: 0, timer: null, bursts: 0, lastChange: "", flashTimer: null },
   };
 
   // ---------------------------------------------------------------- helpers
@@ -71,6 +76,11 @@
     $("phraseTip").textContent = phrase;
     $("engineLine").textContent = `Transcript: ${st.transcriber}. Mic: ${s.mic_device}.`;
     $("lastReportLine").hidden = !st.has_result;
+    if (s.replay_mode) {
+      $("replayCard").hidden = false;
+      $("rpCommit").textContent = st.commit || "";
+      if (!ui.replay.callsetsLoaded) loadCallsets();
+    }
   }
   async function checkProvider() {
     const dot = $("providerDot");
@@ -188,13 +198,19 @@
   }
 
   // ---------------------------------------------------------------- report
-  const row = (k, v) => has(v) ? `<div class="kv"><span class="k">${esc(k)}</span><span class="v">${esc(v)}</span></div>` : "";
+  const row = (k, v, path) => has(v) ? `<div class="kv${path && ui.suspect.has(path) ? " suspect" : ""}"${path && ui.suspect.has(path) ? ' title="suspect: not stated in the cited burst, or no burst given"' : ""}><span class="k">${esc(k)}</span><span class="v">${esc(v)}</span></div>` : "";
   const list = (arr, cls) => has(arr) ? `<ul>${arr.map((x) => `<li${cls ? ` class="${cls}"` : ""}>${esc(typeof x === "object" ? JSON.stringify(x) : x)}</li>`).join("")}</ul>` : "";
-  const card = (title, inner, opt = {}) => inner ? `<div class="dcard${opt.full ? " full" : ""}${opt.crit ? " crit" : ""}"><h3 class="${opt.crit ? "crit" : ""}">${esc(title)}</h3>${inner}</div>` : "";
+  const card = (title, inner, opt = {}) => inner ? `<div class="dcard${opt.full ? " full" : ""}${opt.crit ? " crit" : ""}${opt.suspect ? " suspect" : ""}"><h3 class="${opt.crit ? "crit" : ""}">${esc(title)}</h3>${inner}</div>` : "";
   const join = (v) => Array.isArray(v) ? v.filter(has).join(", ") : v;
 
   function renderReport(d) {
     stopWorkTimer();
+    ui.suspect = new Set();
+    $("dashboard").innerHTML = reportHtml(d);
+    show("report");
+    window.scrollTo(0, 0);
+  }
+  function reportHtml(d) {
     d = d || {};
     const level = has(d.alert_level) ? String(d.alert_level).toUpperCase() : "UNKNOWN";
     const s = d.handoff_summary || {}, p = d.patient || {}, v = d.vital_signs || {};
@@ -203,28 +219,32 @@
 
     let html = `<div class="dash-banner level-${esc(level)}">
       <h2>${esc(d.alert_type || "UNKNOWN")} ALERT · ${esc(level)} PRIORITY</h2>
-      <div class="eta">ETA ${esc(has(d.eta_minutes) ? d.eta_minutes : "?")} min</div>
+      <div class="eta${ui.suspect.has("eta_minutes") ? " suspect" : ""}">ETA ${esc(has(d.eta_minutes) ? d.eta_minutes : "?")} min</div>
       ${has(s.one_liner) ? `<div class="one-liner">“${esc(s.one_liner)}”</div>` : ""}
     </div><div class="dash-grid">`;
 
     html += card("Patient",
-      row("Age", has(p.age) ? `${p.age} ${p.age_unit || "years"}` : "") + row("Sex", p.sex) +
-      row("Chief complaint", d.chief_complaint) + row("Onset / mechanism", d.mechanism_or_onset));
+      row("Age", has(p.age) ? `${p.age} ${p.age_unit || "years"}` : "", "patient.age") + row("Sex", p.sex, "patient.sex") +
+      row("Chief complaint", d.chief_complaint, "chief_complaint") + row("Onset / mechanism", d.mechanism_or_onset, "mechanism_or_onset"));
     html += card("Vital signs",
-      row("BP", v.blood_pressure) + row("HR", v.heart_rate) + row("RR", v.respiratory_rate) +
-      row("SpO2", v.spo2) + row("Temp", v.temperature) + row("Glucose", v.blood_glucose) + row("GCS", v.gcs));
+      row("BP", v.blood_pressure, "vital_signs.blood_pressure") + row("HR", v.heart_rate, "vital_signs.heart_rate") +
+      row("RR", v.respiratory_rate, "vital_signs.respiratory_rate") + row("SpO2", v.spo2, "vital_signs.spo2") +
+      row("Temp", v.temperature, "vital_signs.temperature") + row("Glucose", v.blood_glucose, "vital_signs.blood_glucose") +
+      row("GCS", v.gcs, "vital_signs.gcs"));
     html += card("Assessment",
-      row("LOC", a.level_of_consciousness) + row("Airway", a.airway) + row("Breathing", a.breathing) +
-      row("Circulation", a.circulation) + row("Neuro", a.neuro) + list(a.other_findings));
+      row("LOC", a.level_of_consciousness, "assessment_findings.level_of_consciousness") + row("Airway", a.airway, "assessment_findings.airway") +
+      row("Breathing", a.breathing, "assessment_findings.breathing") + row("Circulation", a.circulation, "assessment_findings.circulation") +
+      row("Neuro", a.neuro, "assessment_findings.neuro") + list(a.other_findings));
     if (has(d.ems_interventions)) {
       html += card("EMS interventions", d.ems_interventions.map((it) =>
         `<div class="intv"><strong>${esc(it.intervention || "")}</strong>` +
         (has(it.details) ? ` <span class="detail">· ${esc(it.details)}</span>` : "") +
-        (has(it.response) ? `<div class="resp">→ ${esc(it.response)}</div>` : "") + "</div>").join(""));
+        (has(it.response) ? `<div class="resp">→ ${esc(it.response)}</div>` : "") + "</div>").join(""),
+        { suspect: ui.suspect.has("ems_interventions") });
     }
     html += card("History",
-      row("Medical history", join(h.past_medical)) + row("Medications", join(h.medications)) +
-      row("Allergies", join(h.allergies)) + row("Code status", h.code_status));
+      row("Medical history", join(h.past_medical), "history.past_medical") + row("Medications", join(h.medications), "history.medications") +
+      row("Allergies", join(h.allergies), "history.allergies") + row("Code status", h.code_status, "history.code_status"));
     let prep = row("Activation", hr.activation_requested) + row("Destination", hr.suggested_destination);
     if (has(hr.resources_to_prepare)) prep += `<h3>Resources</h3>${list(hr.resources_to_prepare)}`;
     if (has(hr.time_critical_actions)) prep += `<h3 class="crit">Time-critical</h3>${list(hr.time_critical_actions, "crit")}`;
@@ -253,13 +273,200 @@
     if (t.extract_s != null) parts.push(`report ${t.extract_s}s`);
     if (t.guidance_s != null) parts.push(`guidance ${t.guidance_s}s`);
     html += `<p class="meta">Decision support only; clinical judgment required. ${esc(meta.provider || "")} · ${esc(meta.model || "")}${parts.length ? " · " + esc(parts.join(", ")) : ""}. Saved to output/handoff_report.json.</p>`;
-    $("dashboard").innerHTML = html;
-    show("report");
-    window.scrollTo(0, 0);
+    return html;
+  }
+
+  // ---------------------------------------------------------------- replay (replay mode only)
+  async function loadCallsets() {
+    ui.replay.callsetsLoaded = true;
+    try {
+      const r = await api("/api/replay/callsets");
+      const sel = $("callsetSelect");
+      sel.innerHTML = r.callsets.map((c) => c.error
+        ? `<option value="${esc(c.id)}" disabled>${esc(c.id)} · ${esc(c.error)}</option>`
+        : `<option value="${esc(c.id)}">${esc(c.id)} · ${esc(c.bursts)} burst${c.bursts === 1 ? "" : "s"} · ${esc(c.words)} words · ${esc(c.units || "?")} → ${esc(c.hospital || "?")} · ${esc(c.ages || "")} ${esc(c.sex || "")} · ${esc(c.keywords || "")}</option>`).join("");
+      $("replayInfo").textContent = `${r.callsets.length} call-sets in ${r.folder}. Bursts play at real time; only the gaps are divided by the speed.`;
+    } catch (e) {
+      $("replayInfo").textContent = e.message;
+    }
+  }
+  function resetReplayScreen(info) {
+    ui.suspect = new Set();
+    ui.replay.bursts = 0;
+    ui.replay.lastChange = "";
+    $("rpCallset").textContent = info?.callset || "";
+    $("rpCallsetInfo").textContent = info?.callset_info ? `${info.callset_info.units || "?"} → ${info.callset_info.hospital || "?"} · ${info.callset_info.first_burst_utc || ""} UTC` : "";
+    $("rpProvider").textContent = info?.provider || "";
+    $("rpModel").textContent = info?.model || "";
+    $("rpCommit").textContent = info?.commit || ui.status?.commit || "";
+    $("rpBurst").textContent = "0";
+    $("rpOf").textContent = info?.driver?.of ?? "0";
+    $("rpPhase").textContent = "Starting…";
+    $("rpNote").hidden = true;
+    $("rpFallback").hidden = true;
+    $("rpCaptions").innerHTML = '<span class="placeholder">Waiting for the first burst…</span>';
+    $("rpBurstNow").textContent = "";
+    $("rpMeter").style.width = "0%";
+    $("rpTranscript").innerHTML = '<span class="placeholder">Bursts appear here as they are transcribed.</span>';
+    $("rpSessionLine").textContent = "";
+    $("rpUpdating").hidden = true;
+    $("rpAsOf").hidden = true;
+    $("rpChange").hidden = true;
+    $("rpStage").textContent = "";
+    $("rpDashboard").innerHTML = '<div class="placeholder-box">No report yet. The first report comes after the quiet period.</div>';
+    $("rpDashboard").classList.remove("updating");
+    $("rpBackBtn").hidden = true;
+    $("rpStopBtn").hidden = false;
+    $("rpNewPatientBtn").disabled = false;
+    $("rpMergeBtn").disabled = false;
+    if (ui.replay.timer) clearInterval(ui.replay.timer);
+    ui.replay.startedAt = Date.now();
+    ui.replay.timer = setInterval(() => { $("rpElapsed").textContent = clock((Date.now() - ui.replay.startedAt) / 1000); }, 500);
+    show("replay");
+  }
+  function endReplayScreen() {
+    if (ui.replay.timer) clearInterval(ui.replay.timer);
+    ui.replay.timer = null;
+    $("rpBackBtn").hidden = false;
+    $("rpStopBtn").hidden = true;
+  }
+  async function startReplay() {
+    const callset = $("callsetSelect").value;
+    if (!callset) return;
+    $("replayBtn").disabled = true;
+    try {
+      const r = await api("/api/replay/start", { callset, provider: $("replayProvider").value, speed: Number($("replaySpeed").value) || 1 });
+      resetReplayScreen(r.replay);
+    } catch (e) {
+      $("replayInfo").textContent = e.message;
+    } finally {
+      $("replayBtn").disabled = false;
+    }
+  }
+  async function stopReplay() {
+    try { await api("/api/replay/stop", {}); } catch (_) { /* already stopped */ }
+    endReplayScreen();
+    $("rpPhase").textContent = "Replay stopped";
+  }
+  function flash() {
+    // two frames at 15 fps: the sync marker goes white for ~133 ms, in step with the click in the sink audio
+    const m = $("syncMarker");
+    m.classList.add("on");
+    if (ui.replay.flashTimer) clearTimeout(ui.replay.flashTimer);
+    ui.replay.flashTimer = setTimeout(() => m.classList.remove("on"), 133);
+  }
+  function renderReplay(ev) {
+    if (document.body.dataset.screen !== "replay") return;
+    $("rpBurst").textContent = ev.burst;
+    $("rpOf").textContent = ev.of;
+    if (ev.provider) $("rpProvider").textContent = ev.provider;
+    if (ev.model) $("rpModel").textContent = ev.model;
+    if (ev.elapsed_s != null) ui.replay.startedAt = Date.now() - ev.elapsed_s * 1000;
+    if (ev.flash) flash();
+    const note = $("rpNote");
+    if (ev.note) { note.textContent = ev.note; note.hidden = false; } else if (ev.phase !== "burst") note.hidden = true;
+    if (ev.fallback) {
+      $("rpFallback").textContent = `${ev.fallback.from} failed (${ev.fallback.reason}); reports from local ${ev.fallback.to}`;
+      $("rpFallback").hidden = false;
+    }
+    const phase = $("rpPhase");
+    if (ev.phase === "gap") {
+      phase.textContent = ev.burst === 1 && ev.seconds_left <= 0 ? "Starting the first burst…"
+        : `Next burst (${ev.burst} of ${ev.of}${ev.next_feed ? ", feed " + ev.next_feed : ""}) in ${ev.seconds_left.toFixed(1)} s`;
+    } else if (ev.phase === "burst") {
+      phase.textContent = `Burst ${ev.burst} of ${ev.of} playing`;
+      $("rpBurstNow").textContent = `· burst ${ev.burst}`;
+      $("rpCaptions").innerHTML = '<span class="placeholder">Listening…</span>';
+    } else if (ev.phase === "waiting") {
+      phase.textContent = "All bursts played · waiting for the report";
+    } else if (ev.phase === "done") {
+      phase.textContent = `Replay finished · ${clock(ev.elapsed_s || 0)}`;
+      endReplayScreen();
+    } else if (ev.phase === "error") {
+      phase.textContent = `Replay failed: ${ev.error || "unknown error"}`;
+      endReplayScreen();
+    }
+  }
+  function renderIncident(ev) {
+    if (document.body.dataset.screen !== "replay") return;
+    const s = ev.session;
+    if (!s) return;
+    // the growing transcript, one block per burst
+    if (s.bursts.length !== ui.replay.bursts || ev.event === "merged") {
+      const box = $("rpTranscript");
+      box.innerHTML = s.bursts.map((b, i) => {
+        const t = new Date(b.time * 1000);
+        const stamp = `${String(t.getUTCHours()).padStart(2, "0")}:${String(t.getUTCMinutes()).padStart(2, "0")}:${String(t.getUTCSeconds()).padStart(2, "0")}`;
+        return `<div class="burst-block${i === s.bursts.length - 1 ? " new" : ""}"><div class="burst-head">[Burst ${b.number} · ${stamp} UTC${b.feed ? " · feed " + esc(b.feed) : ""}${b.source_id ? " · " + esc(b.source_id) : ""}] <span class="words">${b.words} words</span></div><div>${esc(b.text) || '<span class="placeholder">(no words)</span>'}</div></div>`;
+      }).join("");
+      box.scrollTop = box.scrollHeight;
+      ui.replay.bursts = s.bursts.length;
+    }
+    $("rpSessionLine").textContent = `· session ${s.id} · ${s.of} burst${s.of === 1 ? "" : "s"}${s.closed ? " · closed" : ""}`;
+    // the report, with the updating marker and the burst count it covers
+    const updating = $("rpUpdating");
+    updating.hidden = !s.updating;
+    if (s.updating) $("rpUpdatingText").textContent = s.report ? `updating · report as of burst ${s.covered} of ${s.of}` : `writing the first report (${s.of} burst${s.of === 1 ? "" : "s"})`;
+    $("rpDashboard").classList.toggle("updating", !!s.updating);
+    if (s.report) {
+      const asof = $("rpAsOf");
+      asof.textContent = `Report as of burst ${s.covered} of ${s.of}${s.pending ? " · another run queued" : ""}`;
+      asof.hidden = false;
+      if (ev.event === "report" || ev.event === "merged") {
+        const att = s.report.attribution || {};
+        ui.suspect = new Set([...(att.suspect || []), ...(att.unattributed || [])]);
+        $("rpDashboard").innerHTML = reportHtml(s.report);
+        $("rpDashboard").scrollTop = 0;
+      }
+    }
+    const line = s.change_lines[s.change_lines.length - 1];
+    if (line && line !== ui.replay.lastChange) {
+      const el = $("rpChange");
+      el.textContent = line;
+      el.hidden = false;
+      el.classList.remove("new");
+      void el.offsetWidth;
+      el.classList.add("new");
+      ui.replay.lastChange = line;
+    }
+    if (ev.event === "error") $("rpStage").textContent = `Extraction failed: ${ev.message}`;
+  }
+  function renderReplayCaption(ev) {
+    const box = $("rpCaptions");
+    if (!ev.final && !ev.partial) return;
+    const nearBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 60;
+    box.innerHTML = `<span class="final">${esc(ev.final)}</span>` + (ev.partial ? ` <span class="partial">${esc(ev.partial)}</span>` : "");
+    if (nearBottom) box.scrollTop = box.scrollHeight;
+  }
+  function renderReplayLevel(ev) {
+    const pct = ev.rms <= 0 ? 0 : Math.min(100, Math.max(0, (Math.log10(ev.rms) + 3) / 2.3 * 100));
+    $("rpMeter").style.width = `${pct.toFixed(0)}%`;
+    $("rpPhase").textContent = `Burst ${$("rpBurst").textContent} of ${$("rpOf").textContent} playing · ${clock(ev.seconds)}`;
+  }
+  async function syncReplayScreen() {
+    try {
+      const r = await api("/api/replay/status");
+      if (!r.replay) return;
+      resetReplayScreen(r.replay);
+      if (r.replay.session) renderIncident({ type: "incident", event: "report", session: r.replay.session });
+      renderReplay({ ...r.replay.driver, provider: r.replay.provider, model: r.replay.model, fallback: r.replay.fallback });
+    } catch (e) { console.error(e); }
   }
 
   // ---------------------------------------------------------------- events
   function handle(ev) {
+    if (ev.replay_burst) {                 // a replayed burst's listener events: replay screen only
+      if (ev.type === "caption") renderReplayCaption(ev);
+      else if (ev.type === "level") renderReplayLevel(ev);
+      else if (ev.type === "listening") $("rpCaptionEngine").textContent = ev.captions ? `· ${ev.captions}` : "";
+      else if (ev.type === "transcript") $("rpStage").textContent = `Burst ${ev.replay_burst} transcribed by ${ev.transcriber} in ${ev.transcribe_s} s · ${ev.words} words${ev.notes && ev.notes.length ? " · " + ev.notes.join("; ") : ""}`;
+      return;
+    }
+    if (ev.replay) {                       // a replay stage or error: shown in the replay screen, never the error screen
+      if (ev.type === "stage") $("rpStage").textContent = ev.text;
+      else if (ev.type === "error") $("rpStage").textContent = ev.message;
+      return;
+    }
     switch (ev.type) {
       case "status":
         applyStatus(ev.status);
@@ -279,7 +486,10 @@
           if (document.body.dataset.screen !== "working") startWorking(title);
           else $("workingTitle").textContent = title;
         } else if (ev.state === "idle" && document.body.dataset.screen === "live") show("home");
+        else if (ev.state === "replaying") { if (document.body.dataset.screen !== "replay") syncReplayScreen(); }
         break;
+      case "replay": renderReplay(ev); break;
+      case "incident": renderIncident(ev); break;
       case "listening":
         $("captionEngine").textContent = ev.captions ? `· ${ev.captions}` : "";
         $("micLine").textContent = ev.mic ? `Mic: ${ev.mic}` : "";
@@ -305,6 +515,7 @@
 
   async function syncScreen(state) {
     if (state === "recording") show("live");
+    else if (state === "replaying") syncReplayScreen();
     else if (state === "transcribing" || state === "processing") {
       if (document.body.dataset.screen !== "working") startWorking("Making the handoff report");
     } else if (!document.body.dataset.screen) show("home");
@@ -380,6 +591,11 @@
   $("providerChip").addEventListener("click", openSettings);
   $("checkBtn").addEventListener("click", () => saveSettings(true).catch((e) => { $("checkResult").textContent = e.message; }));
   $("saveSettingsBtn").addEventListener("click", () => saveSettings(false).catch((e) => { $("checkResult").textContent = e.message; }));
+  $("replayBtn").addEventListener("click", startReplay);
+  $("rpStopBtn").addEventListener("click", stopReplay);
+  $("rpBackBtn").addEventListener("click", () => show("home"));
+  $("rpNewPatientBtn").addEventListener("click", () => api("/api/replay/new_patient", {}).catch((e) => { $("rpStage").textContent = e.message; }));
+  $("rpMergeBtn").addEventListener("click", () => api("/api/replay/merge", {}).catch((e) => { $("rpStage").textContent = e.message; }));
   $("showLastBtn").addEventListener("click", async () => {
     const r = await api("/api/result");
     if (r.report) renderReport(r.report);

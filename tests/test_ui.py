@@ -26,8 +26,14 @@ SCRIPT = ("Medic 21 to General Hospital. We are inbound with a 45-year-old male 
 
 
 def _chromium():
-    for path in ("/opt/pw-browsers/chromium-1194/chrome-linux/chrome",
-                 shutil.which("chromium") or "", shutil.which("chromium-browser") or ""):
+    candidates = ["/opt/pw-browsers/chromium-1194/chrome-linux/chrome",
+                  shutil.which("chromium") or "", shutil.which("chromium-browser") or ""]
+    for root in (Path(os.environ.get("PLAYWRIGHT_BROWSERS_PATH", "")), Path.home() / "pw-browsers",
+                 Path.home() / ".cache" / "ms-playwright"):
+        if str(root) not in ("", "."):
+            candidates += [str(x) for x in sorted(root.glob("chromium-*/chrome-linux*/chrome"), reverse=True)]
+            candidates += [str(x) for x in sorted(root.glob("chromium_headless_shell-*/chrome-linux*/headless_shell"), reverse=True)]
+    for path in candidates:
         if path and os.path.exists(path):
             return path
     return None
@@ -133,3 +139,53 @@ def test_settings_dialog_lists_mics_and_providers(app_url, page):
     page.click("#saveSettingsBtn")
     page.wait_for_function("document.querySelector('#providerText').innerText.startsWith('ollama')")
     page.screenshot(path=str(ARTIFACTS / "6-settings-saved.png"))
+
+
+def test_replay_screen_shows_bursts_report_and_updating_marker(settings, page, tmp_path):
+    """Replay mode on: the home card lists call-sets, and a replay fills captions, transcript, report and banner."""
+    import dataclasses
+    from werkzeug.serving import make_server
+    from test_replay import FakeSink, BurstTranscriber, make_callset
+    callsets = tmp_path / "callsets"
+    make_callset(callsets, "CS900")
+    settings = dataclasses.replace(settings, replay_mode_enabled=True, replay_callsets_dir=callsets, replay_speed=50.0)
+    llm = FakeLLM([json.dumps(report_dict(alert_type="PEDIATRIC", patient={"age": 3, "age_unit": "months", "sex": "Female"},
+                                          sources={"patient.age": 1}))], delay=0.5)
+    engines = Engines(make_llm=lambda s: llm, make_transcriber=lambda s: BurstTranscriber(["Three month old female trouble breathing", "How old? Sorry."]),
+                      make_fallback_transcriber=None, make_capture=lambda s: AutoFeedCapture(),
+                      make_listeners=lambda s: ((lambda: ScriptedCaptioner(SCRIPT, 1)), None, "Vosk (test)"),
+                      make_sink=lambda s: FakeSink(), list_mics=lambda: [])
+    app = create_app(settings, engines)
+    server = make_server("127.0.0.1", 0, app, threaded=True)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        page.goto(f"http://127.0.0.1:{server.server_port}/")
+        page.wait_for_selector("#replayCard:not([hidden])")
+        page.wait_for_function("document.querySelector('#callsetSelect').options.length > 0")
+        page.click("#replayBtn")
+        page.wait_for_selector("#screen-replay:not([hidden])")
+        assert "Recorded call replay" in page.inner_text("#replayBanner")
+        page.wait_for_function("document.querySelector('#rpTranscript').innerText.includes('[Burst 2')", timeout=20000)
+        page.wait_for_function("document.querySelector('#rpDashboard').innerText.includes('PEDIATRIC')", timeout=20000)
+        page.wait_for_selector("#rpBackBtn:not([hidden])", timeout=20000)
+        banner = page.inner_text("#replayBanner")
+        assert "burst 2 of 2" in banner and "groq" in banner and "commit" in banner
+        assert "Report as of burst 2 of 2" in page.inner_text("#rpAsOf")
+        assert page.inner_text("#rpChange").startswith("burst 2")
+        assert page.locator(".kv.suspect").count() >= 1, "unattributed fields are marked suspect"
+        page.screenshot(path=str(ARTIFACTS / "replay.png"), full_page=True)
+    finally:
+        server.shutdown()
+
+
+def test_page_carries_the_replay_screen_and_the_sync_marker(settings, tmp_path):
+    """No browser needed: what the served page and script contain for replay mode."""
+    from test_replay import build
+    client, _, _ = build(settings, tmp_path)
+    html = client.get("/").get_data(as_text=True)
+    for needle in ('id="screen-replay"', 'id="syncMarker"', 'id="replayCard"', 'id="rpUpdating"', 'id="rpChange"',
+                   'id="rpNewPatientBtn"', 'id="rpMergeBtn"', "Recorded call replay"):
+        assert needle in html
+    assert "loop" not in html.lower(), "no loop controls yet"
+    js = client.get("/web/app.js").get_data(as_text=True)
+    assert "replay_burst" in js and "syncMarker" in js and "133" in js, "the two-frame flash at 15 fps"

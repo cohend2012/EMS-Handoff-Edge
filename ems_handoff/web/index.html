@@ -8,6 +8,9 @@
     working  progress while transcribing and writing the report
     report   the hospital dashboard
     error    what went wrong, in plain words, with a way back
+    replay   a recorded call playing through the live pipeline (only when
+             replay mode is on): captions, the growing session transcript,
+             the current report with its updating marker, and the banner
 
   No external resources: it works on a Jetson with no internet.
 -->
@@ -60,8 +63,73 @@
           <textarea id="reportText" rows="10" placeholder="Paste a paramedic radio report…"></textarea>
           <button class="btn primary" id="textBtn" type="button">Make report</button>
         </article>
+
+        <article class="card replay-card" id="replayCard" hidden>
+          <h2>Replay a recorded call</h2>
+          <p class="muted">A call-set from the radio archive plays through the live pipeline burst by burst, with its real gaps.</p>
+          <label class="field-label" for="callsetSelect">Call-set</label>
+          <select id="callsetSelect"></select>
+          <div class="replay-opts">
+            <label>Provider
+              <select id="replayProvider"><option value="groq">Groq</option><option value="ollama">Ollama (local)</option></select>
+            </label>
+            <label>Gap speed <input id="replaySpeed" type="number" min="1" max="60" step="1" value="1"> ×</label>
+          </div>
+          <button class="btn primary" id="replayBtn" type="button">Replay call</button>
+          <p class="fine" id="replayInfo"></p>
+        </article>
       </div>
       <p class="fine center" id="lastReportLine" hidden><button class="link" id="showLastBtn" type="button">Show the last report</button></p>
+    </section>
+
+    <!-- REPLAY (replay mode only) -->
+    <section class="screen" id="screen-replay" hidden>
+      <div class="replay-banner" id="replayBanner">
+        <div class="replay-title"><span class="rec-dot pulse" aria-hidden="true"></span> Recorded call replay · <strong id="rpCallset"></strong>
+          <span class="replay-sub" id="rpCallsetInfo"></span></div>
+        <div class="replay-facts">
+          <span>burst <strong id="rpBurst">0</strong> of <strong id="rpOf">0</strong></span>
+          <span id="rpProvider"></span>
+          <span id="rpModel"></span>
+          <span>commit <code id="rpCommit"></code></span>
+          <span>elapsed <strong id="rpElapsed">0:00</strong></span>
+        </div>
+        <div class="replay-phase" id="rpPhase">Starting…</div>
+        <div class="replay-note" id="rpNote" hidden></div>
+        <div class="replay-fallback" id="rpFallback" hidden></div>
+        <div class="sync-marker" id="syncMarker" aria-hidden="true" title="sync marker: flashes white for two frames at every burst start"></div>
+      </div>
+      <div class="replay-grid">
+        <div class="replay-col">
+          <article class="panel captions-panel">
+            <h3>Live captions <span class="fine" id="rpCaptionEngine"></span> <span class="fine" id="rpBurstNow"></span></h3>
+            <div class="panel-body transcript" id="rpCaptions"><span class="placeholder">Waiting for the first burst…</span></div>
+            <div class="meter rp-meter" title="Burst level"><div class="meter-fill" id="rpMeter"></div></div>
+          </article>
+          <article class="panel session-panel">
+            <h3>Session transcript <span class="fine" id="rpSessionLine"></span></h3>
+            <div class="panel-body session-transcript" id="rpTranscript"><span class="placeholder">Bursts appear here as they are transcribed.</span></div>
+          </article>
+        </div>
+        <div class="replay-col report-col">
+          <div class="report-head">
+            <div class="updating-marker" id="rpUpdating" hidden><span class="spinner small" aria-hidden="true"></span> <span id="rpUpdatingText">updating</span></div>
+            <div class="report-asof" id="rpAsOf" hidden></div>
+            <div class="change-line" id="rpChange" hidden></div>
+            <div class="fine stage-line" id="rpStage"></div>
+          </div>
+          <div id="rpDashboard" class="report-area"><div class="placeholder-box">No report yet. The first report comes after the quiet period.</div></div>
+        </div>
+      </div>
+      <div class="action-bar">
+        <button class="btn ghost" id="rpStopBtn" type="button">Stop replay</button>
+        <div class="fine legend"><span class="suspect-swatch" aria-hidden="true"></span> suspect: the model gave no burst for it, or the cited burst does not say it</div>
+        <div class="action-row">
+          <button class="btn ghost" id="rpNewPatientBtn" type="button">New patient</button>
+          <button class="btn ghost" id="rpMergeBtn" type="button">Merge with previous</button>
+          <button class="btn primary" id="rpBackBtn" type="button" hidden>Back</button>
+        </div>
+      </div>
     </section>
 
     <!-- LIVE -->
