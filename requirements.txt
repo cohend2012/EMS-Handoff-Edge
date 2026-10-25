@@ -10,3 +10,4 @@ vosk>=0.3.45                # streaming live captions + stop-phrase spotter
 pypdf>=4.0                  # textbook embedding (optional feature)
 pyspellchecker>=0.8         # lets the transcript corrector fix mis-heard drug names safely
 jellyfish>=1.0              # phonetic tie-break for the corrector
+python-xlib>=0.33           # recording: place the capture window on the Jetson display
