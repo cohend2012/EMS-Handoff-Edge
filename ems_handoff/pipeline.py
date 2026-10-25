@@ -138,7 +138,7 @@ def fill_blanks(skeleton: Any, value: Any) -> Any:
 _FACTS = [
     ("patient age", "patient.age"), ("patient sex", "patient.sex"),
     ("chief complaint", "chief_complaint"), ("onset or mechanism", "mechanism_or_onset"),
-    ("ETA", "eta_minutes"), ("vital signs", "vital_signs"),
+    ("alert level", "alert_level"), ("ETA", "eta_minutes"), ("vital signs", "vital_signs"),
     ("assessment findings", "assessment_findings"), ("EMS interventions", "ems_interventions"),
     ("medical history", "history"),
     ("activation request", "hospital_recommendations.activation_requested"),
@@ -211,12 +211,10 @@ def parse_report(text: str) -> Dict[str, Any]:
     if data["alert_type"] not in ALERT_TYPES:
         logger.warning("Unexpected alert_type %r", data["alert_type"])
     level = data.get("alert_level")
-    level = str(level).upper().strip() if level is not None else None
-    if level is None and data["alert_type"] == "UNCLEAR":
-        pass                       # nothing said, no priority invented
-    elif level not in ALERT_LEVELS:
+    level = str(level).upper().strip() if level not in (None, "") else None
+    if level is not None and level not in ALERT_LEVELS:
         raise PipelineError(f"The AI gave an invalid alert level: {data.get('alert_level')!r}.")
-    data["alert_level"] = level
+    data["alert_level"] = level    # null = no priority was stated and none is invented (any alert type)
 
     dq = data["data_quality"]
     confidence = str(dq.get("confidence") or "").upper().strip()
@@ -225,6 +223,8 @@ def parse_report(text: str) -> Dict[str, Any]:
         dq["confidence"] = "LOW"
         if not dq["missing_info"]:
             dq["missing_info"] = unstated(data)
+    if data["alert_level"] is None and not any("alert level" in str(m).lower() for m in dq["missing_info"]):
+        dq["missing_info"].append("alert level")
     return data
 
 
