@@ -109,6 +109,9 @@ class Settings:
     use_lexicon: bool = True
     use_textbook_rag: bool = True
 
+    # --- replay (recorded call-sets through the live pipeline) -------------
+    replay_mode_enabled: bool = False            # HANDOFF_REPLAY=1; off = today's app, byte for byte
+
     # --- derived helpers ---------------------------------------------------
     def has_key(self, provider: Optional[str] = None) -> bool:
         p = provider or self.provider
@@ -142,6 +145,7 @@ class Settings:
             "mic_device": self.mic_device or "auto",
             "stop_phrase": self.stop_phrase,
             "max_recording_s": self.max_recording_s,
+            "replay_mode": self.replay_mode_enabled,
         }
 
 
@@ -177,4 +181,5 @@ def load_settings(env: Optional[Mapping[str, str]] = None) -> Settings:
         textbook_dir=Path(g("HANDOFF_TEXTBOOK_DIR")) if g("HANDOFF_TEXTBOOK_DIR") else defaults.textbook_dir,
         use_lexicon=_bool(g("HANDOFF_USE_LEXICON"), True),
         use_textbook_rag=_bool(g("HANDOFF_USE_TEXTBOOK_RAG"), True),
+        replay_mode_enabled=_bool(g("HANDOFF_REPLAY"), False),
     )

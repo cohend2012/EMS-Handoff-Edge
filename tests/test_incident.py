@@ -54,7 +54,7 @@ class Clock:
 
 def manager(replies, quiet_s=25.0, worker=False, delay=0.0, **kw):
     llm = FakeLLM(replies, delay=delay)
-    pipe = ReportPipeline(llm)
+    pipe = ReportPipeline(llm, attribution=True)
     events = []
     clock = Clock()
     m = IncidentManager(lambda text, meta: pipe.run(text, source="replay"), quiet_s=quiet_s, clock=clock,
@@ -105,6 +105,7 @@ def test_quiet_period_triggers_one_run_over_everything_received():
     assert s.change_lines == ["burst 2 added: patient (age, age_unit, sex), complaint; alert PEDIATRIC"]
     assert s.current["_meta"]["session"] == {"id": "P1", "covers": 2, "burst_ids": ["S054_01", "S055_01"]}
     assert "[Burst 2" in m.llm.prompts[0], "the model read the whole session transcript"
+    assert '"sources"' in m.llm.prompts[0], "sessions ask for burst attribution"
     kinds = [e["event"] for e in m.events]
     assert kinds == ["burst", "burst", "extracting", "report"]
 
