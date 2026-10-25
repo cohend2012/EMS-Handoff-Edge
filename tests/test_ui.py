@@ -188,4 +188,4 @@ def test_page_carries_the_replay_screen_and_the_sync_marker(settings, tmp_path):
         assert needle in html
     assert "loop" not in html.lower(), "no loop controls yet"
     js = client.get("/web/app.js").get_data(as_text=True)
-    assert "replay_burst" in js and "syncMarker" in js and "133" in js, "the two-frame flash at 15 fps"
+    assert "replay_burst" in js and "syncMarker" in js and "250)" in js, "the flash lasts about four frames at 15 fps"

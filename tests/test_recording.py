@@ -125,3 +125,17 @@ def test_sync_check_measures_the_click_to_flash_offset_per_burst(tmp_path):
     assert not bad["pass"] and bad["bursts"][0]["offset_ms"] > 150
     short = sync_check.check(synthetic_recording(tmp_path / "short.mp4", [1.0, 3.0], [1.0]), expected=2)
     assert not short["pass"] and short["clicks"] == 1 and "flash times" in sync_check.format_report(short)
+    assert short["bursts"][1]["click_s"] is None and "no click found" in sync_check.format_report(short)
+    missed = sync_check.check(synthetic_recording(tmp_path / "missed.mp4", [3.0, 4.6], [1.04, 3.0, 4.6]), expected=3)
+    assert not missed["pass"] and missed["bursts"][0]["flash_s"] is None, "the first flash is reported missing"
+    assert [b["offset_ms"] for b in missed["bursts"][1:]] == [0.0, 0.0] or all(abs(b["offset_ms"]) <= 35 for b in missed["bursts"][1:]), \
+        "the later bursts still pair with their own clicks"
+
+
+def test_pair_events_matches_nearest_and_keeps_strays():
+    pairs = sync_check.pair_events([1.0, 3.0, 4.6], [1.04, 3.0, 4.72])
+    assert [p["offset_ms"] for p in pairs] == [40.0, 0.0, 120.0]
+    pairs = sync_check.pair_events([3.0, 4.6], [1.04, 3.0, 4.6])
+    assert pairs[0]["flash_s"] is None and pairs[0]["click_s"] == 1.04 and pairs[1]["offset_ms"] == 0.0
+    pairs = sync_check.pair_events([1.0, 9.0], [1.0])
+    assert pairs[1]["click_s"] is None and pairs[1]["flash_s"] == 9.0

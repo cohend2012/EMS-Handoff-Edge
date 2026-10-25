@@ -119,7 +119,8 @@ class Settings:
     replay_sink: str = "handoff_replay"          # PipeWire null sink the burst audio is played into
     replay_quiet_online_s: float = 5.0
     replay_quiet_offline_s: float = 25.0
-    replay_sink_lead_ms: float = 100.0           # start the sink player this much before the file source
+    replay_sink_lead_ms: float = -270.0          # sink player start relative to the file source; negative = after.
+                                                 # Calibrated on the Jetson from recordings (click vs flash), 2026-10-25
     # --- recording a replay on the Jetson (recording.py) ---------------------
     replay_record_dir: Path = Path("~/recordings").expanduser()
     replay_display: str = ":1"                   # X display with the app window
