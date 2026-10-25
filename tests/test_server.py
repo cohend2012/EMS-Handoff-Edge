@@ -121,6 +121,27 @@ def test_all_transcribers_down_uses_live_captions(settings):
     assert ctl.last_result["_meta"]["raw_transcript"].startswith("Medic 21")
 
 
+def test_silent_recording_is_no_speech_and_whisper_is_not_called(settings):
+    transcriber = FakeTranscriber("Thank you.")
+    _, client, ctl = build(settings, transcriber=transcriber, capture=AutoFeedCapture(amp=0.0), captions=False)
+    client.post("/api/live/start")
+    assert wait_for(lambda: ctl.session.capture.seconds >= 0.7)
+    client.post("/api/live/done")
+    assert wait_for(lambda: ctl.state == "error")
+    assert ctl.last_error.startswith("No speech detected") and transcriber.calls == 0
+
+
+def test_live_report_records_the_transcription_log(settings):
+    _, client, ctl = build(settings)
+    client.post("/api/live/start")
+    assert wait_for(lambda: ctl.session.capture.seconds >= 0.7)
+    client.post("/api/live/done")
+    assert wait_for(lambda: ctl.state == "done")
+    log = ctl.last_result["_meta"]["transcription"]
+    assert log["transcriber"] == "fake groq" and not log["no_speech"]
+    assert log["attempts"][0]["role"] == "primary" and log["level"]["peak_rms"] > 0
+
+
 def test_no_transcript_and_no_captions_is_a_clear_error(settings):
     _, client, ctl = build(settings, transcriber=FakeTranscriber(fail=True), captions=False)
     client.post("/api/live/start")

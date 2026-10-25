@@ -63,7 +63,8 @@ from .config import PROJECT_ROOT, PROVIDERS, Settings
 from .llm import LLMClient, LLMError
 from .pipeline import PipelineError, ReportPipeline
 from .samples import SAMPLE_SEPSIS, SAMPLE_STEMI, SAMPLE_TRAUMA
-from .transcribe import LocalTranscriber, TranscriptionError, make_transcriber
+from .transcribe import LocalTranscriber, make_transcriber
+from .transcript_checks import transcribe_checked
 
 logger = logging.getLogger(__name__)
 
@@ -174,6 +175,7 @@ class Controller:
         self._listeners_cache: Optional[tuple] = None
         self._transcribers: Dict[str, Any] = {}
         self._lock = threading.RLock()
+        self._last_transcription: dict = {}     # transcript_checks log of the last live recording
         self._jobs: queue.Queue = queue.Queue()
         self._worker = threading.Thread(target=self._work, name="report-worker", daemon=True)
         self._worker.start()
@@ -397,37 +399,38 @@ class Controller:
         if transcript is None:
             return
         self.broker.publish({"type": "transcript", "text": transcript})
-        self._make_report(transcript, source="live", timings=timings)
+        self._make_report(transcript, source="live", timings=timings,
+                          meta_extra={"transcription": self._last_transcription})
 
-    def _transcribe(self, audio: np.ndarray, caption_text: str) -> Optional[str]:
-        """Primary transcriber, then the local one, then the live captions as a last resort."""
-        attempts = []
+    def _transcriber_pair(self):
+        """(primary, fallback) for transcribe_checked; either may be None."""
+        primary = None
         try:
-            attempts.append(self._transcriber("primary"))
+            primary = self._transcriber("primary")
         except Exception as e:  # noqa: BLE001
             logger.warning("Primary transcriber unavailable: %s", e)
-        if not any(getattr(t, "name", "") == "local" for t in attempts):
+        fallback = None
+        if getattr(primary, "name", "") != "local":
             fallback = self._transcriber("fallback")
-            if fallback is not None:
-                attempts.append(fallback)
-        problems = []
-        for i, t in enumerate(attempts):
-            if i > 0:
-                self._stage(f"Retrying transcription with {t.describe()}")
-            try:
-                text = t.transcribe(audio)
-                if text.strip():
-                    return text
-                problems.append(f"{t.describe()} heard no speech")
-            except TranscriptionError as e:
-                problems.append(str(e))
-        if len(caption_text.split()) >= 5:
-            self._stage("Using the live captions as the transcript")
-            return caption_text
-        self._fail("Could not transcribe the recording. " + " ".join(problems))
-        return None
+        return primary, fallback
 
-    def _make_report(self, text: str, source: str, timings: Dict[str, float]) -> None:
+    def _transcribe(self, audio: np.ndarray, caption_text: str) -> Optional[str]:
+        """Primary transcriber, then the local one, then the live captions as a last resort,
+        with the silence gate and the words-per-second check (transcript_checks.py)."""
+        primary, fallback = self._transcriber_pair()
+        result = transcribe_checked(primary, fallback, audio, caption_text, on_stage=self._stage, caption_min_words=5)
+        self._last_transcription = result.meta()
+        if result.no_speech:
+            self._fail("No speech detected: the microphone picked up nothing above the noise floor for the "
+                       "whole recording. Check that the right mic is selected and try again.")
+            return None
+        if not result.ok:
+            self._fail("Could not transcribe the recording. " + " ".join(result.notes))
+            return None
+        return result.text
+
+    def _make_report(self, text: str, source: str, timings: Dict[str, float],
+                     meta_extra: Optional[dict] = None) -> None:
         self._set_state("processing", source=source)
         try:
             llm = self.engines.make_llm(self.settings)
@@ -440,6 +443,8 @@ class Controller:
             report = pipeline.run(text, source=source, timings=timings)
         except PipelineError as e:
             return self._fail(str(e))
+        if meta_extra:
+            report["_meta"].update(meta_extra)
         save_report(self.settings.output_dir, report)
         self.last_result = report
         self.broker.publish({"type": "result", "report": report})
@@ -577,40 +582,19 @@ class ReplayRun(ReplayHost):
         entry = self.driver.log[number - 1] if len(self.driver.log) >= number else {}
         self._stage(f"Transcribing burst {number} ({len(audio) / 16000:.0f} s)")
         t0 = time.perf_counter()
-        text, who, notes = self.transcribe(audio, session.final_text)
+        primary, fallback = self.ctl._transcriber_pair()
+        result = transcribe_checked(primary, fallback, audio, session.final_text, on_stage=self._stage,
+                                    caption_min_words=1)
         took = round(time.perf_counter() - t0, 2)
-        record = {"burst": number, "segment_id": clip.segment_id, "transcriber": who, "transcribe_s": took,
-                  "words": len(text.split()), "audio_s": round(len(audio) / 16000, 1), "notes": notes}
+        text = result.text
+        record = {"burst": number, "segment_id": clip.segment_id, "transcriber": result.who, "transcribe_s": took,
+                  "words": len(text.split()), "audio_s": round(len(audio) / 16000, 1), "notes": list(result.notes),
+                  "no_speech": result.no_speech, "attempts": list(result.attempts), "level": dict(result.stats)}
         self.transcriptions.append(record)
         self.ctl.broker.publish({"type": "transcript", "text": text, "replay_burst": number,
                                  "segment_id": clip.segment_id, **record})
         self.manager.add_burst(text, at=entry.get("start_wall", time.time()), duration_s=clip.duration_s,
                                feed=clip.feed, source_id=clip.segment_id)
-
-    def transcribe(self, audio: np.ndarray, caption_text: str) -> Tuple[str, str, List[str]]:
-        """Primary transcriber, then the local one, then the captions. (text, who, notes)."""
-        attempts, notes = [], []
-        try:
-            attempts.append(self.ctl._transcriber("primary"))
-        except Exception as e:  # noqa: BLE001
-            notes.append(f"primary transcriber unavailable: {e}")
-        if not any(getattr(t, "name", "") == "local" for t in attempts):
-            fallback = self.ctl._transcriber("fallback")
-            if fallback is not None:
-                attempts.append(fallback)
-        for t in attempts:
-            try:
-                text = t.transcribe(audio)
-                if text.strip():
-                    return text, t.describe(), notes
-                notes.append(f"{t.describe()} heard no speech")
-            except TranscriptionError as e:
-                notes.append(str(e))
-        if len(caption_text.split()) >= 1:
-            notes.append("using the live captions as the transcript")
-            return caption_text, "live captions", notes
-        notes.append("no transcript")
-        return "", "none", notes
 
     def _poll_loop(self) -> None:
         while not self._stopping.is_set():
@@ -625,7 +609,9 @@ class ReplayRun(ReplayHost):
     def _extract(self, text: str, meta: dict) -> dict:
         source = f"replay:{self.callset.id}"
         try:
-            return self._pipeline(self.llm).run(text, source=source, timings={})
+            report = self._pipeline(self.llm).run(text, source=source, timings={})
+            report["_meta"]["transcription"] = list(self.transcriptions)
+            return report
         except PipelineError as e:
             if self.provider == "ollama":
                 raise
@@ -639,6 +625,7 @@ class ReplayRun(ReplayHost):
             local = self.ctl.engines.make_llm(dataclasses.replace(self.settings, provider="ollama"))
             report = self._pipeline(local).run(text, source=source, timings={})
             report["_meta"]["fallback"] = dict(self.fallback)
+            report["_meta"]["transcription"] = list(self.transcriptions)
             return report
 
 
