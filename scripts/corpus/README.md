@@ -14,6 +14,8 @@ Data lives outside the repo and is never committed: `~/calls` (m4a), `~/calls_wa
 | stage5_reports.py | 5 | run the app's pipeline over every call-set and every burst (Ollama, pinned model) |
 | stage5_summary.py | 5 | summarise a Stage 5 log |
 | check_hallucinations.py | 5 | report claims not found in the transcript, and transcript facts missing from the report |
+| compare_runs.py | 5 | two report folders side by side: crashes, refusals, hallucination candidates, fields filled, confidence, per-set alert/sex/age diffs |
+| run_samples.py | - | the four built-in sample cases on a pinned model, one report or one error file per case |
 | stage6_label.py | 6 | one scenario label per call-set, low confidence to `~/scenarios/needs_review` |
 
 Scoring against the gold answers for the four sample cases is `scripts/benchmark.py` with `tests/gold/`.

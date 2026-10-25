@@ -91,7 +91,7 @@ Copy `.env.example` to `.env`. Everything has a sensible default except the API 
 |---|---|---|
 | `HANDOFF_PROVIDER` | `groq` | AI that writes the report: `groq`, `ollama`, `openrouter` (also changeable in the app) |
 | `GROQ_API_KEY` | — | Groq key. Set it once with `bash scripts/set_groq_key.sh`; it lives in `~/.config/handoff-ai/secrets.env`, shared by every copy of the app. Never commit it. |
-| `OLLAMA_MODEL` | `qwen3:8b` | Local model. If it does not fit in free memory, the app uses the largest pulled smaller model that does (`qwen3:4b-instruct`, `qwen3:1.7b`, ...) and says so |
+| `OLLAMA_MODEL` | unset | Local model. **Unset:** the app wants `qwen3:8b` and, when that does not fit in free memory, uses the largest pulled smaller model that does (`qwen3:4b-instruct`, `qwen3:1.7b`, ...) and says so. **Set:** that exact model is used, never a substitute; if it is not pulled, or a reply comes from another model, the report fails with a message that says so. Set it for a batch that must run on one model. |
 | `HANDOFF_TRANSCRIBER` | `auto` | Final transcript: `groq`, `local`, or `auto` (Groq if a key is set) |
 | `LOCAL_WHISPER_MODEL` | `large-v3-turbo` | Offline transcript model (`small.en` is ~4× faster on CPU) |
 | `HANDOFF_MIC_DEVICE` | auto (USB) | Device number or part of its name (`PnP`). Names survive reboots; numbers may not. |
@@ -126,6 +126,7 @@ threads, state machine, API and screens anywhere (UI screenshots land in `tests/
 | Level bar does not move | Mic muted or gain low: `alsamixer -c 2` (card number from `arecord -l`). |
 | Captions say "Whisper tiny.en (fallback)" | Run `python scripts/download_models.py --vosk`. |
 | "groq rejected the API key" | Create a new key (console.groq.com/keys, org *Personal*) and run `bash scripts/set_groq_key.sh`. |
+| "'qwen3:8b' is not pulled (OLLAMA_MODEL pins it)" | `OLLAMA_MODEL` names a model Ollama does not have: `ollama pull` it, or unset `OLLAMA_MODEL` to let the app choose among the pulled models. |
 | "cannot reach Ollama" / "model not pulled" | `ollama serve` / `ollama pull qwen3:8b`. A crash-looping Docker `ollama` container fighting for port 11434 can be stopped with `docker update --restart no ollama && docker stop ollama`. |
 | "Ollama ran out of memory loading ..." | The Jetson shares its 8 GB between CPU and GPU. `qwen3:8b` needs about 7.3 GB free, `qwen3:4b-instruct` about 3.9 GB, `qwen3:1.7b` about 2.6 GB. Pull a smaller model (`ollama pull qwen3:4b-instruct`): the app switches to the largest pulled model that fits. Close browsers, RustDesk and the Docker `ollama` container to free memory; `free -h` shows what is available. On an 8 GB Orin Nano with the desktop running, `qwen3:4b-instruct` is the practical ceiling and needs swap to be reliable. |
 | Ollama report times out ("no reply within 180 s") while `ollama ps` shows 100% GPU | The model is thinking, not stuck. The `qwen3:4b` tag is the thinking-only variant and reasons in plain text before the JSON even when thinking is switched off; at ~18 tok/s that is more than 180 s. Use `qwen3:4b-instruct` (same size, answers directly): `ollama pull qwen3:4b-instruct`. The app prefers it on its own once it is pulled. |

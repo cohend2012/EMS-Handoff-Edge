@@ -82,6 +82,7 @@ class Settings:
     groq_llm_model: str = "llama-3.3-70b-versatile"
     ollama_url: str = "http://localhost:11434/v1"
     ollama_model: str = "qwen3:8b"
+    ollama_model_pinned: bool = False             # True when OLLAMA_MODEL is set: use exactly it, never a substitute
     openrouter_model: str = "meta-llama/llama-3.2-3b-instruct:free"
     llm_timeout_s: float = 180.0                 # per request; local models are slow
 
@@ -134,6 +135,7 @@ class Settings:
         return {
             "provider": self.provider,
             "model": self.llm_model(),
+            "model_pinned": self.provider == "ollama" and self.ollama_model_pinned,
             "keys": {p: self.has_key(p) for p in PROVIDERS},
             "transcriber": self.effective_transcriber(),
             "caption_engine": self.caption_engine,
@@ -154,7 +156,8 @@ def load_settings(env: Optional[Mapping[str, str]] = None) -> Settings:
         openrouter_api_key=(g("OPENROUTER_API_KEY") or "").strip(),
         groq_llm_model=g("GROQ_LLM_MODEL") or defaults.groq_llm_model,
         ollama_url=g("OLLAMA_URL") or defaults.ollama_url,
-        ollama_model=g("OLLAMA_MODEL") or defaults.ollama_model,
+        ollama_model=(g("OLLAMA_MODEL") or "").strip() or defaults.ollama_model,
+        ollama_model_pinned=bool((g("OLLAMA_MODEL") or "").strip()),
         openrouter_model=g("OPENROUTER_MODEL") or defaults.openrouter_model,
         llm_timeout_s=_float(g("HANDOFF_LLM_TIMEOUT_S"), defaults.llm_timeout_s),
         transcriber=_choice(g("HANDOFF_TRANSCRIBER"), TRANSCRIBERS, defaults.transcriber),

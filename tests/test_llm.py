@@ -64,7 +64,11 @@ def test_groq_request_uses_json_mode_and_configured_model():
     assert "extra_body" not in call
 
 
-def test_ollama_request_turns_thinking_off():
+def test_ollama_request_turns_thinking_off(monkeypatch):
+    # Model resolution asks the real Ollama for its model list and the machine for free memory;
+    # on a box where Ollama is running low on memory it would substitute a smaller model.
+    monkeypatch.setattr(LLMClient, "_ollama_models", lambda self: {"qwen3:4b": 2.5})
+    monkeypatch.setattr(LLMClient, "_ollama_free_gb", lambda self: None)
     fake = FakeOpenAI(['{"ok": true}'])
     client = LLMClient(Settings(provider="ollama", ollama_model="qwen3:4b"), client=fake)
     client.complete_json("prompt")
@@ -95,6 +99,15 @@ def test_bad_key_is_not_retried():
     with pytest.raises(LLMError, match="rejected the API key"):
         LLMClient(Settings(groq_api_key="bad"), client=fake).complete_json("p")
     assert len(fake.calls) == 1
+
+
+def test_rate_limit_error_keeps_the_providers_message():
+    msg = ("Rate limit reached for model `openai/gpt-oss-120b` on tokens per day (TPD): "
+           "Limit 200000, Used 199000, Requested 2500. Please try again in 3h21m5.1s.")
+    fake = FakeOpenAI([_exc(openai.APIStatusError, status=429, message=msg)])
+    with pytest.raises(LLMError, match="HTTP 429.*per day.*try again in 3h21m5.1s"):
+        LLMClient(Settings(provider="groq", groq_api_key="k"), client=fake).complete_json("p")
+    assert len(fake.calls) == 1   # a 4xx is not retried by the client
 
 
 def test_missing_key_is_reported_before_any_call():
@@ -228,6 +241,46 @@ def test_ollama_counts_a_loaded_model_as_free_memory(monkeypatch):
     monkeypatch.setattr("ems_handoff.llm.available_memory_gb", lambda: 0.4)
     ok, msg = LLMClient(Settings(provider="ollama", ollama_model="qwen3:8b"), client=FakeOpenAI([])).check()
     assert ok and "nothing pulled fits" in msg and "killed" in msg
+
+
+def test_pinned_ollama_model_is_never_substituted(monkeypatch):
+    # OLLAMA_MODEL set: the 8b model is used although only the 4b one fits, with a warning
+    _tags(monkeypatch, **{"qwen3:8b": 5.2, "qwen3:4b-instruct": 2.5})
+    monkeypatch.setattr("ems_handoff.llm.available_memory_gb", lambda: 4.2)
+    pinned = Settings(provider="ollama", ollama_model="qwen3:8b", ollama_model_pinned=True)
+    fake = FakeOpenAI(['{"ok": 1}'])
+    LLMClient(pinned, client=fake).complete_json("p")
+    assert fake.calls[0]["model"] == "qwen3:8b"
+    ok, msg = LLMClient(pinned, client=FakeOpenAI([])).check()
+    assert ok and msg.startswith("ollama ready (qwen3:8b, pinned)") and "pinned by OLLAMA_MODEL" in msg
+    assert "killed" in msg and "using" not in msg
+
+
+def test_pinned_ollama_model_that_is_not_pulled_is_a_visible_error(monkeypatch):
+    _tags(monkeypatch, **{"qwen3:4b-instruct": 2.5})
+    monkeypatch.setattr("ems_handoff.llm.available_memory_gb", lambda: 7.0)
+    pinned = Settings(provider="ollama", ollama_model="qwen3:8b", ollama_model_pinned=True)
+    fake = FakeOpenAI(['{"ok": 1}'])
+    with pytest.raises(LLMError, match="ollama pull qwen3:8b"):
+        LLMClient(pinned, client=fake).complete_json("p")
+    assert fake.calls == []                       # nothing was sent to a substitute
+    ok, msg = LLMClient(pinned, client=fake).check()
+    assert not ok and "pinned by OLLAMA_MODEL" in msg and "ollama pull qwen3:8b" in msg
+
+
+def test_pinned_ollama_reply_from_another_model_is_rejected(monkeypatch):
+    _tags(monkeypatch, **{"qwen3:4b-instruct": 2.5})
+    monkeypatch.setattr("ems_handoff.llm.available_memory_gb", lambda: 7.0)
+    pinned = Settings(provider="ollama", ollama_model="qwen3:4b-instruct", ollama_model_pinned=True)
+    reply = _reply('{"ok": 1}'); reply.model = "llama3.2:3b"
+    fake = FakeOpenAI([reply])
+    fake._create = lambda **kw: (fake.calls.append(kw), fake.outcomes[0])[1]
+    fake.chat.completions.create = fake._create
+    with pytest.raises(LLMError, match="answered with 'llama3.2:3b'"):
+        LLMClient(pinned, client=fake).complete_json("p")
+    same = _reply('{"ok": 1}'); same.model = "qwen3:4b-instruct"
+    fake.outcomes = [same]
+    assert LLMClient(pinned, client=fake).complete_json("p") == '{"ok": 1}'
 
 
 def test_ollama_check_warns_when_nothing_smaller_is_pulled(monkeypatch):
