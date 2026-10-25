@@ -111,6 +111,14 @@ class Settings:
 
     # --- replay (recorded call-sets through the live pipeline) -------------
     replay_mode_enabled: bool = False            # HANDOFF_REPLAY=1; off = today's app, byte for byte
+    replay_callsets_dir: Path = Path("~/callsets").expanduser()
+    replay_index: str = ""                       # optional corpus index for burst timing (callset_info.json comes first)
+    replay_provider: str = "groq"                # per replay request; this is the default
+    replay_groq_model: str = "openai/gpt-oss-120b"
+    replay_speed: float = 1.0                    # gaps are divided by this; bursts always play at real time
+    replay_sink: str = "handoff_replay"          # PipeWire null sink the burst audio is played into
+    replay_quiet_online_s: float = 5.0
+    replay_quiet_offline_s: float = 25.0
 
     # --- derived helpers ---------------------------------------------------
     def has_key(self, provider: Optional[str] = None) -> bool:
@@ -182,4 +190,12 @@ def load_settings(env: Optional[Mapping[str, str]] = None) -> Settings:
         use_lexicon=_bool(g("HANDOFF_USE_LEXICON"), True),
         use_textbook_rag=_bool(g("HANDOFF_USE_TEXTBOOK_RAG"), True),
         replay_mode_enabled=_bool(g("HANDOFF_REPLAY"), False),
+        replay_callsets_dir=Path(g("HANDOFF_CALLSETS")).expanduser() if g("HANDOFF_CALLSETS") else defaults.replay_callsets_dir,
+        replay_index=(g("HANDOFF_CALLSET_INDEX") or "").strip(),
+        replay_provider=_choice(g("HANDOFF_REPLAY_PROVIDER"), PROVIDERS, defaults.replay_provider),
+        replay_groq_model=g("HANDOFF_REPLAY_GROQ_MODEL") or defaults.replay_groq_model,
+        replay_speed=_float(g("HANDOFF_REPLAY_SPEED"), defaults.replay_speed),
+        replay_sink=g("HANDOFF_REPLAY_SINK") or defaults.replay_sink,
+        replay_quiet_online_s=_float(g("HANDOFF_REPLAY_QUIET_ONLINE_S"), defaults.replay_quiet_online_s),
+        replay_quiet_offline_s=_float(g("HANDOFF_REPLAY_QUIET_OFFLINE_S"), defaults.replay_quiet_offline_s),
     )
