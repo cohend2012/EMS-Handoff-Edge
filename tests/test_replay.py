@@ -327,3 +327,18 @@ def test_replay_can_be_stopped_and_refuses_a_missing_key(settings, tmp_path):
     client.post("/api/replay/stop")
     assert ctl.state == "idle" and ctl._replay.driver.phase != "done"
 
+
+
+def test_silent_burst_is_no_speech_and_still_joins_the_session(settings, tmp_path):
+    client, ctl, transcriber = build(settings, tmp_path)
+    silent = tmp_path / "callsets" / "CS900" / "S902_01.wav"
+    with wave.open(str(silent), "wb") as w:
+        w.setnchannels(1); w.setsampwidth(2); w.setframerate(RATE); w.writeframes(np.zeros(RATE // 5, np.int16).tobytes())
+    client.post("/api/replay/start", json={"callset": "CS900"})
+    assert wait_for(lambda: ctl.state == "idle", timeout=15)
+    st = ctl._replay.status()
+    second = st["transcriptions"][1]
+    assert second["no_speech"] and second["words"] == 0 and second["transcriber"] == "none"
+    assert transcriber.calls == 1, "Whisper was not called for the silent burst"
+    assert st["session"]["of"] == 2 and st["session"]["bursts"][1]["text"] == ""
+    assert st["session"]["report"]["_meta"]["transcription"][1]["no_speech"]
