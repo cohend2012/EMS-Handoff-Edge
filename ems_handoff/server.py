@@ -355,6 +355,8 @@ class Controller:
     def _stage(self, message: str) -> None:
         logger.info("Stage: %s", message)
         self.broker.publish({"type": "stage", "text": message})
+        if message.startswith("Model server restarting"):
+            self._set_state("processing", detail="model server restarting")
 
     def _fail(self, message: str) -> None:
         logger.error("Report failed: %s", message)

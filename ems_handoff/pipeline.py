@@ -345,6 +345,8 @@ class ReportPipeline:
             if hasattr(self.llm, "resolve_model"):
                 self.llm.resolve_model()   # name the model actually used, not a retired one
             self.on_stage(f"Writing the handoff ({self.llm.provider} · {self.llm.model})")
+            if hasattr(self.llm, "on_wait"):
+                self.llm.on_wait = self.on_stage   # "Model server restarting ..." reaches the app as a stage
             reply = self.llm.complete_json(prompt, temperature=0.0)
         except LLMError as e:
             raise PipelineError(str(e)) from e
@@ -398,6 +400,9 @@ class ReportPipeline:
             "timings": timings,
             "created": time.strftime("%Y-%m-%dT%H:%M:%S"),
         }
+        recovery = getattr(self.llm, "last_recovery", None)
+        if recovery:
+            meta["model_server"] = dict(recovery)   # the report came after Ollama's model server restarted
         meta.update(extra)
         return meta
 
