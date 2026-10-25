@@ -331,11 +331,32 @@
     $("micSelect").innerHTML = `<option value="">Auto (prefer USB)</option>` +
       mics.devices.map((d) => `<option value="${esc(d.name)}">${esc(d.index)}: ${esc(d.name)}</option>`).join("");
     $("micSelect").value = s.mic_device === "auto" ? "" : s.mic_device;
+    await fillOllamaModels(s);
     $("settingsDialog").showModal();
+  }
+  // Pulled Ollama models with what each needs; one that does not fit is shown but cannot be saved.
+  async function fillOllamaModels(s) {
+    const sel = $("ollamaModelSelect");
+    sel.dataset.initial = s.provider === "ollama" ? s.model : "";
+    try {
+      const inv = await api("/api/ollama/models");
+      const free = inv.free_gb == null ? "" : ` · ${inv.free_gb.toFixed(1)} GB free`;
+      sel.innerHTML = inv.models.map((m) =>
+        `<option value="${esc(m.name)}" ${m.name === inv.selected ? "selected" : ""}>${esc(m.name)} · needs ~${m.need_gb.toFixed(1)} GB${m.fits ? "" : " · does not fit"}</option>`).join("");
+      sel.dataset.initial = inv.selected;
+      sel.title = `Pulled models${free}`;
+      sel.disabled = false;
+    } catch (e) {
+      sel.innerHTML = `<option value="">${esc(e.message)}</option>`;
+      sel.disabled = true;
+    }
   }
   async function saveSettings(checkAfter) {
     const provider = document.querySelector('input[name="provider"]:checked')?.value;
-    const r = await api("/api/settings", { provider, mic_device: $("micSelect").value });
+    const body = { provider, mic_device: $("micSelect").value };
+    const model = $("ollamaModelSelect");
+    if (!model.disabled && model.value && model.value !== model.dataset.initial) body.ollama_model = model.value;
+    const r = await api("/api/settings", body);
     applyStatus(r.status);
     if (checkAfter) {
       $("checkResult").textContent = "Checking…";

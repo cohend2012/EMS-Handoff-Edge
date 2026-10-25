@@ -1,5 +1,6 @@
 """The app server end to end through its HTTP API, with fake engines."""
 
+import dataclasses
 import json
 
 import pytest
@@ -162,6 +163,24 @@ def test_settings_change_is_saved_and_reloaded(settings, tmp_path):
     assert client.post("/api/settings", json={"provider": "skynet"}).status_code == 400
     reloaded = load_user_settings(settings)
     assert reloaded.provider == "ollama" and reloaded.mic_device == "PnP"
+
+
+def test_ollama_model_choice_is_checked_before_it_is_saved(settings, tmp_path):
+    _, client, ctl = build(settings)
+    r = client.post("/api/settings", json={"ollama_model": "qwen3:70b"})
+    assert r.status_code == 400 and "not pulled" in r.get_json()["message"]
+    r = client.post("/api/settings", json={"ollama_model": "qwen3:8b"})       # needs ~7.3 GB, 6.0 free
+    assert r.status_code == 400 and "needs ~7.3 GB but only 6.0 GB is free" in r.get_json()["message"]
+    assert load_user_settings(settings).ollama_model == settings.ollama_model, "nothing was saved"
+    r = client.post("/api/settings", json={"provider": "ollama", "ollama_model": "qwen3:4b-instruct"}).get_json()
+    assert r["status"]["settings"]["model"] == "qwen3:4b-instruct" and r["status"]["settings"]["model_pinned"]
+    reloaded = load_user_settings(settings)
+    assert reloaded.ollama_model == "qwen3:4b-instruct" and reloaded.ollama_model_pinned
+    env_pinned = load_user_settings(dataclasses.replace(settings, ollama_model="qwen3:1.7b", ollama_model_pinned=True))
+    assert env_pinned.ollama_model == "qwen3:1.7b", "OLLAMA_MODEL in the environment still wins"
+    inv = client.get("/api/ollama/models").get_json()
+    assert inv["free_gb"] == 6.0 and inv["selected"] == "qwen3:4b-instruct"
+    assert {m["name"]: m["fits"] for m in inv["models"]} == {"qwen3:8b": False, "qwen3:4b-instruct": True, "llama3.2:3b": True}
 
 
 def test_provider_check_endpoint(settings):

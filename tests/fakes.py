@@ -81,6 +81,23 @@ class FakeLLM:
     def check(self):
         return True, f"{self.provider} ready ({self.model})"
 
+    # what the Settings screen asks an Ollama client (sizes in GB on disk; free memory)
+    ollama_models = {"qwen3:8b": 5.23, "qwen3:4b-instruct": 2.5, "llama3.2:3b": 2.02}
+    free_gb = 6.0
+
+    def ollama_inventory(self):
+        from ems_handoff.llm import ollama_need_gb
+        models = [{"name": n, "size_gb": s, "need_gb": ollama_need_gb(s), "fits": ollama_need_gb(s) <= self.free_gb}
+                  for n, s in self.ollama_models.items()]
+        return {"models": models, "free_gb": self.free_gb}
+
+    def ollama_model_status(self, name):
+        from ems_handoff.llm import LLMClient
+        return LLMClient.ollama_model_status(self, name)
+
+    def _connection_hint(self):
+        return "is Ollama running?"
+
 
 class FakeTranscriber:
     name = "groq"
