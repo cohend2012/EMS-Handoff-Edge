@@ -99,6 +99,7 @@ Generate a JSON response with this EXACT structure (return ONLY valid JSON, no m
 Guidance:
 - Use "ENDOCRINE" as the alert_type for metabolic/endocrine emergencies such as diabetic ketoacidosis (DKA), hyperosmolar hyperglycemic state, severe hypo/hyperglycemia, thyroid storm, or adrenal crisis.
 - For any field with no information, use null or omit it — never output the literal word "Null".
+- Patient sex: when it is not said outright, infer it from the pronouns used for the patient ("he", "his", "him" = Male; "she", "her" = Female) and record that in data_quality.assumptions. Use null only when there are no such pronouns.
 - The report may be a fragment: a few words, a single question, or a reply with no clinical content. Still return the full structure. If the words do not identify the patient's problem, set alert_type to "UNCLEAR", alert_level to null, data_quality.confidence to "LOW", and list what was not provided in missing_info. Never invent a patient, vitals, history, or interventions that were not said.
 /no_think
 """

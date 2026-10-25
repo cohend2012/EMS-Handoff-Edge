@@ -38,8 +38,9 @@ from __future__ import annotations
 import copy
 import json
 import logging
+import re
 import time
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from .llm import LLMClient, LLMError
 from .phrase import strip_phrase
@@ -164,6 +165,28 @@ def unstated(report: Dict[str, Any]) -> List[str]:
     return out
 
 
+_MALE_WORDS = re.compile(r"\b(?:he|his|him|himself)\b", re.I)
+_FEMALE_WORDS = re.compile(r"\b(?:she|her|hers|herself)\b", re.I)
+
+
+def infer_sex(text: str) -> Optional[Tuple[str, str]]:
+    """Patient sex from pronouns, when they are decisive: (sex, note) or None.
+
+    The radio side rarely says "male" or "female" but talks about the patient as
+    "he" or "she" throughout. The rule is conservative, since a report also mentions
+    family members and crew: at least two pronouns of one sex, and more than twice
+    as many as of the other. The note goes into data_quality.assumptions so the ED
+    can see the sex was inferred, not heard.
+    """
+    male = len(_MALE_WORDS.findall(text))
+    female = len(_FEMALE_WORDS.findall(text))
+    if male >= 2 and male > 2 * female:
+        return "Male", f"Sex inferred from pronouns ({male} he/his/him, {female} she/her)"
+    if female >= 2 and female > 2 * male:
+        return "Female", f"Sex inferred from pronouns ({female} she/her, {male} he/his/him)"
+    return None
+
+
 def parse_report(text: str) -> Dict[str, Any]:
     """Parse and validate the LLM's JSON. Null or missing parts take their empty shape, so a
     sparse reply to a short transcript is still a complete report."""
@@ -273,6 +296,12 @@ class ReportPipeline:
         if usage:
             timings.update(usage)      # tokens_in, tokens_out, tok_s: says where a slow model spent its time
         report["data_quality"]["assumptions"].extend(assumption_notes(fix))
+        if report["patient"].get("sex") is None:
+            # the prompt asks the model to read pronouns; a small model often does not
+            guess = infer_sex(fix.text)
+            if guess:
+                report["patient"]["sex"], note = guess
+                report["data_quality"]["assumptions"].append(note)
 
         # 4. optional textbook guidance (never fails the report)
         guidance = self._guidance(report, timings)
