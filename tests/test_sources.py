@@ -146,3 +146,29 @@ def test_stereo_and_unreadable_files_are_refused(tmp_path):
     (tmp_path / "junk.wav").write_bytes(b"not a wav")
     with pytest.raises(AudioFileError, match="Cannot read"):
         FileAudioSource(tmp_path / "junk.wav").start()
+
+
+# -- a session fed by a clip ------------------------------------------------
+def test_session_defaults_to_the_mic(monkeypatch):
+    from ems_handoff.audio import session as session_mod
+    made = []
+    monkeypatch.setattr(session_mod, "AudioCapture", lambda: made.append("mic") or object())
+    s = session_mod.LiveSession()
+    assert made == ["mic"] and s.capture is not None
+
+
+def test_session_finishes_with_eof_when_the_clip_ends(clip):
+    from ems_handoff.audio.session import LiveSession
+    from fakes import ScriptedCaptioner
+    events, reasons = [], []
+    src = FileAudioSource(clip, pace=0)
+    s = LiveSession(src, captioner_factory=lambda: ScriptedCaptioner("three month old female"),
+                    emit=events.append, on_finish=reasons.append)
+    s.start()
+    assert wait_for(lambda: s.is_finished)
+    assert s.finish_reason == "eof" and reasons == ["eof"]
+    audio = s.stop()
+    assert len(audio) == 16000, "the whole clip was delivered before the finish"
+    assert any(e["type"] == "caption" for e in events), "captions ran on the clip"
+    assert next(e for e in events if e["type"] == "listening")["mic"] == "file: clip.wav"
+    assert s.finish("button") is False, "finish is one-shot, as for the mic"
