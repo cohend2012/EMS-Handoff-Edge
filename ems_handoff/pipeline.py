@@ -77,6 +77,7 @@ _PLACEHOLDERS = {
     "what was done", "specifics (dose, route, size, etc.)", "patient response if mentioned",
     "list of conditions", "list of medications", "list or nkda",
     "full code / dnr / dni / other if mentioned",
+    "each allergy exactly as the paramedic said it", "the code status exactly as the paramedic said it",
     "what the paramedic requested (cath lab, trauma team, etc.)",
     "list specific resources, teams, equipment", "actions to initiate before patient arrival",
     "single sentence for quick verbal handoff", "top 2-3 clinical concerns",
@@ -108,7 +109,7 @@ def blank_report() -> Dict[str, Any]:
         "assessment_findings": {"level_of_consciousness": None, "airway": None, "breathing": None,
                                 "circulation": None, "neuro": None, "other_findings": []},
         "ems_interventions": [],
-        "history": {"past_medical": [], "medications": [], "allergies": [], "code_status": None},
+        "history": {"past_medical": [], "medications": [], "allergies": None, "code_status": None},
         "hospital_recommendations": {"activation_requested": None, "suggested_destination": None,
                                      "resources_to_prepare": [], "time_critical_actions": []},
         "handoff_summary": {"one_liner": None, "key_concerns": [], "pending_needs": []},
@@ -140,7 +141,7 @@ _FACTS = [
     ("chief complaint", "chief_complaint"), ("onset or mechanism", "mechanism_or_onset"),
     ("alert level", "alert_level"), ("ETA", "eta_minutes"), ("vital signs", "vital_signs"),
     ("assessment findings", "assessment_findings"), ("EMS interventions", "ems_interventions"),
-    ("medical history", "history"),
+    ("medical history", "history"), ("allergies", "history.allergies"), ("code status", "history.code_status"),
     ("activation request", "hospital_recommendations.activation_requested"),
 ]
 
@@ -163,6 +164,40 @@ def unstated(report: Dict[str, Any]) -> List[str]:
         if _is_empty(v):
             out.append(label)
     return out
+
+
+_ALLERGY_WORDS = re.compile(r"allerg|\bnkda\b|\bnka\b|no known drug", re.I)
+_CODE_WORDS = re.compile(r"\b(?:dnr|dni|dnar|do not (?:resuscitate|intubate|attempt)|full code|no code|code status|"
+                         r"polst|molst|full treatment|comfort (?:care|measures)|cmo|advance directive|living will|"
+                         r"resuscitat\w*|life[- ]sustaining)\b", re.I)
+
+
+def ground_history_defaults(report: Dict[str, Any], text: str) -> List[str]:
+    """Null out allergies and code status the transcript never mentions; returns notes.
+
+    The 4B model writes "NKDA" and "Full code" into reports about patients whose
+    allergies and directives were never spoken (49 and 23 reports in the post-fix
+    corpus run). A value is kept only when the transcript talks about allergies or a
+    code status at all; what it says is still the model's reading."""
+    notes: List[str] = []
+    hist = report.get("history")
+    if not isinstance(hist, dict):
+        return notes
+    if isinstance(hist.get("allergies"), str):
+        hist["allergies"] = [hist["allergies"]]
+    if hist.get("allergies") and not _ALLERGY_WORDS.search(text):
+        notes.append(f"Allergies set to null: the transcript never mentions allergies (the model wrote {hist['allergies']!r})")
+        hist["allergies"] = None
+    if hist.get("code_status") and not _CODE_WORDS.search(text):
+        notes.append(f"Code status set to null: the transcript never mentions one (the model wrote {hist['code_status']!r})")
+        hist["code_status"] = None
+    dq = report.get("data_quality") or {}
+    missing = dq.get("missing_info")
+    if isinstance(missing, list):
+        for label, key in (("allergies", "allergies"), ("code status", "code_status")):
+            if not hist.get(key) and not any(label in str(m).lower() for m in missing):
+                missing.append(label)
+    return notes
 
 
 _MALE_WORDS = re.compile(r"\b(?:he|his|him|himself)\b", re.I)
@@ -296,6 +331,7 @@ class ReportPipeline:
         if usage:
             timings.update(usage)      # tokens_in, tokens_out, tok_s: says where a slow model spent its time
         report["data_quality"]["assumptions"].extend(assumption_notes(fix))
+        report["data_quality"]["assumptions"].extend(ground_history_defaults(report, fix.text))
         if report["patient"].get("sex") is None:
             # the prompt asks the model to read pronouns; a small model often does not
             guess = infer_sex(fix.text)

@@ -391,7 +391,8 @@ LEXICON: Dict[str, Dict[str, List[str]]] = {
         "do not resuscitate": ["DNR", "DNAR", "do not attempt resuscitation",
                               "no code"],
         "do not intubate": ["DNI"],
-        "full code": ["full resuscitation", "all measures", "full treatment"],
+        "full code": ["full resuscitation", "all measures"],
+        # "full treatment" is a POLST section, not a code status: a patient can be DNR with full treatment
         "physician orders for life-sustaining treatment": ["POLST", "MOLST"],
         "advance directive": ["living will", "health care directive",
                              "health care proxy", "durable power of attorney"],
@@ -450,6 +451,6 @@ CLINICAL_NOTES: Dict[str, str] = {
     # code status
     "do not resuscitate": "Legally binding. Requires documentation on scene. Does NOT mean withhold all treatment.",
     "physician orders for life-sustaining treatment": "Portable medical order. May permit full treatment while still declining CPR -- read it, do not assume.",
-    "full code": "Default when no directive is documented.",
+    "full code": "Only when stated. A report that says nothing about a directive has no code status.",
 }
  
