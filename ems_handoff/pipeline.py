@@ -200,6 +200,29 @@ def ground_history_defaults(report: Dict[str, Any], text: str) -> List[str]:
     return notes
 
 
+# Alert words a radio fragment can carry. UNCLEAR is for a transcript with none of them.
+_ALERT_WORDS = [
+    ("CARDIAC_ARREST", re.compile(r"cardiac arrest|\bcpr\b|pulseless|asystole|v-?fib\b|ventricular fibrillation|\brosc\b", re.I)),
+    ("STEMI", re.compile(r"\bstemi\b|\bst[- ]elevation", re.I)),
+    ("STROKE", re.compile(r"\bstroke\b|\bcva\b|brain bleed|\btia\b|facial droop|hemorrhagic", re.I)),
+    ("TRAUMA", re.compile(r"\btrauma\b|\bmvc\b|\bmva\b|\bgsw\b|gunshot|\bstab(?:bed|bing|bed)?\b|fall from|fell (?:from|down|off)|rollover|pedestrian struck|\bfracture", re.I)),
+    ("SEPSIS", re.compile(r"\bsepsis\b|\bseptic\b", re.I)),
+]
+
+
+def alert_from_words(text: str) -> Optional[Tuple[str, str]]:
+    """(alert_type, the word that names it) when the transcript states an alert word, else None.
+
+    "This is Ambulance 721 coming to, what is it, trauma? ... priority 2" (S038_01) must be
+    TRAUMA however short. The model is asked the same; this is the check behind it, used
+    only when the model answered UNCLEAR. A type the model did name is never overridden."""
+    for alert_type, pattern in _ALERT_WORDS:
+        m = pattern.search(text)
+        if m:
+            return alert_type, m.group(0)
+    return None
+
+
 _MALE_WORDS = re.compile(r"\b(?:he|his|him|himself)\b", re.I)
 _FEMALE_WORDS = re.compile(r"\b(?:she|her|hers|herself)\b", re.I)
 
@@ -332,6 +355,12 @@ class ReportPipeline:
             timings.update(usage)      # tokens_in, tokens_out, tok_s: says where a slow model spent its time
         report["data_quality"]["assumptions"].extend(assumption_notes(fix))
         report["data_quality"]["assumptions"].extend(ground_history_defaults(report, fix.text))
+        if report["alert_type"] == "UNCLEAR":
+            hit = alert_from_words(fix.text)
+            if hit:
+                report["alert_type"], word = hit
+                report["data_quality"]["assumptions"].append(
+                    f"Alert type {hit[0]} from the word '{word}' in the transcript; the model answered UNCLEAR")
         if report["patient"].get("sex") is None:
             # the prompt asks the model to read pronouns; a small model often does not
             guess = infer_sex(fix.text)

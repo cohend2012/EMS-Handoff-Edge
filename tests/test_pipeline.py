@@ -264,6 +264,35 @@ def test_blank_report_has_null_allergies_and_code_status():
     assert blank_report()["history"]["allergies"] is None and blank_report()["history"]["code_status"] is None
 
 
+def test_fragment_with_an_alert_word_is_not_unclear():
+    # S038_01, 40 words, verbatim from the radio corpus
+    text = ("Right, I'll do this. Hi, Reverend L9, this is Dirk Coney, do you need a physician? This is Ambulance "
+            "721 coming to, what is it, trauma? We're going to consider him priority 2 at this time, how do you copy?")
+    report, _, _ = run(text, FakeLLM([SPARSE_REPLY]))
+    assert report["alert_type"] == "TRAUMA" and report["alert_level"] is None
+    assert report["data_quality"]["confidence"] == "LOW"
+    assert any("from the word 'trauma'" in a for a in report["data_quality"]["assumptions"])
+    report, _, _ = run("CVA, brain bleed.", FakeLLM([SPARSE_REPLY]))            # S009_01, 3 words
+    assert report["alert_type"] == "STROKE"
+
+
+def test_fragment_without_alert_words_stays_unclear():
+    for text in ("How old? Sorry.", "So your ETA is 30 minutes, correct? 3-0, yes.", "The number is on the way. Okay, thank you."):
+        report, _, _ = run(text, FakeLLM([SPARSE_REPLY]))
+        assert report["alert_type"] == "UNCLEAR", text
+
+
+def test_an_alert_type_the_model_named_is_never_overridden():
+    report, _, _ = run("Stroke alert, but the fall was the trauma.", FakeLLM([json.dumps(report_dict(alert_type="STROKE"))]))
+    assert report["alert_type"] == "STROKE"
+    assert not any("the model answered UNCLEAR" in a for a in report["data_quality"]["assumptions"])
+
+
+def test_prompt_limits_unclear_to_transcripts_with_no_alert_word():
+    from ems_handoff.prompt import EXTRACTION_PROMPT
+    assert 'Use "UNCLEAR" only when no chief complaint, no mechanism of injury, and no alert word' in EXTRACTION_PROMPT
+
+
 def test_sex_is_inferred_from_pronouns_when_the_model_left_it_null():
     from ems_handoff.pipeline import infer_sex
     from ems_handoff.prompt import EXTRACTION_PROMPT
