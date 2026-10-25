@@ -118,14 +118,40 @@ class BrowserWindow:
     command: List[str] = field(default_factory=list)
 
 
+def close_recording_browsers(wm_class: str = "handoff-record", wait_s: float = 5.0) -> int:
+    """End every Chromium started with --class=<wm_class>, so the next recording gets a fresh page.
+    (A page left open across a server restart keeps running the old script.)"""
+    killed = 0
+    for pid_dir in Path("/proc").glob("[0-9]*"):
+        try:
+            cmd = (pid_dir / "cmdline").read_bytes().split(b"\0")
+        except OSError:
+            continue
+        if cmd and cmd[0].endswith(b"chrome") and f"--class={wm_class}".encode() in cmd and b"--type=" not in b" ".join(cmd):
+            try:
+                os.kill(int(pid_dir.name), 15)
+                killed += 1
+            except OSError:
+                pass
+    deadline = time.time() + wait_s
+    while killed and time.time() < deadline and find_window(os.environ.get("DISPLAY", ":1"), wm_class):
+        time.sleep(0.2)
+    return killed
+
+
 def launch_recording_browser(url: str, display: str = ":1", width: int = 1280, height: int = 720,
                              profile_dir: Optional[Path] = None, chromium: str = "",
-                             wm_class: str = "handoff-record", wait_s: float = 8.0) -> BrowserWindow:
+                             wm_class: str = "handoff-record", wait_s: float = 8.0, fresh: bool = True) -> BrowserWindow:
     """Open the page in a Chromium app window of exactly width x height at the origin, strip the
     window manager's decorations, and return the window's client geometry for the grab.
 
-    An existing window of the same class is reused (its geometry is re-measured)."""
+    With ``fresh`` (the default) any earlier window of the class is closed first, so the page and
+    its script are the ones the running server serves; otherwise an open window is reused."""
     wid = find_window(display, wm_class)
+    if wid and fresh:
+        os.environ.setdefault("DISPLAY", display)
+        close_recording_browsers(wm_class)
+        wid = None
     if wid:
         geo = window_geometry(display, wid)
         logger.info("Recording window already open: %s at %s", wid, geo)
