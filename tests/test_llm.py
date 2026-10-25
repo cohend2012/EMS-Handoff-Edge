@@ -64,7 +64,11 @@ def test_groq_request_uses_json_mode_and_configured_model():
     assert "extra_body" not in call
 
 
-def test_ollama_request_turns_thinking_off():
+def test_ollama_request_turns_thinking_off(monkeypatch):
+    # Model resolution asks the real Ollama for its model list and the machine for free memory;
+    # on a box where Ollama is running low on memory it would substitute a smaller model.
+    monkeypatch.setattr(LLMClient, "_ollama_models", lambda self: {"qwen3:4b": 2.5})
+    monkeypatch.setattr(LLMClient, "_ollama_free_gb", lambda self: None)
     fake = FakeOpenAI(['{"ok": true}'])
     client = LLMClient(Settings(provider="ollama", ollama_model="qwen3:4b"), client=fake)
     client.complete_json("prompt")
