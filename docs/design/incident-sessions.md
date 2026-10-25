@@ -193,6 +193,11 @@ video.
   the tab needs trimming.
 - Provider caps: Groq's 200k tokens per day stops a 73-report corpus pass at about 16
   reports in a day with gpt-oss-120b; a corpus pass needs a plan for the cap or a paid tier.
+- Alert level stability: the same CS008 audio on Groq gpt-oss-120b came out MEDICAL YELLOW,
+  MEDICAL RED and MEDICAL YELLOW in three replays on 2026-10-25 (transcripts near-identical, 183
+  to 186 words). The three reports are saved side by side in `~/reports_replay/CS008_alert_level/`
+  for comparison. Candidates: temperature already 0, so the variance is the provider's; a
+  level rule from stated priority words ("priority 2") or a second vote.
 - Round 3 pipeline candidates (details in `~/reports_round2/ROUND2.md`): the ETA guard (null
   unless minutes are stated), the alert-word rule tightened to positive statements with a
   complaint or mechanism present (S032_01 and the "stroke? No." fragment), and the Whisper
