@@ -361,6 +361,7 @@
   }
   function renderReplay(ev) {
     if (document.body.dataset.screen !== "replay") return;
+    if (ev.callset && $("rpCallset").textContent !== ev.callset) { syncReplayScreen(); return; }   // a different run
     $("rpBurst").textContent = ev.burst;
     $("rpOf").textContent = ev.of;
     if (ev.provider) $("rpProvider").textContent = ev.provider;
@@ -498,7 +499,7 @@
           if (document.body.dataset.screen !== "working") startWorking(title);
           else $("workingTitle").textContent = title;
         } else if (ev.state === "idle" && document.body.dataset.screen === "live") show("home");
-        else if (ev.state === "replaying") { if (document.body.dataset.screen !== "replay") syncReplayScreen(); }
+        else if (ev.state === "replaying") syncReplayScreen();   // every new run resets the screen, even on the same window
         break;
       case "replay": renderReplay(ev); break;
       case "incident": renderIncident(ev); break;

@@ -375,7 +375,7 @@ class FakeRecorder:
         self.out.parent.mkdir(parents=True, exist_ok=True); self.out.write_bytes(b"mp4" * 100)
 
     def stop(self, tail_s=0.0):
-        self.events.append(("stop", time.time()))
+        self.events.append(("stop", time.time())); self.tail_s = tail_s
         return {"path": str(self.out), "bytes": 300, "wall_s": 1.0, "ffmpeg_exit": 0, "duration_s": 2.5}
 
 
@@ -390,7 +390,8 @@ def test_record_option_runs_ffmpeg_around_the_bursts_and_checks_sync(settings, t
     checks = []
     sink = FakeSink()
     client, ctl, _ = build(settings, tmp_path, sink=sink)
-    ctl.settings = dataclasses.replace(ctl.settings, replay_record_dir=tmp_path / "rec", replay_sink_lead_ms=50.0)
+    ctl.settings = dataclasses.replace(ctl.settings, replay_record_dir=tmp_path / "rec", replay_sink_lead_ms=50.0,
+                                       replay_record_tail_s=0.25)
     ctl.engines.make_browser = lambda s, url: made.setdefault("window", FakeWindow())
     ctl.engines.make_recorder = lambda s, out, geo: made.setdefault("recorder", FakeRecorder(out, geo))
     ctl.engines.check_sync = lambda path, expected: (checks.append((path, expected)) or
@@ -405,6 +406,7 @@ def test_record_option_runs_ffmpeg_around_the_bursts_and_checks_sync(settings, t
     assert [e[0] for e in recorder.events] == ["start", "stop"]
     assert recorder.events[0][1] <= sink.played[0][0], "ffmpeg was running before burst 1's audio"
     assert recorder.events[1][1] >= ctl._replay.driver.finished_wall, "and stopped after the replay finished"
+    assert recorder.tail_s == 0.25, "the recording holds the final report for the configured tail"
     assert rec["state"] == "done" and rec["bytes"] == 300 and rec["duration_s"] == 2.5 and rec["sync"]["pass"]
     assert checks == [(Path(rec["path"]), 2)]
     folder = Path(rec["folder"])
