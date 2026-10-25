@@ -5,6 +5,7 @@ import json
 import threading
 import time
 import wave
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -185,11 +186,25 @@ def test_driver_plays_gaps_at_speed_clamps_overlap_and_logs_every_start(tmp_path
     assert log[1]["played_gap_s"] == 0 and "overlapped the previous burst by 0 s on feed 4430" in log[1]["note"]
     assert log[2]["played_gap_s"] == 0.5, "10 s gap at 20x"
     assert host.started[2][0] - host.started[1][0] >= 0.5
-    assert all(e["start_iso"].count(":") == 2 and e["sink_lag_ms"] is not None for e in log)
+    assert all(e["start_iso"].count(":") == 2 and e["sink_lead_ms"] is not None for e in log)
     phases = [e["phase"] for e in events]
     assert phases[0] == "gap" and "burst" in phases and "waiting" in phases and phases[-1] == "done"
     assert sum(1 for e in events if e.get("flash")) == 3
     assert d.elapsed_s < time.time() - t0 + 0.01 and d.status()["of"] == 3
+
+
+def test_sink_player_starts_a_fixed_lead_before_the_file_source(tmp_path):
+    folder = make_callset(tmp_path, bursts=[("A", 0.1, 1000, "4390"), ("B", 0.1, 1001, "4390")])
+    cs = load_callset(folder)
+    host, sink, before = FakeHost(), FakeSink(), []
+    d = ReplayDriver(cs, host, sink=sink, speed=10.0, work_dir=tmp_path / "work", sink_lead_s=0.12,
+                     before_first_burst=lambda: before.append(time.time()))
+    d.start()
+    assert wait_for(lambda: d.phase == "done", timeout=5)
+    for (t_host, _, _), (t_sink, _) in zip(host.started, sink.played):
+        assert 0.10 <= t_host - t_sink <= 0.2, "the sink audio started the lead ahead of the file source"
+    assert all(100 <= e["sink_lead_ms"] <= 200 for e in d.log)
+    assert len(before) == 1 and before[0] <= sink.played[0][0], "the recorder hook ran once, before burst 1"
 
 
 def test_driver_stop_ends_the_run_early(tmp_path):
@@ -342,3 +357,62 @@ def test_silent_burst_is_no_speech_and_still_joins_the_session(settings, tmp_pat
     assert transcriber.calls == 1, "Whisper was not called for the silent burst"
     assert st["session"]["of"] == 2 and st["session"]["bursts"][1]["text"] == ""
     assert st["session"]["report"]["_meta"]["transcription"][1]["no_speech"]
+
+
+class FakeRecorder:
+    def __init__(self, out, geo):
+        self.out = Path(out); self.geo = geo; self.started_wall = None; self.events = []
+
+    def start(self, warm_up_s=0.0):
+        self.started_wall = time.time(); self.events.append(("start", time.time()))
+        self.out.parent.mkdir(parents=True, exist_ok=True); self.out.write_bytes(b"mp4" * 100)
+
+    def stop(self, tail_s=0.0):
+        self.events.append(("stop", time.time()))
+        return {"path": str(self.out), "bytes": 300, "wall_s": 1.0, "ffmpeg_exit": 0, "duration_s": 2.5}
+
+
+class FakeWindow:
+    def __init__(self):
+        from ems_handoff.recording import Geometry
+        self.geometry = Geometry(0, 69, 1280, 720); self.wid = "0x1"
+
+
+def test_record_option_runs_ffmpeg_around_the_bursts_and_checks_sync(settings, tmp_path, monkeypatch):
+    made = {}
+    checks = []
+    sink = FakeSink()
+    client, ctl, _ = build(settings, tmp_path, sink=sink)
+    ctl.settings = dataclasses.replace(ctl.settings, replay_record_dir=tmp_path / "rec", replay_sink_lead_ms=50.0)
+    ctl.engines.make_browser = lambda s, url: made.setdefault("window", FakeWindow())
+    ctl.engines.make_recorder = lambda s, out, geo: made.setdefault("recorder", FakeRecorder(out, geo))
+    ctl.engines.check_sync = lambda path, expected: (checks.append((path, expected)) or
+                                                    {"pass": True, "flashes": expected, "clicks": expected, "expected_bursts": expected,
+                                                     "max_abs_offset_ms": 12.0, "bursts": []})
+    r = client.post("/api/replay/start", json={"callset": "CS900", "record": True}).get_json()
+    assert r["replay"]["recording"]["state"] == "prepared" and r["replay"]["recording"]["geometry"] == [0, 69, 1280, 720]
+    assert wait_for(lambda: ctl.state == "idle", timeout=15)
+    assert wait_for(lambda: (ctl._replay.recording or {}).get("sync") is not None, timeout=10)
+    rec = ctl._replay.recording
+    recorder = made["recorder"]
+    assert [e[0] for e in recorder.events] == ["start", "stop"]
+    assert recorder.events[0][1] <= sink.played[0][0], "ffmpeg was running before burst 1's audio"
+    assert recorder.events[1][1] >= ctl._replay.driver.finished_wall, "and stopped after the replay finished"
+    assert rec["state"] == "done" and rec["bytes"] == 300 and rec["duration_s"] == 2.5 and rec["sync"]["pass"]
+    assert checks == [(Path(rec["path"]), 2)]
+    folder = Path(rec["folder"])
+    assert folder.name.endswith(ctl._replay.status()["commit"]) and (folder / "CS900.summary.json").exists()
+    assert json.loads((folder / "CS900.sync.json").read_text())["max_abs_offset_ms"] == 12.0
+    index = (tmp_path / "rec" / "INDEX.md").read_text()
+    assert "| CS900 | groq |" in index and "pass (2/2 bursts, worst 12 ms) | pending |" in index
+    assert all(50 <= e["sink_lead_ms"] <= 200 for e in ctl._replay.driver.log), "the sink lead was applied"
+
+
+def test_a_recorder_that_fails_to_start_returns_the_app_to_idle(settings, tmp_path):
+    client, ctl, _ = build(settings, tmp_path)
+    ctl.engines.make_browser = lambda s, url: (_ for _ in ()).throw(RuntimeError("no display"))
+    r = client.post("/api/replay/start", json={"callset": "CS900", "record": True})
+    assert r.status_code == 409 and "no display" in r.get_json()["message"]
+    assert ctl.state == "idle" and "Replay could not start" in ctl.last_error
+    assert client.post("/api/replay/start", json={"callset": "CS900"}).status_code == 200, "a plain replay still starts"
+    assert wait_for(lambda: ctl.state == "idle", timeout=15)

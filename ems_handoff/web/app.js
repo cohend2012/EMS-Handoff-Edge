@@ -304,6 +304,7 @@
     $("rpPhase").textContent = "Starting…";
     $("rpNote").hidden = true;
     $("rpFallback").hidden = true;
+    $("rpRecording").hidden = true;
     $("rpCaptions").innerHTML = '<span class="placeholder">Waiting for the first burst…</span>';
     $("rpBurstNow").textContent = "";
     $("rpMeter").style.width = "0%";
@@ -335,7 +336,8 @@
     if (!callset) return;
     $("replayBtn").disabled = true;
     try {
-      const r = await api("/api/replay/start", { callset, provider: $("replayProvider").value, speed: Number($("replaySpeed").value) || 1 });
+      const r = await api("/api/replay/start", { callset, provider: $("replayProvider").value, speed: Number($("replaySpeed").value) || 1,
+                                                 record: $("replayRecord").checked });
       resetReplayScreen(r.replay);
     } catch (e) {
       $("replayInfo").textContent = e.message;
@@ -368,6 +370,14 @@
     if (ev.fallback) {
       $("rpFallback").textContent = `${ev.fallback.from} failed (${ev.fallback.reason}); reports from local ${ev.fallback.to}`;
       $("rpFallback").hidden = false;
+    }
+    if (ev.recording) {
+      const rec = ev.recording;
+      const sync = rec.sync ? ` · sync ${rec.sync.pass ? "pass" : "FAIL"}${rec.sync.max_abs_offset_ms != null ? ` (worst ${rec.sync.max_abs_offset_ms.toFixed(0)} ms)` : ""}` : "";
+      $("rpRecording").textContent = rec.state === "recording" ? `● REC ${rec.path}`
+        : rec.state === "done" ? `Recorded ${rec.path}${rec.bytes ? ` · ${(rec.bytes / 1048576).toFixed(1)} MB` : ""}${rec.duration_s ? ` · ${clock(rec.duration_s)}` : ""}${sync}`
+        : rec.state === "failed" ? `Recording failed: ${rec.error}` : `Recording ready: ${rec.path}`;
+      $("rpRecording").hidden = false;
     }
     const phase = $("rpPhase");
     if (ev.phase === "gap") {

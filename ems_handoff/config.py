@@ -119,6 +119,14 @@ class Settings:
     replay_sink: str = "handoff_replay"          # PipeWire null sink the burst audio is played into
     replay_quiet_online_s: float = 5.0
     replay_quiet_offline_s: float = 25.0
+    replay_sink_lead_ms: float = 100.0           # start the sink player this much before the file source
+    # --- recording a replay on the Jetson (recording.py) ---------------------
+    replay_record_dir: Path = Path("~/recordings").expanduser()
+    replay_display: str = ":1"                   # X display with the app window
+    replay_record_width: int = 1280
+    replay_record_height: int = 720
+    replay_record_fps: int = 15
+    replay_chromium: str = ""                    # path to a Chromium binary; "" = Playwright's or PATH
 
     # --- derived helpers ---------------------------------------------------
     def has_key(self, provider: Optional[str] = None) -> bool:
@@ -198,4 +206,11 @@ def load_settings(env: Optional[Mapping[str, str]] = None) -> Settings:
         replay_sink=g("HANDOFF_REPLAY_SINK") or defaults.replay_sink,
         replay_quiet_online_s=_float(g("HANDOFF_REPLAY_QUIET_ONLINE_S"), defaults.replay_quiet_online_s),
         replay_quiet_offline_s=_float(g("HANDOFF_REPLAY_QUIET_OFFLINE_S"), defaults.replay_quiet_offline_s),
+        replay_sink_lead_ms=_float(g("HANDOFF_REPLAY_SINK_LEAD_MS"), defaults.replay_sink_lead_ms),
+        replay_record_dir=Path(g("HANDOFF_RECORDINGS")).expanduser() if g("HANDOFF_RECORDINGS") else defaults.replay_record_dir,
+        replay_display=g("HANDOFF_REPLAY_DISPLAY") or defaults.replay_display,
+        replay_record_width=_int(g("HANDOFF_RECORD_WIDTH"), defaults.replay_record_width),
+        replay_record_height=_int(g("HANDOFF_RECORD_HEIGHT"), defaults.replay_record_height),
+        replay_record_fps=_int(g("HANDOFF_RECORD_FPS"), defaults.replay_record_fps),
+        replay_chromium=g("HANDOFF_CHROMIUM") or "",
     )

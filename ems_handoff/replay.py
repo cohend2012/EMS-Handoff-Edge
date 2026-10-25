@@ -313,11 +313,14 @@ class ReplayHost:
 class ReplayDriver:
     def __init__(self, callset: CallSet, host: ReplayHost, sink: Optional[SinkPlayer] = None,
                  speed: float = 1.0, emit: Callable[[dict], None] = lambda e: None,
-                 work_dir: Optional[Path] = None, settle_timeout_s: float = 600.0):
+                 work_dir: Optional[Path] = None, settle_timeout_s: float = 600.0,
+                 sink_lead_s: float = 0.0, before_first_burst: Optional[Callable[[], None]] = None):
         self.callset = callset
         self.host = host
         self.sink = sink
         self.speed = max(0.01, float(speed))
+        self.sink_lead_s = max(0.0, float(sink_lead_s))   # the player's startup: start it this much earlier
+        self._before_first_burst = before_first_burst     # e.g. start the recorder and wait for it
         self._emit = emit
         self.work_dir = Path(work_dir) if work_dir else Path("/tmp") / "handoff_replay"
         self.settle_timeout_s = settle_timeout_s
@@ -379,16 +382,23 @@ class ReplayDriver:
                     time.sleep(min(0.2, self.seconds_left))
                 if self._stop.is_set():
                     return
+                if i == 1 and self._before_first_burst is not None:
+                    self._before_first_burst()
                 self.phase, self.seconds_left = "burst", 0.0
-                wall = time.time()
-                ended = self.host.start_burst(clip, i)
+                # The sink player takes about 100 ms to open its stream: start it a fixed lead
+                # earlier so the recording's audio lines up with the captions and the flash.
+                sink_wall = None
                 if self.sink and clip.segment_id in prepared:
                     self.sink.play(prepared[clip.segment_id])
-                sink_wall = self.sink.last_started if self.sink else None
+                    sink_wall = self.sink.last_started
+                    if self.sink_lead_s:
+                        time.sleep(self.sink_lead_s)
+                wall = time.time()
+                ended = self.host.start_burst(clip, i)
                 entry = {"burst": i, "segment_id": clip.segment_id, "feed": clip.feed, "epoch": clip.epoch,
                          "duration_s": round(clip.duration_s, 2), "gap_s": clip.gap_s, "played_gap_s": round(gap, 2),
                          "start_wall": wall, "start_iso": time.strftime("%H:%M:%S", time.localtime(wall)) + f".{int(wall % 1 * 1000):03d}",
-                         "sink_lag_ms": round((sink_wall - wall) * 1000, 1) if sink_wall else None, "note": note}
+                         "sink_lead_ms": round((wall - sink_wall) * 1000, 1) if sink_wall else None, "note": note}
                 self.log.append(entry)
                 logger.info("Replay %s: burst %d/%d %s started at %s (gap %.1f s%s)", self.callset.id, i,
                             len(self.callset.bursts), clip.segment_id, entry["start_iso"], gap, f"; {note}" if note else "")
