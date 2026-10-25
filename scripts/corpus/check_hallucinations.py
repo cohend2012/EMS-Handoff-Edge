@@ -149,20 +149,31 @@ def reverse(cid, rid, rep, t, whole):
     if etas and (is_unknown(rep.get("eta_minutes")) or int(float(rep["eta_minutes"])) not in etas): add("eta_minutes", ",".join(map(str, etas)), rep.get("eta_minutes"), context(t, str(etas[-1])))
     return rows
 
-fwd, rev = [], []
-for d in sorted(SETS.glob("CS*")):
-    cid = d.name; combined = norm((d/"combined_transcript.txt").read_text())
-    targets = [(f"{cid}_combined", d/"combined_report.json", combined)] + [(p.stem.replace("_report", ""), p, None) for p in sorted(d.glob("S*_report.json"))]
-    for rid, path, t in targets:
-        if not path.exists(): continue
-        rep = json.load(open(path)); t = t or norm(rep.get("_meta", {}).get("raw_transcript") or rep.get("_meta", {}).get("transcript") or "")
-        whole = norm(json.dumps({k: v for k, v in rep.items() if k != "_meta"}))
-        fwd += forward(cid, rid, rep, t); rev += reverse(cid, rid, rep, t, whole)
-for name, rows in (("hallucination_candidates.csv", fwd), ("missed_candidates.csv", rev)):
-    with open(LABELS/name, "w", newline="") as f:
-        w = csv.DictWriter(f, fieldnames=list(rows[0].keys()) if rows else ["callset_id"]); w.writeheader(); w.writerows(rows)
-n_rep = len({r["report"] for r in fwd} | {r["report"] for r in rev})
-print(f"reports checked: {n_rep}")
-print("forward claims:", len(fwd), {s: sum(1 for r in fwd if r['found_in_transcript'] == s) for s in ('yes', 'partial', 'no')})
-print("unsupported ('no') by field group:", {g: sum(1 for r in fwd if r['found_in_transcript'] == 'no' and r['field'].startswith(g)) for g in ('ems_interventions', 'history.medications', 'history.past_medical', 'history.allergies', 'history.code_status', 'vital_signs', 'patient.age', 'eta_minutes')})
-print("reverse (missed):", len(rev), {g: sum(1 for r in rev if r['field'] == g) for g in ('patient.sex', 'patient.age', 'ems_unit', 'destination_hospital', 'eta_minutes')})
+def check_folder(reports_dir=REPORTS, sets_dir=SETS):
+    """(forward rows, reverse rows) for every report in reports_dir. A combined report is checked
+    against its set's combined transcript, a burst report against the transcript it saw."""
+    fwd, rev = [], []
+    for d in sorted(sets_dir.glob("CS*")):
+        cid = d.name; combined = norm((d/"combined_transcript.txt").read_text())
+        bursts = [r["segment_id"] for r in csv.DictReader(open(LABELS/"callsets.csv")) if r["callset_id"] == cid]
+        targets = [(f"{cid}_combined", reports_dir/f"{cid}_combined.json", combined)] + [(sid, reports_dir/f"{sid}.json", None) for sid in bursts]
+        for rid, path, t in targets:
+            if not path.exists(): continue
+            rep = json.load(open(path)); t = t or norm(rep.get("_meta", {}).get("raw_transcript") or rep.get("_meta", {}).get("transcript") or "")
+            whole = norm(json.dumps({k: v for k, v in rep.items() if k != "_meta"}))
+            fwd += forward(cid, rid, rep, t); rev += reverse(cid, rid, rep, t, whole)
+    return fwd, rev
+
+def main():
+    fwd, rev = check_folder()
+    for name, rows in (("hallucination_candidates.csv", fwd), ("missed_candidates.csv", rev)):
+        with open(LABELS/name, "w", newline="") as f:
+            w = csv.DictWriter(f, fieldnames=list(rows[0].keys()) if rows else ["callset_id"]); w.writeheader(); w.writerows(rows)
+    n_rep = len({r["report"] for r in fwd} | {r["report"] for r in rev})
+    print(f"reports checked: {n_rep}")
+    print("forward claims:", len(fwd), {s: sum(1 for r in fwd if r['found_in_transcript'] == s) for s in ('yes', 'partial', 'no')})
+    print("unsupported ('no') by field group:", {g: sum(1 for r in fwd if r['found_in_transcript'] == 'no' and r['field'].startswith(g)) for g in ('ems_interventions', 'history.medications', 'history.past_medical', 'history.allergies', 'history.code_status', 'vital_signs', 'patient.age', 'eta_minutes')})
+    print("reverse (missed):", len(rev), {g: sum(1 for r in rev if r['field'] == g) for g in ('patient.sex', 'patient.age', 'ems_unit', 'destination_hospital', 'eta_minutes')})
+
+if __name__ == "__main__":
+    main()
