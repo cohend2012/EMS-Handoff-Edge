@@ -140,6 +140,24 @@ class LiveSession:
         t.start()
 
     def _caption_loop(self, captioner, q: "queue.Queue") -> None:
+        try:
+            self._caption_loop_inner(captioner, q)
+            flush = getattr(captioner, "flush", None)     # repairs that arrive after the last block
+            if flush is not None:
+                try:
+                    update = flush()
+                    if update.final:
+                        self.final_text = update.final
+                        self._emit({"type": "caption", "final": update.final, "partial": "",
+                                    "segments": update.segments})
+                except Exception:  # noqa: BLE001
+                    logger.exception("Caption flush failed")
+        finally:
+            close = getattr(captioner, "close", None)
+            if close is not None:
+                close()
+
+    def _caption_loop_inner(self, captioner, q: "queue.Queue") -> None:
         while not self._stopped.is_set():
             try:
                 block = q.get(timeout=0.25)
@@ -154,7 +172,10 @@ class LiveSession:
                 return
             if update.changed:
                 self.final_text = update.final
-                self._emit({"type": "caption", "final": update.final, "partial": update.partial})
+                event = {"type": "caption", "final": update.final, "partial": update.partial}
+                if update.segments is not None:
+                    event["segments"] = update.segments
+                self._emit(event)
             if update.heard_phrase and not self.is_finished:
                 self.finish("phrase", f"live captions heard: '{' '.join((update.final + ' ' + update.partial).split()[-8:])}'")
 

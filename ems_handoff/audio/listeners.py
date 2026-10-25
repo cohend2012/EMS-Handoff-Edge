@@ -14,6 +14,11 @@ Engines
     VoskPhraseSpotter  A second Vosk recognizer limited by a grammar to the stop
                        phrase plus "[unk]". It runs in its own thread, so phrase
                        detection never waits on captions.
+    RepairingCaptioner Vosk for the words right now, Groq Whisper to repair them a
+                       few seconds later: each phrase's audio (cut at a Vosk pause,
+                       3 to 8 s) is sent to Whisper in the background and its text
+                       replaces Vosk's rough words for that stretch. The default
+                       whenever a Groq key is set (Settings.caption_repair).
     WhisperCaptioner   Fallback when the Vosk model is not installed.
                        faster-whisper tiny.en, single pass (temperature 0), on a
                        window that always starts where the last committed text
@@ -38,10 +43,12 @@ from __future__ import annotations
 
 import json
 import logging
+import queue
 import threading
-from dataclasses import dataclass
+import time
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Callable, Optional, Tuple
+from typing import Callable, List, Optional, Tuple
 
 import numpy as np
 
@@ -55,10 +62,11 @@ RATE = 16000
 
 @dataclass
 class CaptionUpdate:
-    final: str          # text that will not change any more
+    final: str          # text that will not change any more (with repair: the best text so far)
     partial: str        # the words still being recognized
     changed: bool
     heard_phrase: bool = False
+    segments: Optional[List[dict]] = None   # with repair: [{"i", "text", "fixed"}] per phrase, in order
 
 
 def _pcm16(block: np.ndarray) -> bytes:
@@ -142,6 +150,123 @@ class VoskPhraseSpotter:
 
 
 # ---------------------------------------------------------------------------
+# Rough words now, repaired words a few seconds later
+# ---------------------------------------------------------------------------
+@dataclass
+class CaptionSegment:
+    index: int
+    rough: str                      # the base captioner's words for this stretch of audio
+    seconds: float = 0.0
+    fixed: Optional[str] = None     # Whisper's words, once they arrive
+    status: str = "pending"         # pending | fixed | empty | failed | skipped
+    error: str = ""
+
+    @property
+    def text(self) -> str:
+        return self.fixed if self.fixed else self.rough
+
+
+class RepairingCaptioner:
+    """Base captioner (Vosk) for immediate words; a transcriber (Groq Whisper) repairs each phrase.
+
+    The audio is cut into phrases at the base captioner's pauses once at least min_chunk_s
+    has accumulated, or after max_chunk_s regardless. Each phrase goes to the transcriber on
+    a worker thread; when its text comes back it replaces the rough words of that phrase and
+    the next feed() reports the change. A transcriber error keeps the rough words; an HTTP
+    429 pauses repairs for backoff_s. At a forced cut a word or two can appear twice at the
+    seam until both sides are repaired."""
+
+    name = "vosk+whisper"
+
+    def __init__(self, base, transcribe_fn: Callable[[np.ndarray], str], phrase: str = "",
+                 min_chunk_s: float = 3.0, max_chunk_s: float = 8.0, backoff_s: float = 15.0):
+        self._base = base
+        self._fn = transcribe_fn
+        self._phrase = phrase
+        self.min_chunk_s, self.max_chunk_s, self.backoff_s = min_chunk_s, max_chunk_s, backoff_s
+        self.segments: List[CaptionSegment] = []
+        self._buf: List[np.ndarray] = []
+        self._buf_n = 0
+        self._seen_final = ""          # the base's cumulative final text at the last cut
+        self._last_final = ""
+        self._dirty = threading.Event()
+        self._backoff_until = 0.0
+        self._queue: "queue.Queue[Optional[tuple]]" = queue.Queue()
+        self._worker = threading.Thread(target=self._repair_loop, name="caption-repair", daemon=True)
+        self._worker.start()
+
+    def feed(self, block: np.ndarray) -> CaptionUpdate:
+        upd = self._base.feed(block)
+        self._buf.append(np.asarray(block, dtype=np.float32))
+        self._buf_n += len(block)
+        secs = self._buf_n / RATE
+        new_final = upd.final != self._last_final
+        self._last_final = upd.final
+        pending_rough = upd.final[len(self._seen_final):].strip() if upd.final.startswith(self._seen_final) else upd.final
+        cut = (new_final and secs >= self.min_chunk_s) or secs >= self.max_chunk_s
+        if cut:
+            seg = CaptionSegment(len(self.segments), pending_rough, seconds=round(secs, 2))
+            self.segments.append(seg)
+            self._queue.put((seg, np.concatenate(self._buf)))
+            self._buf, self._buf_n, self._seen_final = [], 0, upd.final
+            pending_rough = ""
+        dirty = self._dirty.is_set()
+        self._dirty.clear()
+        parts = [s.text for s in self.segments if s.text]
+        if pending_rough:
+            parts.append(pending_rough)
+        final = " ".join(parts).strip()
+        segments = [{"i": s.index, "text": s.text, "fixed": s.status == "fixed"} for s in self.segments]
+        if pending_rough:
+            segments.append({"i": len(self.segments), "text": pending_rough, "fixed": False})
+        heard = bool(self._phrase) and contains_phrase(_tail(f"{final} {upd.partial}"), self._phrase)
+        return CaptionUpdate(final, upd.partial, upd.changed or cut or dirty, heard, segments=segments)
+
+    def _repair_loop(self) -> None:
+        while True:
+            item = self._queue.get()
+            if item is None:
+                return
+            seg, audio = item
+            if time.time() < self._backoff_until:
+                seg.status = "skipped"
+                continue
+            try:
+                text = (self._fn(audio) or "").strip()
+                if text:
+                    seg.fixed, seg.status = text, "fixed"
+                else:
+                    seg.status = "empty"
+            except Exception as e:  # noqa: BLE001 - the rough words stay; the recording never waits
+                seg.status, seg.error = "failed", str(e)
+                if "429" in str(e) or "rate limit" in str(e).lower():
+                    self._backoff_until = time.time() + self.backoff_s
+                logger.warning("Caption repair failed for segment %d: %s", seg.index, e)
+            self._dirty.set()
+
+    def flush(self, timeout: float = 2.5) -> CaptionUpdate:
+        """At the end of the audio: send what is left (if at least half a second), wait up to
+        timeout for every pending repair, and return the final text so the owner can show it."""
+        if self._buf_n >= RATE // 2:
+            rough = self._last_final[len(self._seen_final):].strip() if self._last_final.startswith(self._seen_final) else self._last_final
+            seg = CaptionSegment(len(self.segments), rough, seconds=round(self._buf_n / RATE, 2))
+            self.segments.append(seg)
+            self._queue.put((seg, np.concatenate(self._buf)))
+            self._buf, self._buf_n, self._seen_final = [], 0, self._last_final
+        end = time.time() + timeout
+        while time.time() < end and any(s.status == "pending" for s in self.segments):
+            time.sleep(0.05)
+        parts = [s.text for s in self.segments if s.text]
+        final = " ".join(parts).strip()
+        segments = [{"i": s.index, "text": s.text, "fixed": s.status == "fixed"} for s in self.segments]
+        self._dirty.clear()
+        return CaptionUpdate(final, "", True, False, segments=segments)
+
+    def close(self) -> None:
+        self._queue.put(None)
+
+
+# ---------------------------------------------------------------------------
 # Whisper fallback
 # ---------------------------------------------------------------------------
 class WhisperCaptioner:
@@ -200,9 +325,17 @@ def make_listeners(settings: Settings) -> Tuple[Optional[Callable], Optional[Cal
     phrase = settings.stop_phrase
     if engine in ("auto", "vosk") and vosk_available(settings.vosk_model_dir):
         model = load_vosk_model(settings.vosk_model_dir)
+        label = f"Vosk ({Path(settings.vosk_model_dir).name})"
+        if settings.caption_repair and settings.groq_api_key:
+            from ..transcribe import GroqTranscriber
+            repair = GroqTranscriber(settings)
+
+            def factory():
+                return RepairingCaptioner(VoskCaptioner(model, phrase), repair.transcribe, phrase)
+            return factory, (lambda: VoskPhraseSpotter(model, phrase)), f"{label} + Groq Whisper repair"
         return (lambda: VoskCaptioner(model, phrase),
                 lambda: VoskPhraseSpotter(model, phrase),
-                f"Vosk ({Path(settings.vosk_model_dir).name})")
+                label)
     if engine == "vosk":
         logger.warning("Vosk captions requested but no model at %s", settings.vosk_model_dir)
     if engine in ("auto", "whisper", "vosk"):

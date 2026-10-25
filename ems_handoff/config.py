@@ -98,6 +98,7 @@ class Settings:
     caption_engine: str = "auto"                 # auto | vosk | whisper | off
     vosk_model_dir: Path = PROJECT_ROOT / "models" / "vosk-model-small-en-us-0.15"
     caption_whisper_model: str = "tiny.en"       # fallback caption model when Vosk is missing
+    caption_repair: bool = True                  # Groq Whisper repairs Vosk's words a few seconds later (needs a Groq key)
     stop_phrase: str = "confirm report ready"
     max_recording_s: int = 600                   # auto-DONE after 10 minutes
 
@@ -160,6 +161,7 @@ class Settings:
             "keys": {p: self.has_key(p) for p in PROVIDERS},
             "transcriber": self.effective_transcriber(),
             "caption_engine": self.caption_engine,
+            "caption_repair": self.caption_repair and bool(self.groq_api_key),
             "mic_device": self.mic_device or "auto",
             "stop_phrase": self.stop_phrase,
             "max_recording_s": self.max_recording_s,
@@ -191,6 +193,7 @@ def load_settings(env: Optional[Mapping[str, str]] = None) -> Settings:
         caption_engine=_choice(g("HANDOFF_CAPTIONS"), CAPTION_ENGINES, defaults.caption_engine),
         vosk_model_dir=Path(g("VOSK_MODEL_DIR")) if g("VOSK_MODEL_DIR") else defaults.vosk_model_dir,
         caption_whisper_model=g("CAPTION_WHISPER_MODEL") or defaults.caption_whisper_model,
+        caption_repair=_bool(g("HANDOFF_CAPTION_REPAIR"), True),
         stop_phrase=(g("HANDOFF_STOP_PHRASE") or defaults.stop_phrase).strip().lower(),
         max_recording_s=_int(g("HANDOFF_MAX_RECORDING_S"), defaults.max_recording_s),
         host=g("HANDOFF_HOST") or defaults.host,
