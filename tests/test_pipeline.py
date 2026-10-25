@@ -219,3 +219,26 @@ def test_token_stats_are_kept_in_timings():
     report, _, _ = run(SAMPLE_STEMI, llm)
     t = report["_meta"]["timings"]
     assert t["tokens_out"] == 850 and t["tok_s"] == 10.7 and "extract_s" in t
+
+
+def test_sex_is_inferred_from_pronouns_when_the_model_left_it_null():
+    from ems_handoff.pipeline import infer_sex
+    from ems_handoff.prompt import EXTRACTION_PROMPT
+    assert "pronouns" in EXTRACTION_PROMPT
+    no_sex = report_dict(patient={"age": 72, "age_unit": "years", "sex": None})
+    radio = ("Medic 21 inbound with a 72 year old, sudden change in vision in his left eye at 10:30. "
+             "He states the vision is blurry. His blood pressure is 160 over 90. ETA 10 minutes.")
+    report, _, _ = run(radio, FakeLLM([json.dumps(no_sex)]))
+    assert report["patient"]["sex"] == "Male"
+    assert "Sex inferred from pronouns (3 he/his/him, 0 she/her)" in report["data_quality"]["assumptions"]
+    # nothing to go on: stays null
+    report, _, _ = run("Medic 21 inbound with a 72 year old, vision change, ETA 10 minutes.", FakeLLM([json.dumps(no_sex)]))
+    assert report["patient"]["sex"] is None
+    # mixed pronouns (the daughter is talking): not decisive
+    assert infer_sex("she says he fell; her father, his hip hurts, she called us") is None
+    assert infer_sex("her daughter found her on the floor; she is alert") == ("Female", "Sex inferred from pronouns (3 she/her, 0 he/his/him)")
+    assert infer_sex("he") is None                                   # one pronoun is not enough
+    # what the model stated is never overridden
+    said_female = report_dict(patient={"age": 72, "age_unit": "years", "sex": "Female"})
+    report, _, _ = run(radio, FakeLLM([json.dumps(said_female)]))
+    assert report["patient"]["sex"] == "Female" and not any("inferred" in a for a in report["data_quality"]["assumptions"])
