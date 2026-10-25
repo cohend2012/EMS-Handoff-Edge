@@ -351,11 +351,13 @@
     $("rpPhase").textContent = "Replay stopped";
   }
   function flash() {
-    // two frames at 15 fps: the sync marker goes white for ~133 ms, in step with the click in the sink audio
+    // The sync marker goes white in step with the click in the sink audio. 250 ms is about four
+    // frames at 15 fps: a two-frame flash vanished when the Jetson's capture dropped a frame
+    // (55 of 250 frames in one run under an over-current throttle). Only the onset is measured.
     const m = $("syncMarker");
     m.classList.add("on");
     if (ui.replay.flashTimer) clearTimeout(ui.replay.flashTimer);
-    ui.replay.flashTimer = setTimeout(() => m.classList.remove("on"), 133);
+    ui.replay.flashTimer = setTimeout(() => m.classList.remove("on"), 250);
   }
   function renderReplay(ev) {
     if (document.body.dataset.screen !== "replay") return;

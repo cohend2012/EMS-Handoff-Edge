@@ -138,12 +138,11 @@ def check(path: Path, expected: Optional[int] = None, pass_ms: float = PASS_MS) 
         times = (times + [times[-1] if times else 0.0] * len(frames))[:len(frames)]
     marker = locate_marker(frames)
     flashes = [t + starts.get("video", 0.0) for t in find_flashes(frames, times, marker)]
-    bursts = []
-    for i, (f, c) in enumerate(zip(flashes, clicks), 1):
-        bursts.append({"burst": i, "flash_s": round(f, 3), "click_s": round(c, 3), "offset_ms": round((c - f) * 1000, 1)})
-    offsets = [abs(b["offset_ms"]) for b in bursts]
+    bursts = pair_events(flashes, clicks)
+    offsets = [abs(b["offset_ms"]) for b in bursts if b["offset_ms"] is not None]
     n_expected = expected if expected is not None else max(len(flashes), len(clicks))
-    ok = (len(flashes) == len(clicks) == n_expected and n_expected > 0 and all(o <= pass_ms for o in offsets))
+    complete = all(b["flash_s"] is not None and b["click_s"] is not None for b in bursts)
+    ok = (len(bursts) == n_expected and n_expected > 0 and complete and all(o <= pass_ms for o in offsets))
     return {"file": str(path), "pass": ok, "pass_ms": pass_ms, "expected_bursts": n_expected,
             "flashes": len(flashes), "clicks": len(clicks), "marker_at": list(marker) if marker else None,
             "frames": int(len(frames)), "audio_s": round(len(audio) / AUDIO_RATE, 2),
@@ -151,11 +150,44 @@ def check(path: Path, expected: Optional[int] = None, pass_ms: float = PASS_MS) 
             "flash_times": [round(x, 3) for x in flashes], "click_times": [round(x, 3) for x in clicks]}
 
 
+def pair_events(flashes: List[float], clicks: List[float], window_s: float = 1.0) -> List[Dict[str, Any]]:
+    """Each click with the nearest unused flash within window_s; unmatched events stand alone, so one
+    missed flash shows as one incomplete burst instead of shifting every later offset by a burst."""
+    events = sorted([(t, "click") for t in clicks] + [(t, "flash") for t in flashes])
+    used_flash = set()
+    pairs = []
+    for c in clicks:
+        best = None
+        for j, f in enumerate(flashes):
+            if j in used_flash or abs(f - c) > window_s:
+                continue
+            if best is None or abs(f - c) < abs(flashes[best] - c):
+                best = j
+        if best is not None:
+            used_flash.add(best)
+            pairs.append((min(c, flashes[best]), flashes[best], c))
+        else:
+            pairs.append((c, None, c))
+    for j, f in enumerate(flashes):
+        if j not in used_flash:
+            pairs.append((f, f, None))
+    out = []
+    for i, (_, f, c) in enumerate(sorted(pairs, key=lambda x: x[0]), 1):
+        out.append({"burst": i, "flash_s": round(f, 3) if f is not None else None, "click_s": round(c, 3) if c is not None else None,
+                    "offset_ms": round((c - f) * 1000, 1) if f is not None and c is not None else None})
+    return out
+
+
 def format_report(r: Dict[str, Any]) -> str:
     lines = [f"{r['file']}: {'PASS' if r['pass'] else 'FAIL'} (rule: every burst within {r['pass_ms']:.0f} ms)",
              f"  frames {r['frames']} · audio {r['audio_s']} s · flashes {r['flashes']} · clicks {r['clicks']} · expected {r['expected_bursts']}"
              f" · marker at {r['marker_at']}"]
     for b in r["bursts"]:
+        if b["offset_ms"] is None:
+            what = "no flash found" if b["flash_s"] is None else "no click found"
+            when = b["click_s"] if b["flash_s"] is None else b["flash_s"]
+            lines.append(f"  burst {b['burst']}: {what} near {when:.3f} s  <-- missing")
+            continue
         over = "" if abs(b["offset_ms"]) <= r["pass_ms"] else "  <-- over"
         lines.append(f"  burst {b['burst']}: flash {b['flash_s']:.3f} s · click {b['click_s']:.3f} s · offset {b['offset_ms']:+.1f} ms{over}")
     if r["flashes"] != r["clicks"]:

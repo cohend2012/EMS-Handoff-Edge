@@ -205,6 +205,13 @@ def test_sink_player_starts_a_fixed_lead_before_the_file_source(tmp_path):
         assert 0.10 <= t_host - t_sink <= 0.2, "the sink audio started the lead ahead of the file source"
     assert all(100 <= e["sink_lead_ms"] <= 200 for e in d.log)
     assert len(before) == 1 and before[0] <= sink.played[0][0], "the recorder hook ran once, before burst 1"
+    host2, sink2 = FakeHost(), FakeSink()
+    d = ReplayDriver(cs, host2, sink=sink2, speed=10.0, work_dir=tmp_path / "work", sink_lead_s=-0.12)
+    d.start()
+    assert wait_for(lambda: d.phase == "done", timeout=5)
+    for (t_host, _, _), (t_sink, _) in zip(host2.started, sink2.played):
+        assert 0.10 <= t_sink - t_host <= 0.2, "a negative lead starts the sink audio after the file source"
+    assert all(-200 <= e["sink_lead_ms"] <= -100 for e in d.log)
 
 
 def test_driver_stop_ends_the_run_early(tmp_path):

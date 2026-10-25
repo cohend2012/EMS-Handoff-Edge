@@ -319,7 +319,10 @@ class ReplayDriver:
         self.host = host
         self.sink = sink
         self.speed = max(0.01, float(speed))
-        self.sink_lead_s = max(0.0, float(sink_lead_s))   # the player's startup: start it this much earlier
+        # Positive: start the sink player this much before the file source (its startup). Negative:
+        # after it. Measured on the Jetson from recordings: with +100 ms the click sat 256 ms ahead
+        # of the flash in the file, so the calibrated value is about -155 ms (config default).
+        self.sink_lead_s = float(sink_lead_s)
         self._before_first_burst = before_first_burst     # e.g. start the recorder and wait for it
         self._emit = emit
         self.work_dir = Path(work_dir) if work_dir else Path("/tmp") / "handoff_replay"
@@ -388,13 +391,18 @@ class ReplayDriver:
                 # The sink player takes about 100 ms to open its stream: start it a fixed lead
                 # earlier so the recording's audio lines up with the captions and the flash.
                 sink_wall = None
-                if self.sink and clip.segment_id in prepared:
+                play_sink = self.sink is not None and clip.segment_id in prepared
+                if play_sink and self.sink_lead_s >= 0:
                     self.sink.play(prepared[clip.segment_id])
                     sink_wall = self.sink.last_started
                     if self.sink_lead_s:
                         time.sleep(self.sink_lead_s)
                 wall = time.time()
                 ended = self.host.start_burst(clip, i)
+                if play_sink and self.sink_lead_s < 0:
+                    time.sleep(-self.sink_lead_s)
+                    self.sink.play(prepared[clip.segment_id])
+                    sink_wall = self.sink.last_started
                 entry = {"burst": i, "segment_id": clip.segment_id, "feed": clip.feed, "epoch": clip.epoch,
                          "duration_s": round(clip.duration_s, 2), "gap_s": clip.gap_s, "played_gap_s": round(gap, 2),
                          "start_wall": wall, "start_iso": time.strftime("%H:%M:%S", time.localtime(wall)) + f".{int(wall % 1 * 1000):03d}",
