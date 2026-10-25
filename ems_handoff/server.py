@@ -205,7 +205,14 @@ class Controller:
                 "captions": self.captions_label, "transcriber": transcriber,
                 "has_result": self.last_result is not None, "error": self.last_error}
 
-    def update_settings(self, provider: Optional[str] = None, mic_device: Optional[str] = None) -> None:
+    def ollama_models(self) -> dict:
+        """Pulled Ollama models with memory needs, for the Settings screen."""
+        llm = self.engines.make_llm(dataclasses.replace(self.settings, provider="ollama"))
+        inv = llm.ollama_inventory()
+        return {**inv, "selected": self.settings.ollama_model, "pinned": self.settings.ollama_model_pinned}
+
+    def update_settings(self, provider: Optional[str] = None, mic_device: Optional[str] = None,
+                        ollama_model: Optional[str] = None) -> None:
         changes = {}
         if provider is not None:
             if provider not in PROVIDERS:
@@ -213,6 +220,16 @@ class Controller:
             changes["provider"] = provider
         if mic_device is not None:
             changes["mic_device"] = str(mic_device).strip()
+        if ollama_model is not None:
+            name = str(ollama_model).strip()
+            if name:
+                # a chosen model is pinned: it must be pulled and fit, or the choice is refused
+                llm = self.engines.make_llm(dataclasses.replace(self.settings, provider="ollama"))
+                good, why = llm.ollama_model_status(name)
+                if not good:
+                    raise ValueError(f"Ollama model not saved: {why}")
+                changes["ollama_model"] = name
+                changes["ollama_model_pinned"] = True
         with self._lock:
             self.settings = dataclasses.replace(self.settings, **changes)
         save_user_settings(self.settings)
@@ -396,14 +413,20 @@ def load_user_settings(settings: Settings, path: Optional[Path] = None) -> Setti
         changes["provider"] = saved["provider"]
     if isinstance(saved.get("mic_device"), str):
         changes["mic_device"] = saved["mic_device"]
+    if isinstance(saved.get("ollama_model"), str) and saved["ollama_model"].strip() and not settings.ollama_model_pinned:
+        # a model chosen in the app is pinned, like OLLAMA_MODEL; OLLAMA_MODEL itself still wins
+        changes["ollama_model"] = saved["ollama_model"].strip()
+        changes["ollama_model_pinned"] = True
     return dataclasses.replace(settings, **changes)
 
 
 def save_user_settings(settings: Settings, path: Optional[Path] = None) -> None:
     path = path or USER_SETTINGS_FILE
     try:
-        path.write_text(json.dumps({"provider": settings.provider,
-                                    "mic_device": settings.mic_device}, indent=2))
+        saved = {"provider": settings.provider, "mic_device": settings.mic_device}
+        if settings.ollama_model_pinned:
+            saved["ollama_model"] = settings.ollama_model
+        path.write_text(json.dumps(saved, indent=2))
     except OSError as e:
         logger.warning("Could not save user settings: %s", e)
 
@@ -464,10 +487,18 @@ def create_app(settings: Settings, engines: Optional[Engines] = None,
     def settings_route():
         body = request.get_json(silent=True) or {}
         try:
-            ctl.update_settings(provider=body.get("provider"), mic_device=body.get("mic_device"))
+            ctl.update_settings(provider=body.get("provider"), mic_device=body.get("mic_device"),
+                                ollama_model=body.get("ollama_model"))
         except ValueError as e:
             return fail(str(e))
         return ok(status=ctl.status())
+
+    @app.get("/api/ollama/models")
+    def ollama_models_route():
+        try:
+            return ok(**ctl.ollama_models())
+        except Exception as e:  # noqa: BLE001 - Ollama down: the screen says so
+            return fail(f"Cannot list Ollama models: {e}", 503)
 
     @app.post("/api/check")
     def check():

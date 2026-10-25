@@ -451,6 +451,38 @@ class LLMClient:
             loaded = 0.0
         return round(free + loaded, 2)
 
+    def ollama_inventory(self) -> dict:
+        """What the Settings screen needs: every pulled model with the memory it needs, and
+        what is free. {"models": [{"name", "size_gb", "need_gb", "fits"}], "free_gb": float|None}."""
+        models = self._ollama_models()
+        free_gb = self._ollama_free_gb()
+        out = []
+        for name, size in sorted(models.items(), key=lambda kv: -kv[1]):
+            need = ollama_need_gb(size)
+            out.append({"name": name, "size_gb": round(size, 2), "need_gb": need,
+                        "fits": free_gb is None or need <= free_gb})
+        return {"models": out, "free_gb": free_gb}
+
+    def ollama_model_status(self, name: str) -> Tuple[bool, str]:
+        """Can ``name`` be chosen as the Ollama model right now? (ok, why).
+
+        Refuses a model that is not pulled or does not fit in free memory, with the
+        reason, so a person never saves a choice that would be substituted or killed
+        while loading. Ollama being down is a reason too."""
+        try:
+            inv = self.ollama_inventory()
+        except Exception as e:  # noqa: BLE001 - urllib errors, bad JSON: all mean "cannot ask Ollama"
+            return False, f"Cannot ask Ollama which models are pulled: {self._connection_hint()} ({e})"
+        want = name if ":" in name else f"{name}:latest"
+        entry = next((m for m in inv["models"] if m["name"] == want), None)
+        if entry is None:
+            return False, f"'{name}' is not pulled. Run: ollama pull {name}"
+        if not entry["fits"]:
+            return False, (f"'{name}' needs ~{entry['need_gb']:.1f} GB but only {inv['free_gb']:.1f} GB is free; "
+                           "it would be killed while loading. Close other apps, or choose a smaller model.")
+        free = f", {inv['free_gb']:.1f} GB free" if inv["free_gb"] is not None else ""
+        return True, f"'{name}' is pulled and fits (needs ~{entry['need_gb']:.1f} GB{free})"
+
     def _check_ollama(self) -> Tuple[bool, str]:
         models = self._ollama_models()
         wanted, pinned = self.settings.ollama_model, self.settings.ollama_model_pinned
