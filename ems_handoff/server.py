@@ -582,7 +582,7 @@ class ReplayRun(ReplayHost):
         if self._recorder is None or self.recording is None or self.recording.get("state") in ("done", "failed"):
             return
         try:
-            info = self._recorder.stop()
+            info = self._recorder.stop(tail_s=self.ctl.settings.replay_record_tail_s)
             self.recording.update(info, state="done")
             folder = Path(self.recording["folder"])
             path = Path(self.recording["path"])
