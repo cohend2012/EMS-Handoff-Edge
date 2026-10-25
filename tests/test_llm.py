@@ -101,6 +101,15 @@ def test_bad_key_is_not_retried():
     assert len(fake.calls) == 1
 
 
+def test_rate_limit_error_keeps_the_providers_message():
+    msg = ("Rate limit reached for model `openai/gpt-oss-120b` on tokens per day (TPD): "
+           "Limit 200000, Used 199000, Requested 2500. Please try again in 3h21m5.1s.")
+    fake = FakeOpenAI([_exc(openai.APIStatusError, status=429, message=msg)])
+    with pytest.raises(LLMError, match="HTTP 429.*per day.*try again in 3h21m5.1s"):
+        LLMClient(Settings(provider="groq", groq_api_key="k"), client=fake).complete_json("p")
+    assert len(fake.calls) == 1   # a 4xx is not retried by the client
+
+
 def test_missing_key_is_reported_before_any_call():
     with pytest.raises(LLMError, match="No API key"):
         LLMClient(Settings(provider="groq", groq_api_key=""))

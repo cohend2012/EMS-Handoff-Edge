@@ -442,7 +442,10 @@ class LLMClient:
             return (f"{self.provider} does not know the model '{self.model}' (HTTP 404). "
                     "Set GROQ_LLM_MODEL in .env to a model your account lists.")
         if code == 429:
-            return f"{self.provider} rate limit reached (HTTP 429). Wait a minute and retry."
+            # Keep the provider's own words: Groq says which limit (per minute or per day)
+            # and when to try again, and a batch runner needs that to back off or stop.
+            detail = re.sub(r"\s+", " ", str(e))[:300]
+            return f"{self.provider} rate limit reached (HTTP 429). Wait a minute and retry. {detail}"
         if self.provider == "ollama" and re.search(r"killed|terminated|out of memory", str(e), re.I):
             free = available_memory_gb()
             return (f"Ollama ran out of memory loading '{self.model}'"
