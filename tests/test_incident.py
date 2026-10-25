@@ -261,3 +261,20 @@ def test_describe_change_wording():
     assert describe_change(a, b, 5) == "burst 5 added: ETA 10 min; changed: patient.age 3 -> 4; alert PEDIATRIC RED"
     assert describe_change(b, b, 6) == "burst 6: no new facts"
     assert leaf_fields({"vital_signs": {"spo2": None, "gcs": "15"}, "history": {"medications": []}}) == {"vital_signs.gcs": "15"}
+
+
+def test_attribution_accepts_indexed_list_keys_and_ties_the_unit_to_the_age():
+    bursts = [Burst(1, "62 year old female, we gave 324 of aspirin and nitroglycerin sublingual", 0)]
+    report = parse_report(json.dumps(report_dict(
+        patient={"age": 62, "age_unit": "years", "sex": "Female"},
+        ems_interventions=[{"intervention": "Aspirin administration", "details": "324 mg", "response": ""},
+                           {"intervention": "Nitroglycerin", "details": "", "response": ""}],
+        sources={"patient.age": 1, "patient.age_unit": 1, "ems_interventions[0].intervention": 1,
+                 "ems_interventions[1].details": 1})))
+    att = verify_attribution(report, bursts)
+    assert att["verified"]["ems_interventions"] == 1, "indexed keys count for the list"
+    assert att["verified"]["patient.age"] == 1 and att["verified"]["patient.age_unit"] == 1
+    assert "patient.age_unit" not in att["suspect"]
+    report = parse_report(json.dumps(report_dict(patient={"age": 7, "age_unit": "years", "sex": None}, sources={"patient.age": 1})))
+    att = verify_attribution(report, bursts)
+    assert "patient.age" in att["suspect"] and "patient.age_unit" in att["suspect"], "the unit follows a wrong age"

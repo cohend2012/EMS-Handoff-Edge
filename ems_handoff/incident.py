@@ -256,15 +256,11 @@ def verify_attribution(report: Dict[str, Any], bursts: List[Burst]) -> Dict[str,
     verified: Dict[str, int] = {}
     suspect: List[str] = []
     unattributed: List[str] = []
-    for path, value in leaf_fields(report).items():
-        n = sources.get(path)
-        if n is None:   # a source given for the parent section covers its children
-            parent = path.split(".")[0]
-            n = sources.get(parent)
-        try:
-            n = int(n) if n is not None else None
-        except (TypeError, ValueError):
-            n = None
+    fields = leaf_fields(report)
+    for path, value in fields.items():
+        if path == "patient.age_unit":
+            continue            # the unit goes with the age: checked below, never on its own
+        n = source_for(sources, path)
         if n is None:
             unattributed.append(path)
             continue
@@ -278,9 +274,31 @@ def verify_attribution(report: Dict[str, Any], bursts: List[Burst]) -> Dict[str,
                 verified[path] = stated_in
             else:
                 suspect.append(path)
+    if "patient.age_unit" in fields:
+        if "patient.age" in verified:
+            verified["patient.age_unit"] = verified["patient.age"]
+        elif "patient.age" in suspect:
+            suspect.append("patient.age_unit")
+        elif "patient.age" in unattributed:
+            unattributed.append("patient.age_unit")
     result = {"verified": verified, "suspect": suspect, "unattributed": unattributed}
     report["attribution"] = result
     return result
+
+
+def source_for(sources: Dict[str, Any], path: str) -> Optional[int]:
+    """The burst number the model gave for a field: the exact path, else its parent section,
+    else any key under it (the model writes "ems_interventions[0].intervention" for a list)."""
+    candidates = [sources.get(path), sources.get(path.split(".")[0])]
+    candidates += [v for k, v in sources.items() if k.startswith(path + "[") or k.startswith(path + ".")]
+    for n in candidates:
+        if n is None or isinstance(n, bool):
+            continue
+        try:
+            return int(n)
+        except (TypeError, ValueError):
+            continue
+    return None
 
 
 # ---------------------------------------------------------------------------

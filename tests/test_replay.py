@@ -269,7 +269,7 @@ def test_replay_runs_a_callset_through_captions_transcript_and_session(settings,
     assert "[Burst 2" in session["transcript"] and "How old? Sorry." in session["transcript"]
     assert session["report"]["alert_type"] == "PEDIATRIC"
     att = session["report"]["attribution"]
-    assert att["verified"] == {"patient.age": 1} and "patient.sex" in att["unattributed"]
+    assert att["verified"] == {"patient.age": 1, "patient.age_unit": 1} and "patient.sex" in att["unattributed"]
     assert "vital_signs.blood_pressure" in att["unattributed"], "the fake's vitals were never said and have no source"
     assert session["report"]["_meta"]["source"] == "replay:CS900" and "sources" in session["report"]
     assert ctl.last_result is session["report"], "the final report is the last result"
@@ -326,3 +326,4 @@ def test_replay_can_be_stopped_and_refuses_a_missing_key(settings, tmp_path):
     assert client.post("/api/replay/start", json={"callset": "CS900"}).status_code == 409
     client.post("/api/replay/stop")
     assert ctl.state == "idle" and ctl._replay.driver.phase != "done"
+
