@@ -45,7 +45,7 @@ import threading
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import numpy as np
 import scipy.io.wavfile as wavfile
@@ -55,6 +55,10 @@ from . import __version__
 from .audio.capture import AudioCapture, MicError, list_input_devices
 from .audio.listeners import make_listeners
 from .audio.session import LiveSession
+from .audio.sources import FileAudioSource
+from .incident import IncidentManager
+from .replay import (BurstClip, CallSet, ReplayDriver, ReplayHost, SinkPlayer, ensure_null_sink, list_callsets,
+                     load_callset)
 from .config import PROJECT_ROOT, PROVIDERS, Settings
 from .llm import LLMClient, LLMError
 from .pipeline import PipelineError, ReportPipeline
@@ -94,6 +98,7 @@ class Engines:
     make_capture: Callable[[Settings], AudioCapture] = lambda s: AudioCapture(s.mic_device)
     make_listeners: Callable[[Settings], tuple] = make_listeners
     list_mics: Callable[[], List] = list_input_devices
+    make_sink: Callable[[Settings], Any] = lambda s: SinkPlayer(s.replay_sink)   # replay audio out (null sink)
     lexicon_store: Any = None
     textbook_rag: Any = None
 
@@ -108,6 +113,20 @@ def default_engines(settings: Settings) -> Engines:
         from .textbook_rag import TextbookRAG
         textbook = TextbookRAG(store_dir=str(settings.textbook_dir))
     return Engines(lexicon_store=lexicon, textbook_rag=textbook)
+
+
+def app_commit() -> str:
+    """Short git commit of this checkout, or "unknown" outside a repo."""
+    try:
+        import subprocess
+        out = subprocess.run(["git", "rev-parse", "--short", "HEAD"], cwd=Path(__file__).resolve().parent,
+                             capture_output=True, text=True, timeout=5)
+        return out.stdout.strip() or "unknown"
+    except (OSError, subprocess.SubprocessError):
+        return "unknown"
+
+
+APP_COMMIT = app_commit()
 
 
 # ---------------------------------------------------------------------------
@@ -158,6 +177,7 @@ class Controller:
         self._jobs: queue.Queue = queue.Queue()
         self._worker = threading.Thread(target=self._work, name="report-worker", daemon=True)
         self._worker.start()
+        self._replay: Optional["ReplayRun"] = None   # only ever set when settings.replay_mode_enabled
 
     # -- state ----------------------------------------------------------------
     def _set_state(self, state: str, **extra) -> None:
@@ -201,9 +221,13 @@ class Controller:
             transcriber = self._transcriber("primary").describe()
         except Exception as e:  # noqa: BLE001
             transcriber = f"unavailable: {e}"
-        return {"app": APP_ID, "version": __version__, "state": self.state, "settings": s.public_dict(),
-                "captions": self.captions_label, "transcriber": transcriber,
-                "has_result": self.last_result is not None, "error": self.last_error}
+        out = {"app": APP_ID, "version": __version__, "state": self.state, "settings": s.public_dict(),
+               "captions": self.captions_label, "transcriber": transcriber,
+               "has_result": self.last_result is not None, "error": self.last_error}
+        if s.replay_mode_enabled:
+            out["commit"] = APP_COMMIT
+            out["replay"] = self._replay.status() if self._replay else None
+        return out
 
     def ollama_models(self) -> dict:
         """Pulled Ollama models with memory needs, for the Settings screen."""
@@ -284,6 +308,58 @@ class Controller:
             self.broker.publish({"type": "finished", "reason": reason})
             self._set_state("transcribing", reason=reason)
             self._jobs.put(("audio", session))
+
+    # -- replay (recorded call-sets; reachable only when settings.replay_mode_enabled) ---------
+    def replay_callsets(self) -> List[dict]:
+        s = self.settings
+        return list_callsets(s.replay_callsets_dir, Path(s.replay_index).expanduser() if s.replay_index else None)
+
+    def start_replay(self, callset_id: str, provider: Optional[str] = None, speed: Optional[float] = None) -> dict:
+        s = self.settings
+        provider = (provider or s.replay_provider).strip().lower()
+        if provider not in PROVIDERS:
+            raise ValueError(f"Unknown provider '{provider}'")
+        if not s.has_key(provider):
+            raise ValueError(f"No API key set for {provider}.")
+        folder = Path(s.replay_callsets_dir).expanduser() / str(callset_id)
+        callset = load_callset(folder, Path(s.replay_index).expanduser() if s.replay_index else None)
+        if not callset.bursts:
+            raise ValueError(f"{callset.id} has no bursts")
+        with self._lock:
+            if self.state not in ("idle", "done", "error"):
+                raise RuntimeError(f"Busy ({self.state}). Finish or cancel first.")
+            if self._listeners_cache is None:
+                self._listeners_cache = self.engines.make_listeners(self.settings)
+            self.captions_label = self._listeners_cache[2]
+            run = ReplayRun(self, callset, provider, float(speed) if speed else s.replay_speed)
+            self._replay = run
+            self.last_error = None
+            self._set_state("replaying", callset=callset.id)
+            run.start()
+            return run.status()
+
+    def stop_replay(self) -> None:
+        with self._lock:
+            run = self._replay
+        if run is not None:
+            run.stop()
+        if self.state == "replaying":
+            self._set_state("idle")
+
+    def replay_run(self) -> "ReplayRun":
+        if self._replay is None:
+            raise RuntimeError("No replay has been started.")
+        return self._replay
+
+    def _replay_ended(self, run: "ReplayRun") -> None:
+        """The driver reached done or error: the final report stays as the last result."""
+        session = run.manager.sessions[-1] if run.manager.sessions else None
+        if session is not None and session.current is not None:
+            self.last_result = session.current
+        if run.driver.error:
+            self.last_error = run.driver.error
+        if self.state == "replaying":
+            self._set_state("idle", replay=run.driver.phase)
 
     # -- text reports -----------------------------------------------------------
     def submit_text(self, text: str, source: str = "text") -> None:
@@ -380,6 +456,190 @@ class Controller:
         self.last_error = message
         self.broker.publish({"type": "error", "message": message})
         self._set_state("error")
+
+
+# ---------------------------------------------------------------------------
+# One replay: the driver, its session, and the transcription of each burst
+# ---------------------------------------------------------------------------
+class ReplayRun(ReplayHost):
+    """Plays one call-set. Owns the incident session, a transcription thread and a poll thread.
+
+    Nothing here runs unless start_replay was called, which only the replay endpoints do,
+    and those are registered only when settings.replay_mode_enabled is on."""
+
+    def __init__(self, ctl: Controller, callset: CallSet, provider: str, speed: float):
+        self.ctl = ctl
+        self.callset = callset
+        self.provider = provider
+        s = ctl.settings
+        extra = {"groq_llm_model": s.replay_groq_model} if provider == "groq" else {}
+        self.settings = dataclasses.replace(s, provider=provider, **extra)
+        self.llm = ctl.engines.make_llm(self.settings)        # raises LLMError when the key is missing
+        self.model = self.llm.model
+        self.fallback: Optional[dict] = None
+        self.started = time.time()
+        self.transcriptions: List[dict] = []                 # one per burst: who transcribed it, how long
+        quiet = s.replay_quiet_offline_s if provider == "ollama" else s.replay_quiet_online_s
+        self.manager = IncidentManager(self._extract, quiet_s=quiet, clock=time.time, emit=ctl.broker.publish)
+        self.sink = ctl.engines.make_sink(s)
+        self.driver = ReplayDriver(callset, host=self, sink=self.sink, speed=speed, emit=self._emit,
+                                   work_dir=s.output_dir / "replay")
+        self.session: Optional[LiveSession] = None
+        self._jobs: queue.Queue = queue.Queue()
+        self._busy = threading.Event()
+        self._stopping = threading.Event()
+        self._threads: List[threading.Thread] = []
+
+    # -- lifecycle ------------------------------------------------------------
+    def start(self) -> None:
+        if self.sink is not None and getattr(self.sink, "available", False):
+            if not ensure_null_sink(self.sink.sink):
+                logger.warning("Replay sink %s is not available; audio will not reach a recording", self.sink.sink)
+        for name, target in (("replay-transcribe", self._transcribe_loop), ("replay-poll", self._poll_loop)):
+            t = threading.Thread(target=target, name=name, daemon=True)
+            t.start()
+            self._threads.append(t)
+        self.driver.start()
+
+    def stop(self) -> None:
+        self._stopping.set()
+        self.driver.stop()
+        session = self.session
+        if session is not None and not session.is_finished:
+            session.finish("cancel")
+            session.stop()
+        self._jobs.put(None)
+        self.manager.stop()
+
+    def status(self) -> dict:
+        sessions = self.manager.sessions
+        current = sessions[-1] if sessions else None
+        return {"callset": self.callset.id, "callset_info": self.callset.summary(), "provider": self.provider,
+                "model": self.model, "commit": APP_COMMIT, "started": self.started,
+                "fallback": self.fallback, "driver": self.driver.status(),
+                "session": current.snapshot() if current else None, "sessions": [x.id for x in sessions],
+                "transcriptions": list(self.transcriptions)}
+
+    # -- events --------------------------------------------------------------
+    def _emit(self, event: dict) -> None:
+        event.update(provider=self.provider, model=self.model, commit=APP_COMMIT, fallback=self.fallback)
+        self.ctl.broker.publish(event)
+        if event.get("phase") in ("done", "error"):
+            self.ctl._replay_ended(self)
+
+    def _stage(self, message: str) -> None:
+        logger.info("Replay stage: %s", message)
+        self.ctl.broker.publish({"type": "stage", "text": message, "replay": True})
+
+    # -- ReplayHost ------------------------------------------------------------
+    def start_burst(self, clip: BurstClip, number: int) -> threading.Event:
+        cap_f, _spot_f, label = self.ctl._listeners_cache
+        ended = threading.Event()
+        emit = lambda e: self.ctl.broker.publish({**e, "replay_burst": number})   # noqa: E731
+        session = LiveSession(FileAudioSource(clip.wav), cap_f, None, emit=emit,
+                              on_finish=lambda reason: self._burst_finished(session, clip, number, ended, reason),
+                              max_seconds=clip.duration_s + 30, captions_label=label)
+        self.session = session
+        session.start()
+        return ended
+
+    def settled(self) -> bool:
+        if self._busy.is_set() or not self._jobs.empty():
+            return False
+        s = self.manager.sessions[-1] if self.manager.sessions else None
+        return s is None or (not s.updating and not s.pending and s.due_at is None and s.covered == len(s.bursts))
+
+    def _burst_finished(self, session: LiveSession, clip: BurstClip, number: int,
+                        ended: threading.Event, reason: str) -> None:
+        ended.set()
+        if reason != "cancel":
+            self._busy.set()
+            self._jobs.put((session, clip, number))
+
+    # -- transcription, one burst at a time -----------------------------------------
+    def _transcribe_loop(self) -> None:
+        while True:
+            job = self._jobs.get()
+            if job is None:
+                return
+            session, clip, number = job
+            try:
+                self._transcribe_burst(session, clip, number)
+            except Exception as e:  # noqa: BLE001 - one bad burst must not end the replay
+                logger.exception("Replay: burst %d failed", number)
+                self.ctl.broker.publish({"type": "error", "message": f"Burst {number}: {e}", "replay": True})
+            finally:
+                if self._jobs.empty():
+                    self._busy.clear()
+
+    def _transcribe_burst(self, session: LiveSession, clip: BurstClip, number: int) -> None:
+        audio = session.stop()
+        entry = self.driver.log[number - 1] if len(self.driver.log) >= number else {}
+        self._stage(f"Transcribing burst {number} ({len(audio) / 16000:.0f} s)")
+        t0 = time.perf_counter()
+        text, who, notes = self.transcribe(audio, session.final_text)
+        took = round(time.perf_counter() - t0, 2)
+        record = {"burst": number, "segment_id": clip.segment_id, "transcriber": who, "transcribe_s": took,
+                  "words": len(text.split()), "audio_s": round(len(audio) / 16000, 1), "notes": notes}
+        self.transcriptions.append(record)
+        self.ctl.broker.publish({"type": "transcript", "text": text, "replay_burst": number,
+                                 "segment_id": clip.segment_id, **record})
+        self.manager.add_burst(text, at=entry.get("start_wall", time.time()), duration_s=clip.duration_s,
+                               feed=clip.feed, source_id=clip.segment_id)
+
+    def transcribe(self, audio: np.ndarray, caption_text: str) -> Tuple[str, str, List[str]]:
+        """Primary transcriber, then the local one, then the captions. (text, who, notes)."""
+        attempts, notes = [], []
+        try:
+            attempts.append(self.ctl._transcriber("primary"))
+        except Exception as e:  # noqa: BLE001
+            notes.append(f"primary transcriber unavailable: {e}")
+        if not any(getattr(t, "name", "") == "local" for t in attempts):
+            fallback = self.ctl._transcriber("fallback")
+            if fallback is not None:
+                attempts.append(fallback)
+        for t in attempts:
+            try:
+                text = t.transcribe(audio)
+                if text.strip():
+                    return text, t.describe(), notes
+                notes.append(f"{t.describe()} heard no speech")
+            except TranscriptionError as e:
+                notes.append(str(e))
+        if len(caption_text.split()) >= 1:
+            notes.append("using the live captions as the transcript")
+            return caption_text, "live captions", notes
+        notes.append("no transcript")
+        return "", "none", notes
+
+    def _poll_loop(self) -> None:
+        while not self._stopping.is_set():
+            self.manager.poll()
+            time.sleep(0.25)
+
+    # -- extraction: the replay's provider, then local Ollama if it fails ------------------
+    def _pipeline(self, llm) -> ReportPipeline:
+        return ReportPipeline(llm, stop_phrase="", lexicon_store=self.ctl.engines.lexicon_store,
+                              textbook_rag=self.ctl.engines.textbook_rag, on_stage=self._stage, attribution=True)
+
+    def _extract(self, text: str, meta: dict) -> dict:
+        source = f"replay:{self.callset.id}"
+        try:
+            return self._pipeline(self.llm).run(text, source=source, timings={})
+        except PipelineError as e:
+            if self.provider == "ollama":
+                raise
+            self.fallback = {"from": self.provider, "to": "ollama", "reason": str(e),
+                             "at": time.strftime("%H:%M:%S"), "bursts": meta.get("bursts")}
+            logger.warning("Replay: %s failed (%s); extracting with local Ollama", self.provider, e)
+            self._stage(f"{self.provider} failed; writing the report with local Ollama")
+            self.ctl.broker.publish({"type": "replay", "event": "fallback", **self.driver.status(),
+                                     "provider": self.provider, "model": self.model, "commit": APP_COMMIT,
+                                     "fallback": self.fallback})
+            local = self.ctl.engines.make_llm(dataclasses.replace(self.settings, provider="ollama"))
+            report = self._pipeline(local).run(text, source=source, timings={})
+            report["_meta"]["fallback"] = dict(self.fallback)
+            return report
 
 
 # ---------------------------------------------------------------------------
@@ -564,6 +824,49 @@ def create_app(settings: Settings, engines: Optional[Engines] = None,
 
         return Response(stream(), mimetype="text/event-stream",
                         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+    if settings.replay_mode_enabled:
+        @app.get("/api/replay/callsets")
+        def replay_callsets_route():
+            return ok(callsets=ctl.replay_callsets(), folder=str(settings.replay_callsets_dir))
+
+        @app.post("/api/replay/start")
+        def replay_start_route():
+            body = request.get_json(silent=True) or {}
+            if not body.get("callset"):
+                return fail("Choose a call-set.")
+            try:
+                status = ctl.start_replay(str(body["callset"]), body.get("provider"), body.get("speed"))
+            except (ValueError, FileNotFoundError, LLMError) as e:
+                return fail(str(e))
+            except RuntimeError as e:
+                return fail(str(e), 409)
+            return ok(replay=status)
+
+        @app.post("/api/replay/stop")
+        def replay_stop_route():
+            ctl.stop_replay()
+            return ok(status=ctl.status())
+
+        @app.get("/api/replay/status")
+        def replay_status_route():
+            return ok(replay=ctl._replay.status() if ctl._replay else None, state=ctl.state)
+
+        @app.post("/api/replay/new_patient")
+        def replay_new_patient_route():
+            try:
+                session = ctl.replay_run().manager.new_patient()
+            except RuntimeError as e:
+                return fail(str(e), 409)
+            return ok(session=session.snapshot() if session else None)
+
+        @app.post("/api/replay/merge")
+        def replay_merge_route():
+            try:
+                session = ctl.replay_run().manager.merge_with_previous()
+            except RuntimeError as e:
+                return fail(str(e), 409)
+            return ok(session=session.snapshot() if session else None)
 
     @app.post("/api/quit")
     def quit_app():
