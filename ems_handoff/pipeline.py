@@ -77,6 +77,7 @@ _PLACEHOLDERS = {
     "what was done", "specifics (dose, route, size, etc.)", "patient response if mentioned",
     "list of conditions", "list of medications", "list or nkda",
     "full code / dnr / dni / other if mentioned",
+    "each allergy exactly as the paramedic said it", "the code status exactly as the paramedic said it",
     "what the paramedic requested (cath lab, trauma team, etc.)",
     "list specific resources, teams, equipment", "actions to initiate before patient arrival",
     "single sentence for quick verbal handoff", "top 2-3 clinical concerns",
@@ -108,7 +109,7 @@ def blank_report() -> Dict[str, Any]:
         "assessment_findings": {"level_of_consciousness": None, "airway": None, "breathing": None,
                                 "circulation": None, "neuro": None, "other_findings": []},
         "ems_interventions": [],
-        "history": {"past_medical": [], "medications": [], "allergies": [], "code_status": None},
+        "history": {"past_medical": [], "medications": [], "allergies": None, "code_status": None},
         "hospital_recommendations": {"activation_requested": None, "suggested_destination": None,
                                      "resources_to_prepare": [], "time_critical_actions": []},
         "handoff_summary": {"one_liner": None, "key_concerns": [], "pending_needs": []},
@@ -138,9 +139,9 @@ def fill_blanks(skeleton: Any, value: Any) -> Any:
 _FACTS = [
     ("patient age", "patient.age"), ("patient sex", "patient.sex"),
     ("chief complaint", "chief_complaint"), ("onset or mechanism", "mechanism_or_onset"),
-    ("ETA", "eta_minutes"), ("vital signs", "vital_signs"),
+    ("alert level", "alert_level"), ("ETA", "eta_minutes"), ("vital signs", "vital_signs"),
     ("assessment findings", "assessment_findings"), ("EMS interventions", "ems_interventions"),
-    ("medical history", "history"),
+    ("medical history", "history"), ("allergies", "history.allergies"), ("code status", "history.code_status"),
     ("activation request", "hospital_recommendations.activation_requested"),
 ]
 
@@ -163,6 +164,63 @@ def unstated(report: Dict[str, Any]) -> List[str]:
         if _is_empty(v):
             out.append(label)
     return out
+
+
+_ALLERGY_WORDS = re.compile(r"allerg|\bnkda\b|\bnka\b|no known drug", re.I)
+_CODE_WORDS = re.compile(r"\b(?:dnr|dni|dnar|do not (?:resuscitate|intubate|attempt)|full code|no code|code status|"
+                         r"polst|molst|full treatment|comfort (?:care|measures)|cmo|advance directive|living will|"
+                         r"resuscitat\w*|life[- ]sustaining)\b", re.I)
+
+
+def ground_history_defaults(report: Dict[str, Any], text: str) -> List[str]:
+    """Null out allergies and code status the transcript never mentions; returns notes.
+
+    The 4B model writes "NKDA" and "Full code" into reports about patients whose
+    allergies and directives were never spoken (49 and 23 reports in the post-fix
+    corpus run). A value is kept only when the transcript talks about allergies or a
+    code status at all; what it says is still the model's reading."""
+    notes: List[str] = []
+    hist = report.get("history")
+    if not isinstance(hist, dict):
+        return notes
+    if isinstance(hist.get("allergies"), str):
+        hist["allergies"] = [hist["allergies"]]
+    if hist.get("allergies") and not _ALLERGY_WORDS.search(text):
+        notes.append(f"Allergies set to null: the transcript never mentions allergies (the model wrote {hist['allergies']!r})")
+        hist["allergies"] = None
+    if hist.get("code_status") and not _CODE_WORDS.search(text):
+        notes.append(f"Code status set to null: the transcript never mentions one (the model wrote {hist['code_status']!r})")
+        hist["code_status"] = None
+    dq = report.get("data_quality") or {}
+    missing = dq.get("missing_info")
+    if isinstance(missing, list):
+        for label, key in (("allergies", "allergies"), ("code status", "code_status")):
+            if not hist.get(key) and not any(label in str(m).lower() for m in missing):
+                missing.append(label)
+    return notes
+
+
+# Alert words a radio fragment can carry. UNCLEAR is for a transcript with none of them.
+_ALERT_WORDS = [
+    ("CARDIAC_ARREST", re.compile(r"cardiac arrest|\bcpr\b|pulseless|asystole|v-?fib\b|ventricular fibrillation|\brosc\b", re.I)),
+    ("STEMI", re.compile(r"\bstemi\b|\bst[- ]elevation", re.I)),
+    ("STROKE", re.compile(r"\bstroke\b|\bcva\b|brain bleed|\btia\b|facial droop|hemorrhagic", re.I)),
+    ("TRAUMA", re.compile(r"\btrauma\b|\bmvc\b|\bmva\b|\bgsw\b|gunshot|\bstab(?:bed|bing|bed)?\b|fall from|fell (?:from|down|off)|rollover|pedestrian struck|\bfracture", re.I)),
+    ("SEPSIS", re.compile(r"\bsepsis\b|\bseptic\b", re.I)),
+]
+
+
+def alert_from_words(text: str) -> Optional[Tuple[str, str]]:
+    """(alert_type, the word that names it) when the transcript states an alert word, else None.
+
+    "This is Ambulance 721 coming to, what is it, trauma? ... priority 2" (S038_01) must be
+    TRAUMA however short. The model is asked the same; this is the check behind it, used
+    only when the model answered UNCLEAR. A type the model did name is never overridden."""
+    for alert_type, pattern in _ALERT_WORDS:
+        m = pattern.search(text)
+        if m:
+            return alert_type, m.group(0)
+    return None
 
 
 _MALE_WORDS = re.compile(r"\b(?:he|his|him|himself)\b", re.I)
@@ -211,12 +269,10 @@ def parse_report(text: str) -> Dict[str, Any]:
     if data["alert_type"] not in ALERT_TYPES:
         logger.warning("Unexpected alert_type %r", data["alert_type"])
     level = data.get("alert_level")
-    level = str(level).upper().strip() if level is not None else None
-    if level is None and data["alert_type"] == "UNCLEAR":
-        pass                       # nothing said, no priority invented
-    elif level not in ALERT_LEVELS:
+    level = str(level).upper().strip() if level not in (None, "") else None
+    if level is not None and level not in ALERT_LEVELS:
         raise PipelineError(f"The AI gave an invalid alert level: {data.get('alert_level')!r}.")
-    data["alert_level"] = level
+    data["alert_level"] = level    # null = no priority was stated and none is invented (any alert type)
 
     dq = data["data_quality"]
     confidence = str(dq.get("confidence") or "").upper().strip()
@@ -225,6 +281,8 @@ def parse_report(text: str) -> Dict[str, Any]:
         dq["confidence"] = "LOW"
         if not dq["missing_info"]:
             dq["missing_info"] = unstated(data)
+    if data["alert_level"] is None and not any("alert level" in str(m).lower() for m in dq["missing_info"]):
+        dq["missing_info"].append("alert level")
     return data
 
 
@@ -287,6 +345,8 @@ class ReportPipeline:
             if hasattr(self.llm, "resolve_model"):
                 self.llm.resolve_model()   # name the model actually used, not a retired one
             self.on_stage(f"Writing the handoff ({self.llm.provider} · {self.llm.model})")
+            if hasattr(self.llm, "on_wait"):
+                self.llm.on_wait = self.on_stage   # "Model server restarting ..." reaches the app as a stage
             reply = self.llm.complete_json(prompt, temperature=0.0)
         except LLMError as e:
             raise PipelineError(str(e)) from e
@@ -296,6 +356,13 @@ class ReportPipeline:
         if usage:
             timings.update(usage)      # tokens_in, tokens_out, tok_s: says where a slow model spent its time
         report["data_quality"]["assumptions"].extend(assumption_notes(fix))
+        report["data_quality"]["assumptions"].extend(ground_history_defaults(report, fix.text))
+        if report["alert_type"] == "UNCLEAR":
+            hit = alert_from_words(fix.text)
+            if hit:
+                report["alert_type"], word = hit
+                report["data_quality"]["assumptions"].append(
+                    f"Alert type {hit[0]} from the word '{word}' in the transcript; the model answered UNCLEAR")
         if report["patient"].get("sex") is None:
             # the prompt asks the model to read pronouns; a small model often does not
             guess = infer_sex(fix.text)
@@ -333,6 +400,9 @@ class ReportPipeline:
             "timings": timings,
             "created": time.strftime("%Y-%m-%dT%H:%M:%S"),
         }
+        recovery = getattr(self.llm, "last_recovery", None)
+        if recovery:
+            meta["model_server"] = dict(recovery)   # the report came after Ollama's model server restarted
         meta.update(extra)
         return meta
 

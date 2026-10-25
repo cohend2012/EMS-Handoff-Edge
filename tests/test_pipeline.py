@@ -60,12 +60,19 @@ def test_optional_fields_get_independent_defaults():
     ("[1, 2]", "not an object"),
     (json.dumps({"alert_type": "STEMI"}), "left out required fields"),
     (json.dumps(report_dict(alert_level="PURPLE")), "invalid alert level"),
-    (json.dumps(report_dict(alert_level=None)), "invalid alert level"),   # a named alert type needs a priority
     (json.dumps(report_dict(patient="67M")), "'patient' field"),
 ])
 def test_bad_llm_output_gives_a_readable_error(reply, message):
     with pytest.raises(PipelineError, match=message):
         run(SAMPLE_STEMI, FakeLLM([reply]))
+
+
+def test_null_alert_level_is_kept_for_any_alert_type():
+    # gpt-oss-120b on the radio corpus: a clear STROKE report with no priority spoken came back with
+    # alert_level null, and the pipeline failed eight reports over it. Nothing said means null.
+    report, _, _ = run(SAMPLE_STEMI, FakeLLM([json.dumps(report_dict(alert_type="STROKE", alert_level=None))]))
+    assert report["alert_type"] == "STROKE" and report["alert_level"] is None
+    assert "alert level" in report["data_quality"]["missing_info"]
 
 
 def test_lowercase_alert_level_is_normalised():
@@ -132,7 +139,7 @@ def test_unclear_alert_forces_low_confidence_and_lists_what_is_missing():
     report, _, _ = run(SAMPLE_STEMI, FakeLLM([json.dumps(reply)]))
     assert report["alert_level"] == "GREEN"                    # a level the model did give is kept
     assert report["data_quality"]["confidence"] == "LOW"
-    assert report["data_quality"]["missing_info"] == ["patient age", "ETA"]   # filled from the null fields
+    assert report["data_quality"]["missing_info"] == ["patient age", "ETA", "code status"]   # filled from the null fields
 
 
 def test_null_lists_and_sections_from_the_model_become_empty_shapes():
@@ -142,10 +149,10 @@ def test_null_lists_and_sections_from_the_model_become_empty_shapes():
                         data_quality={"confidence": "MEDIUM", "missing_info": None, "assumptions": None})
     report, _, _ = run(SAMPLE_SEPSIS.replace("furosemide", "ferosemide"), FakeLLM([json.dumps(reply)]))
     assert report["alert_type"] == "STEMI" and report["data_quality"]["confidence"] == "MEDIUM"
-    assert report["data_quality"]["missing_info"] == []
+    assert report["data_quality"]["missing_info"] == ["allergies", "code status"]   # the two null history facts
     assert any("ferosemide" in a for a in report["data_quality"]["assumptions"])
     assert report["ems_interventions"] == [] and report["history"]["medications"] == ["metformin"]
-    assert report["history"]["allergies"] == [] and report["hospital_recommendations"]["resources_to_prepare"] == []
+    assert report["history"]["allergies"] is None and report["hospital_recommendations"]["resources_to_prepare"] == []
 
 
 class FakeTextbook:
@@ -219,6 +226,83 @@ def test_token_stats_are_kept_in_timings():
     report, _, _ = run(SAMPLE_STEMI, llm)
     t = report["_meta"]["timings"]
     assert t["tokens_out"] == 850 and t["tok_s"] == 10.7 and "extract_s" in t
+
+
+def test_prompt_offers_no_allergy_or_code_status_value_to_copy():
+    from ems_handoff.prompt import EXTRACTION_PROMPT
+    low = EXTRACTION_PROMPT.lower()
+    assert "nkda" not in low and "full code /" not in low
+    assert "null unless the paramedic actually spoke them" in EXTRACTION_PROMPT
+
+
+def test_unspoken_allergies_and_code_status_become_null_and_missing():
+    # CS021 bursts: "NKDA" and "Full code" written for a patient whose allergies and directives were never said
+    text = "Medic 712, 72-year-old male, blood sugar 38, altered, gave D10, improving, ETA 10."
+    reply = json.dumps(report_dict(alert_type="ENDOCRINE", history={"past_medical": ["diabetes"], "medications": [],
+                                                                     "allergies": ["NKDA"], "code_status": "Full code"}))
+    report, _, _ = run(text, FakeLLM([reply]))
+    assert report["history"]["allergies"] is None and report["history"]["code_status"] is None
+    missing = [m.lower() for m in report["data_quality"]["missing_info"]]
+    assert "allergies" in missing and "code status" in missing
+    notes = " ".join(report["data_quality"]["assumptions"])
+    assert "Allergies set to null" in notes and "Code status set to null" in notes
+
+
+def test_spoken_allergies_and_code_status_are_kept():
+    reply = json.dumps(report_dict(alert_type="SEPSIS", history={"past_medical": ["CHF"], "medications": ["eliquis"],
+                                                                  "allergies": ["penicillin", "sulfa"], "code_status": "DNR, full treatment per POLST"}))
+    report, _, _ = run(SAMPLE_SEPSIS, FakeLLM([reply]))
+    assert report["history"]["allergies"] == ["penicillin", "sulfa"]
+    assert report["history"]["code_status"] == "DNR, full treatment per POLST"
+    report, _, _ = run(SAMPLE_STEMI, FakeLLM([json.dumps(report_dict())]))   # "No known allergies" was said
+    assert report["history"]["allergies"] == ["NKDA"]
+    assert report["history"]["code_status"] is None                        # nothing about a code status was said
+
+
+def test_blank_report_has_null_allergies_and_code_status():
+    from ems_handoff.pipeline import blank_report
+    assert blank_report()["history"]["allergies"] is None and blank_report()["history"]["code_status"] is None
+
+
+def test_fragment_with_an_alert_word_is_not_unclear():
+    # S038_01, 40 words, verbatim from the radio corpus
+    text = ("Right, I'll do this. Hi, Reverend L9, this is Dirk Coney, do you need a physician? This is Ambulance "
+            "721 coming to, what is it, trauma? We're going to consider him priority 2 at this time, how do you copy?")
+    report, _, _ = run(text, FakeLLM([SPARSE_REPLY]))
+    assert report["alert_type"] == "TRAUMA" and report["alert_level"] is None
+    assert report["data_quality"]["confidence"] == "LOW"
+    assert any("from the word 'trauma'" in a for a in report["data_quality"]["assumptions"])
+    report, _, _ = run("CVA, brain bleed.", FakeLLM([SPARSE_REPLY]))            # S009_01, 3 words
+    assert report["alert_type"] == "STROKE"
+
+
+def test_fragment_without_alert_words_stays_unclear():
+    for text in ("How old? Sorry.", "So your ETA is 30 minutes, correct? 3-0, yes.", "The number is on the way. Okay, thank you."):
+        report, _, _ = run(text, FakeLLM([SPARSE_REPLY]))
+        assert report["alert_type"] == "UNCLEAR", text
+
+
+def test_an_alert_type_the_model_named_is_never_overridden():
+    report, _, _ = run("Stroke alert, but the fall was the trauma.", FakeLLM([json.dumps(report_dict(alert_type="STROKE"))]))
+    assert report["alert_type"] == "STROKE"
+    assert not any("the model answered UNCLEAR" in a for a in report["data_quality"]["assumptions"])
+
+
+def test_prompt_limits_unclear_to_transcripts_with_no_alert_word():
+    from ems_handoff.prompt import EXTRACTION_PROMPT
+    assert 'Use "UNCLEAR" only when no chief complaint, no mechanism of injury, and no alert word' in EXTRACTION_PROMPT
+
+
+def test_model_server_restart_reaches_the_stages_and_the_report_meta():
+    llm = FakeLLM()
+    llm.restart_notice = "Model server restarting (cannot reach Ollama); retrying in 3 s, 5 s waited"
+    report, stages, pipe = run(SAMPLE_STEMI, llm)
+    assert llm.on_wait is pipe.on_stage
+    assert llm.restart_notice in stages
+    assert report["_meta"]["model_server"] == {"model_server": "restarted", "reason": "cannot reach Ollama",
+                                               "waited_s": 5.0, "retries": 2}
+    report, _, _ = run(SAMPLE_STEMI, FakeLLM())
+    assert "model_server" not in report["_meta"]
 
 
 def test_sex_is_inferred_from_pronouns_when_the_model_left_it_null():
