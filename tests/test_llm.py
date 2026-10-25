@@ -89,9 +89,10 @@ def test_empty_reply_is_retried_then_succeeds():
 
 
 def test_connection_errors_exhaust_attempts_with_a_clear_message():
+    # a cloud provider: three tries and a clear message. Ollama waits for a restart instead (below).
     fake = FakeOpenAI([_exc(openai.APIConnectionError)] * 3)
-    with pytest.raises(LLMError, match="after 3 tries"):
-        LLMClient(Settings(provider="ollama"), client=fake).complete_json("p")
+    with pytest.raises(LLMError, match="after 3 tries.*cannot reach groq"):
+        LLMClient(Settings(provider="groq", groq_api_key="k"), client=fake).complete_json("p")
 
 
 def test_bad_key_is_not_retried():
@@ -108,6 +109,51 @@ def test_rate_limit_error_keeps_the_providers_message():
     with pytest.raises(LLMError, match="HTTP 429.*per day.*try again in 3h21m5.1s"):
         LLMClient(Settings(provider="groq", groq_api_key="k"), client=fake).complete_json("p")
     assert len(fake.calls) == 1   # a 4xx is not retried by the client
+
+
+def _ollama_client(fake, monkeypatch, model="qwen3:4b-instruct"):
+    monkeypatch.setattr(LLMClient, "_ollama_models", lambda self: {model: 2.5})
+    monkeypatch.setattr(LLMClient, "_ollama_free_gb", lambda self: None)
+    return LLMClient(Settings(provider="ollama", ollama_model=model), client=fake)
+
+
+def test_ollama_restart_is_waited_out_and_reported(monkeypatch):
+    from ems_handoff.llm import RESTART_WAITS
+    fake = FakeOpenAI([_exc(openai.APIConnectionError), _exc(openai.APIConnectionError), '{"ok": 1}'])
+    client = _ollama_client(fake, monkeypatch)
+    seen = []
+    client.on_wait = seen.append
+    assert client.complete_json("p") == '{"ok": 1}'
+    assert len(fake.calls) == 3
+    assert seen and all(m.startswith("Model server restarting") for m in seen)
+    assert client.last_recovery == {"model_server": "restarted", "reason": "cannot reach Ollama",
+                                    "waited_s": float(RESTART_WAITS[0] + RESTART_WAITS[1]), "retries": 2}
+
+
+def test_ollama_runner_stopped_500_is_a_restart_too(monkeypatch):
+    err = _exc(openai.APIStatusError, status=500, message="model runner has unexpectedly stopped, this may be due to resource limitations")
+    fake = FakeOpenAI([err, '{"ok": 1}'])
+    client = _ollama_client(fake, monkeypatch)
+    assert client.complete_json("p") == '{"ok": 1}'
+    assert client.last_recovery["retries"] == 1 and client.last_recovery["reason"] == "the model server stopped"
+
+
+def test_ollama_restart_gives_up_after_the_90_second_budget(monkeypatch):
+    from ems_handoff.llm import RESTART_WAITS
+    fake = FakeOpenAI([_exc(openai.APIConnectionError)] * 20)
+    client = _ollama_client(fake, monkeypatch)
+    with pytest.raises(LLMError, match="did not come back within 90 s"):
+        client.complete_json("p")
+    assert len(fake.calls) == len(RESTART_WAITS) + 1 and sum(RESTART_WAITS) == 90
+
+
+def test_a_clean_reply_clears_the_recovery_record(monkeypatch):
+    fake = FakeOpenAI([_exc(openai.APIConnectionError), '{"ok": 1}', '{"ok": 2}'])
+    client = _ollama_client(fake, monkeypatch)
+    client.complete_json("p")
+    assert client.last_recovery
+    client.complete_json("p")
+    assert client.last_recovery == {}
 
 
 def test_missing_key_is_reported_before_any_call():

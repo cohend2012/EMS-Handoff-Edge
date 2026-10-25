@@ -61,11 +61,18 @@ class FakeLLM:
         self.model = model
         self.prompts: List[str] = []
         self.delay = delay
+        self.on_wait = None            # the pipeline wires this to its stage callback, like LLMClient
+        self.last_recovery: dict = {}
+        self.restart_notice: Optional[str] = None   # set to report a fake "model server restarting" wait
 
     def complete_json(self, prompt: str, temperature: float = 0.0, max_tokens: int = 4096) -> str:
         self.prompts.append(prompt)
         if self.delay:
             time.sleep(self.delay)
+        if self.restart_notice:
+            self.last_recovery = {"model_server": "restarted", "reason": "cannot reach Ollama", "waited_s": 5.0, "retries": 2}
+            if self.on_wait:
+                self.on_wait(self.restart_notice)
         reply = self.replies.pop(0) if len(self.replies) > 1 else self.replies[0]
         if isinstance(reply, Exception):
             raise reply

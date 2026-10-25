@@ -140,6 +140,21 @@ def test_llm_failure_is_reported_and_app_recovers(settings):
     assert wait_for(lambda: ctl.state == "done")
 
 
+def test_model_server_restart_shows_in_the_ui_state(settings):
+    llm = FakeLLM()
+    llm.restart_notice = "Model server restarting (cannot reach Ollama); retrying in 2 s, 2 s waited"
+    _, client, ctl = build(settings, llm=llm)
+    events = ctl.broker.subscribe()
+    client.post("/api/report/text", json={"text": SCRIPT})
+    assert wait_for(lambda: ctl.state == "done")
+    seen = []
+    while not events.empty():
+        seen.append(events.get_nowait())
+    assert any(e["type"] == "stage" and e["text"].startswith("Model server restarting") for e in seen)
+    assert any(e["type"] == "state" and e["state"] == "processing" and e.get("detail") == "model server restarting" for e in seen)
+    assert client.get("/api/result").get_json()["report"]["_meta"]["model_server"]["retries"] == 2
+
+
 def test_settings_change_is_saved_and_reloaded(settings, tmp_path):
     _, client, ctl = build(settings)
     r = client.post("/api/settings", json={"provider": "ollama", "mic_device": "PnP"}).get_json()

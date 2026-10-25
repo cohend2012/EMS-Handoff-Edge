@@ -275,8 +275,9 @@
           ui.finishReason = null;
         }
         else if (ev.state === "processing") {
-          if (document.body.dataset.screen !== "working") startWorking("Making the handoff report");
-          else $("workingTitle").textContent = "Making the handoff report";
+          const title = ev.detail ? `Making the handoff report · ${ev.detail}` : "Making the handoff report";
+          if (document.body.dataset.screen !== "working") startWorking(title);
+          else $("workingTitle").textContent = title;
         } else if (ev.state === "idle" && document.body.dataset.screen === "live") show("home");
         break;
       case "listening":

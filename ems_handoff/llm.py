@@ -36,7 +36,7 @@ import logging
 import re
 import time
 import urllib.request
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Callable, Dict, Optional, Tuple
 
 from .config import Settings
 
@@ -62,6 +62,14 @@ GROQ_LLM_PREFERENCES = [
 ]
 _NOT_CHAT = ("whisper", "guard", "tts", "playai", "orpheus", "embed", "distil", "compound", "allam")
 _RESOLVED: dict = {}   # (provider, configured model) -> (model actually used, note)
+
+# Ollama's model server (llama-server) is killed and restarted by systemd when the Jetson
+# runs out of memory; the batch run of 2026-10-24 lost four reports to it. While it comes
+# back, the API refuses connections or answers 500 with one of these. The client waits
+# these many seconds between retries, 90 s in all, before giving up.
+RESTART_WAITS = (2, 3, 5, 10, 15, 20, 35)
+_RESTART_SIGNS = re.compile(r"unexpectedly stopped|unexpected eof|connection reset|connection refused|"
+                            r"server (?:is )?loading|model is loading|runner.*(?:stopped|exited)", re.I)
 
 
 def pick_model(available, wanted: str, preferences=GROQ_LLM_PREFERENCES) -> Tuple[Optional[str], str]:
@@ -215,6 +223,8 @@ class LLMClient:
         self.model = settings.llm_model()
         self.attempts = max(1, attempts)
         self.last_usage: dict = {}     # tokens_in / tokens_out / tok_s of the last reply, when reported
+        self.last_recovery: dict = {}  # set when the last reply came after waiting for Ollama to restart
+        self.on_wait: Optional[Callable[[str], None]] = None   # progress text while waiting for a restart
         self._client = client if client is not None else self._make_client()
 
     # -- construction -----------------------------------------------------
@@ -318,7 +328,11 @@ class LLMClient:
             kwargs["max_tokens"] = max(max_tokens, 8192)
 
         last_problem = "no reply"
-        for attempt in range(1, self.attempts + 1):
+        self.last_recovery = {}
+        restart = {"waits": list(RESTART_WAITS), "waited": 0.0, "retries": 0}
+        attempt = 0
+        while True:
+            attempt += 1
             started = time.perf_counter()
             try:
                 resp = self._client.chat.completions.create(**kwargs)
@@ -342,8 +356,15 @@ class LLMClient:
                 raise LLMError(f"{self.provider} gave no reply within "
                                f"{self.settings.llm_timeout_s:.0f} s.{hint}")
             except APIConnectionError:
+                if self.provider == "ollama":
+                    self._wait_for_restart(restart, "cannot reach Ollama")
+                    continue
                 last_problem = self._connection_hint()
             except APIStatusError as e:
+                if (self.provider == "ollama" and (getattr(e, "status_code", 0) or 0) >= 500
+                        and _RESTART_SIGNS.search(str(e))):
+                    self._wait_for_restart(restart, "the model server stopped")
+                    continue
                 # A model without JSON mode answers 400: ask again without it (once).
                 if getattr(e, "status_code", None) == 400 and "reasoning_effort" in kwargs \
                         and "reasoning" in str(e).lower():
@@ -358,9 +379,26 @@ class LLMClient:
                 # Other 4xx are not worth retrying: bad key, unknown model, bad request.
                 raise LLMError(self._status_hint(e)) from e
             logger.warning("LLM attempt %d/%d failed: %s", attempt, self.attempts, last_problem)
-            if attempt < self.attempts:
-                time.sleep(2 ** (attempt - 1))
+            if attempt >= self.attempts:
+                break
+            time.sleep(2 ** (attempt - 1))
         raise LLMError(f"{self.provider} failed after {self.attempts} tries: {last_problem}")
+
+    def _wait_for_restart(self, restart: dict, why: str) -> None:
+        """Sleep for the next wait in the restart schedule, telling the app; raise when it is used up."""
+        if not restart["waits"]:
+            raise LLMError(f"Ollama's model server did not come back within {sum(RESTART_WAITS)} s ({why}). "
+                           "Check 'systemctl status ollama' and free memory; the Jetson may be out of memory.")
+        wait = restart["waits"].pop(0)
+        restart["waited"] += wait
+        restart["retries"] += 1
+        self.last_recovery = {"model_server": "restarted", "reason": why,
+                              "waited_s": restart["waited"], "retries": restart["retries"]}
+        msg = f"Model server restarting ({why}); retrying in {wait} s, {restart['waited']:.0f} s waited"
+        logger.warning(msg)
+        if self.on_wait:
+            self.on_wait(msg)
+        time.sleep(wait)
 
     # -- health check -----------------------------------------------------
     def check(self) -> Tuple[bool, str]:

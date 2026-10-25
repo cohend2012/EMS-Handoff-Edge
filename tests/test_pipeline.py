@@ -293,6 +293,18 @@ def test_prompt_limits_unclear_to_transcripts_with_no_alert_word():
     assert 'Use "UNCLEAR" only when no chief complaint, no mechanism of injury, and no alert word' in EXTRACTION_PROMPT
 
 
+def test_model_server_restart_reaches_the_stages_and_the_report_meta():
+    llm = FakeLLM()
+    llm.restart_notice = "Model server restarting (cannot reach Ollama); retrying in 3 s, 5 s waited"
+    report, stages, pipe = run(SAMPLE_STEMI, llm)
+    assert llm.on_wait is pipe.on_stage
+    assert llm.restart_notice in stages
+    assert report["_meta"]["model_server"] == {"model_server": "restarted", "reason": "cannot reach Ollama",
+                                               "waited_s": 5.0, "retries": 2}
+    report, _, _ = run(SAMPLE_STEMI, FakeLLM())
+    assert "model_server" not in report["_meta"]
+
+
 def test_sex_is_inferred_from_pronouns_when_the_model_left_it_null():
     from ems_handoff.pipeline import infer_sex
     from ems_handoff.prompt import EXTRACTION_PROMPT
