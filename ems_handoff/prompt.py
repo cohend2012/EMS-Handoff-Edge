@@ -72,8 +72,8 @@ Generate a JSON response with this EXACT structure (return ONLY valid JSON, no m
   "history": {{
     "past_medical": ["List of conditions"],
     "medications": ["List of medications"],
-    "allergies": ["List or NKDA"],
-    "code_status": "Full code / DNR / DNI / Other if mentioned"
+    "allergies": ["each allergy exactly as the paramedic said it"] | null,
+    "code_status": "the code status exactly as the paramedic said it" | null
   }},
   
   "hospital_recommendations": {{
@@ -100,6 +100,7 @@ Guidance:
 - Use "ENDOCRINE" as the alert_type for metabolic/endocrine emergencies such as diabetic ketoacidosis (DKA), hyperosmolar hyperglycemic state, severe hypo/hyperglycemia, thyroid storm, or adrenal crisis.
 - For any field with no information, use null or omit it — never output the literal word "Null".
 - Patient sex: when it is not said outright, infer it from the pronouns used for the patient ("he", "his", "him" = Male; "she", "her" = Female) and record that in data_quality.assumptions. Use null only when there are no such pronouns.
+- history.allergies and history.code_status are null unless the paramedic actually spoke them. A report that never mentions allergies has allergies null; one that never mentions a code status or directive has code_status null. When the paramedic did speak them, write what was said (for example "no known allergies" or "DNR"). Never fill either field with a default, and list "allergies" or "code status" in missing_info when null.
 - The report may be a fragment: a few words, a single question, or a reply with no clinical content. Still return the full structure. If the words do not identify the patient's problem, set alert_type to "UNCLEAR", alert_level to null, data_quality.confidence to "LOW", and list what was not provided in missing_info. Never invent a patient, vitals, history, or interventions that were not said.
 /no_think
 """

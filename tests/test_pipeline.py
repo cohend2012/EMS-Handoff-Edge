@@ -139,7 +139,7 @@ def test_unclear_alert_forces_low_confidence_and_lists_what_is_missing():
     report, _, _ = run(SAMPLE_STEMI, FakeLLM([json.dumps(reply)]))
     assert report["alert_level"] == "GREEN"                    # a level the model did give is kept
     assert report["data_quality"]["confidence"] == "LOW"
-    assert report["data_quality"]["missing_info"] == ["patient age", "ETA"]   # filled from the null fields
+    assert report["data_quality"]["missing_info"] == ["patient age", "ETA", "code status"]   # filled from the null fields
 
 
 def test_null_lists_and_sections_from_the_model_become_empty_shapes():
@@ -149,10 +149,10 @@ def test_null_lists_and_sections_from_the_model_become_empty_shapes():
                         data_quality={"confidence": "MEDIUM", "missing_info": None, "assumptions": None})
     report, _, _ = run(SAMPLE_SEPSIS.replace("furosemide", "ferosemide"), FakeLLM([json.dumps(reply)]))
     assert report["alert_type"] == "STEMI" and report["data_quality"]["confidence"] == "MEDIUM"
-    assert report["data_quality"]["missing_info"] == []
+    assert report["data_quality"]["missing_info"] == ["allergies", "code status"]   # the two null history facts
     assert any("ferosemide" in a for a in report["data_quality"]["assumptions"])
     assert report["ems_interventions"] == [] and report["history"]["medications"] == ["metformin"]
-    assert report["history"]["allergies"] == [] and report["hospital_recommendations"]["resources_to_prepare"] == []
+    assert report["history"]["allergies"] is None and report["hospital_recommendations"]["resources_to_prepare"] == []
 
 
 class FakeTextbook:
@@ -226,6 +226,42 @@ def test_token_stats_are_kept_in_timings():
     report, _, _ = run(SAMPLE_STEMI, llm)
     t = report["_meta"]["timings"]
     assert t["tokens_out"] == 850 and t["tok_s"] == 10.7 and "extract_s" in t
+
+
+def test_prompt_offers_no_allergy_or_code_status_value_to_copy():
+    from ems_handoff.prompt import EXTRACTION_PROMPT
+    low = EXTRACTION_PROMPT.lower()
+    assert "nkda" not in low and "full code /" not in low
+    assert "null unless the paramedic actually spoke them" in EXTRACTION_PROMPT
+
+
+def test_unspoken_allergies_and_code_status_become_null_and_missing():
+    # CS021 bursts: "NKDA" and "Full code" written for a patient whose allergies and directives were never said
+    text = "Medic 712, 72-year-old male, blood sugar 38, altered, gave D10, improving, ETA 10."
+    reply = json.dumps(report_dict(alert_type="ENDOCRINE", history={"past_medical": ["diabetes"], "medications": [],
+                                                                     "allergies": ["NKDA"], "code_status": "Full code"}))
+    report, _, _ = run(text, FakeLLM([reply]))
+    assert report["history"]["allergies"] is None and report["history"]["code_status"] is None
+    missing = [m.lower() for m in report["data_quality"]["missing_info"]]
+    assert "allergies" in missing and "code status" in missing
+    notes = " ".join(report["data_quality"]["assumptions"])
+    assert "Allergies set to null" in notes and "Code status set to null" in notes
+
+
+def test_spoken_allergies_and_code_status_are_kept():
+    reply = json.dumps(report_dict(alert_type="SEPSIS", history={"past_medical": ["CHF"], "medications": ["eliquis"],
+                                                                  "allergies": ["penicillin", "sulfa"], "code_status": "DNR, full treatment per POLST"}))
+    report, _, _ = run(SAMPLE_SEPSIS, FakeLLM([reply]))
+    assert report["history"]["allergies"] == ["penicillin", "sulfa"]
+    assert report["history"]["code_status"] == "DNR, full treatment per POLST"
+    report, _, _ = run(SAMPLE_STEMI, FakeLLM([json.dumps(report_dict())]))   # "No known allergies" was said
+    assert report["history"]["allergies"] == ["NKDA"]
+    assert report["history"]["code_status"] is None                        # nothing about a code status was said
+
+
+def test_blank_report_has_null_allergies_and_code_status():
+    from ems_handoff.pipeline import blank_report
+    assert blank_report()["history"]["allergies"] is None and blank_report()["history"]["code_status"] is None
 
 
 def test_sex_is_inferred_from_pronouns_when_the_model_left_it_null():

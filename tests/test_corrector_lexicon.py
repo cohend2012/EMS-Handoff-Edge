@@ -52,3 +52,13 @@ def test_lexicon_finds_the_important_terms():
 def test_whisper_hint_is_bounded():
     hint = whisper_hint()
     assert hint.startswith("The following is a paramedic radio report.") and len(hint) <= 800
+
+
+def test_full_treatment_is_not_read_as_full_code():
+    # the sepsis sample: "DNR but full treatment per POLST". The lexicon context used to tell the
+    # model that full treatment = full code, and the DNR was lost.
+    from ems_handoff.lexicon import LEXICON, CLINICAL_NOTES
+    assert "full treatment" not in LEXICON["code_status"]["full code"]
+    assert "default" not in CLINICAL_NOTES["full code"].lower()
+    ctx = LexiconStore().build_context("Patient is DNR but full treatment per POLST form.", top_k=25).lower()
+    assert "do not resuscitate" in ctx and "full code" not in ctx
