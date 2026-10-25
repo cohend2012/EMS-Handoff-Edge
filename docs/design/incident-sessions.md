@@ -1,7 +1,7 @@
 # Incident sessions: building the patient picture burst by burst
 
-Status: design note, agreed 2026-10-24. Implementation starts on the replay branch after
-steps 1 to 5 of the current plan are finished and the post-fix corpus is scored.
+Status: design note, agreed 2026-10-24. Round two of the pipeline fixes is merged and tagged
+v2.1.1-round2; the replay branch is the next piece of work.
 
 ## Problem
 
@@ -145,8 +145,26 @@ it with one re-extraction.
 
 ## Order of work
 
-1. Finish steps 1 to 5 of the current plan.
-2. Score the post-fix corpus against the gold answers.
-3. Start the replay branch on this design: sessions, trigger rules, one-job queue,
-   updating marker, attribution, change line, operator buttons, replay with compressed
-   gaps, CS014 acceptance scenario.
+1. Done: post-baseline fixes (v2.1.0-postfix) and round two (v2.1.1-round2); the corpus is
+   scored for baseline, post-fix, round 2 and Groq (`~/reports_round2/ROUND2.md`).
+2. Next: the replay branch on this design: sessions, trigger rules, one-job queue, updating
+   marker, attribution, change line, operator buttons, replay with compressed gaps.
+
+   One acceptance test: CS014 plays through the app. The captions and the transcript grow
+   burst by burst, the report builds and then updates on the same screen, and the run is
+   recorded to a video. The table above is the script; the pass criteria are unchanged.
+
+## Parked (not before the replay branch passes its test)
+
+- Recording options for the acceptance video: screen capture on the Jetson, or a laptop
+  browser pointed at the Jetson over the LAN with capture there.
+- Second Jetson: the deployment doc for a second unit.
+- Browser memory: how long a session's captions and transcript can grow in the page before
+  the tab needs trimming.
+- Provider caps: Groq's 200k tokens per day stops a 73-report corpus pass at about 16
+  reports in a day with gpt-oss-120b; a corpus pass needs a plan for the cap or a paid tier.
+- Round 3 pipeline candidates (details in `~/reports_round2/ROUND2.md`): the ETA guard (null
+  unless minutes are stated), the alert-word rule tightened to positive statements with a
+  complaint or mechanism present (S032_01 and the "stroke? No." fragment), and the Whisper
+  sanity check (retry, then local fallback, when words per second is implausible; the
+  post-fix S038_01 two-word transcript).
