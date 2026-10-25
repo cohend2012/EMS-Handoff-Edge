@@ -42,3 +42,6 @@ tests/artifacts/
 /reports/
 /reports_postfix/
 /backups/
+
+# detached worktrees used to run an older commit beside the checkout (scripts/corpus/run_samples.py --app)
+/.claude/worktrees/

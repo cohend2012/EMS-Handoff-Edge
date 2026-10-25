@@ -94,9 +94,14 @@ KNOWN_MISSPELLINGS: Dict[str, List[str]] = {
     "midazolam":   ["midazalam", "midozolam"],
     "epinephrine": ["epinephrin", "epinephrene"],
     "amiodarone":  ["amioderone", "amiodarohn"],
-    # home / maintenance meds
+    # heard on the MoCo radio corpus (CS014, a 3-month-old with croup)
+    "dexamethasone": ["texamethasone", "dexamethazone", "dexamethasome"],
+    "racemic epinephrine": ["cma-kepi", "racemic-epi", "racemicepi"],
+    # home / maintenance meds. Keys are the generic name the lexicon uses, so "aliquis"
+    # becomes apixaban, as furosemide and the others do; the assumption note keeps
+    # what was heard ("Apixaban (assumed from 'aliquis')").
     "donepezil":   ["donepizil", "donepazil", "donapazil", "donipizil"],
-    "eliquis":    ["aliquis", "eliguis"],
+    "apixaban":    ["aliquis", "eliguis", "elequis", "eloquis", "eliquist", "aliquist"],
     "lisinopril": ["lysonoprol"],
     "rivaroxaban": ["rivaroxiban"],
     "atorvastatin": ["atorvastatan", "atorvastin"],
@@ -159,6 +164,7 @@ class CorrectionResult:
 #   * "SbO2" / "SP02"         -> "SpO2"        (no English word looks like this)
 #   * "coarse bronchi" etc.   -> "coarse rhonchi"  (a *sound* adjective, not anatomy)
 #   * "POST form"             -> "POLST form"  (advance-directive phrasing)
+#   * "glow-by oxygen"        -> "blow-by oxygen" (no glow in an ambulance; heard on CS014)
 #
 # To teach it a new confusion, append a (name, pattern, replacement) row. The
 # replacement may use backreferences to preserve the surrounding real words.
@@ -173,6 +179,9 @@ _CONTEXT_RULES: List[Tuple[str, "re.Pattern", str]] = [
     ("POLST form",
      re.compile(r"(?i)\bpost(\s+form)\b"),
      r"POLST\1"),
+    ("blow-by oxygen",
+     re.compile(r"(?i)\bglow([- ]by)\b"),
+     r"blow\1"),
 ]
 
 def _apply_context_rules(text: str) -> Tuple[str, List["Correction"]]:
