@@ -74,6 +74,7 @@
               <select id="replayProvider"><option value="groq">Groq</option><option value="ollama">Ollama (local)</option></select>
             </label>
             <label>Gap speed <input id="replaySpeed" type="number" min="1" max="60" step="1" value="1"> ×</label>
+            <label class="check"><input id="replayRecord" type="checkbox"> Record (window + sink audio to ~/recordings)</label>
           </div>
           <button class="btn primary" id="replayBtn" type="button">Replay call</button>
           <p class="fine" id="replayInfo"></p>
@@ -97,6 +98,7 @@
         <div class="replay-phase" id="rpPhase">Starting…</div>
         <div class="replay-note" id="rpNote" hidden></div>
         <div class="replay-fallback" id="rpFallback" hidden></div>
+        <div class="replay-recording fine" id="rpRecording" hidden></div>
         <div class="sync-marker" id="syncMarker" aria-hidden="true" title="sync marker: flashes white for two frames at every burst start"></div>
       </div>
       <div class="replay-grid">

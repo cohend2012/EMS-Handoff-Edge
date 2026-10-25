@@ -57,8 +57,10 @@ from .audio.listeners import make_listeners
 from .audio.session import LiveSession
 from .audio.sources import FileAudioSource
 from .incident import IncidentManager
+from .recording import Geometry, Recorder, append_index_line, launch_recording_browser
 from .replay import (BurstClip, CallSet, ReplayDriver, ReplayHost, SinkPlayer, ensure_null_sink, list_callsets,
                      load_callset)
+from . import sync_check
 from .config import PROJECT_ROOT, PROVIDERS, Settings
 from .llm import LLMClient, LLMError
 from .pipeline import PipelineError, ReportPipeline
@@ -100,6 +102,12 @@ class Engines:
     make_listeners: Callable[[Settings], tuple] = make_listeners
     list_mics: Callable[[], List] = list_input_devices
     make_sink: Callable[[Settings], Any] = lambda s: SinkPlayer(s.replay_sink)   # replay audio out (null sink)
+    # recording a replay: the browser window, the ffmpeg capture, the sync check (all swappable in tests)
+    make_browser: Callable[[Settings, str], Any] = lambda s, url: launch_recording_browser(
+        url, s.replay_display, s.replay_record_width, s.replay_record_height, chromium=s.replay_chromium)
+    make_recorder: Callable[[Settings, Path, Any], Any] = lambda s, out, geo: Recorder(
+        out, geo, s.replay_display, s.replay_sink, s.replay_record_fps)
+    check_sync: Callable[[Path, int], dict] = lambda path, expected: sync_check.check(path, expected)
     lexicon_store: Any = None
     textbook_rag: Any = None
 
@@ -316,7 +324,8 @@ class Controller:
         s = self.settings
         return list_callsets(s.replay_callsets_dir, Path(s.replay_index).expanduser() if s.replay_index else None)
 
-    def start_replay(self, callset_id: str, provider: Optional[str] = None, speed: Optional[float] = None) -> dict:
+    def start_replay(self, callset_id: str, provider: Optional[str] = None, speed: Optional[float] = None,
+                     record: bool = False) -> dict:
         s = self.settings
         provider = (provider or s.replay_provider).strip().lower()
         if provider not in PROVIDERS:
@@ -333,11 +342,18 @@ class Controller:
             if self._listeners_cache is None:
                 self._listeners_cache = self.engines.make_listeners(self.settings)
             self.captions_label = self._listeners_cache[2]
-            run = ReplayRun(self, callset, provider, float(speed) if speed else s.replay_speed)
+            run = ReplayRun(self, callset, provider, float(speed) if speed else s.replay_speed, record=record)
             self._replay = run
             self.last_error = None
             self._set_state("replaying", callset=callset.id)
-            run.start()
+            try:
+                run.start()
+            except Exception as e:  # noqa: BLE001 - the window or the recorder did not come up: back to idle
+                logger.exception("Replay could not start")
+                run.stop()
+                self.last_error = f"Replay could not start: {e}"
+                self._set_state("idle")
+                raise RuntimeError(self.last_error) from e
             return run.status()
 
     def stop_replay(self) -> None:
@@ -472,11 +488,15 @@ class ReplayRun(ReplayHost):
     Nothing here runs unless start_replay was called, which only the replay endpoints do,
     and those are registered only when settings.replay_mode_enabled is on."""
 
-    def __init__(self, ctl: Controller, callset: CallSet, provider: str, speed: float):
+    def __init__(self, ctl: Controller, callset: CallSet, provider: str, speed: float, record: bool = False):
         self.ctl = ctl
         self.callset = callset
         self.provider = provider
         s = ctl.settings
+        self.record = record
+        self.recording: Optional[dict] = None          # path, bytes, duration, sync (when record=True)
+        self._recorder = None
+        self._window = None
         extra = {"groq_llm_model": s.replay_groq_model} if provider == "groq" else {}
         self.settings = dataclasses.replace(s, provider=provider, **extra)
         self.llm = ctl.engines.make_llm(self.settings)        # raises LLMError when the key is missing
@@ -488,7 +508,8 @@ class ReplayRun(ReplayHost):
         self.manager = IncidentManager(self._extract, quiet_s=quiet, clock=time.time, emit=ctl.broker.publish)
         self.sink = ctl.engines.make_sink(s)
         self.driver = ReplayDriver(callset, host=self, sink=self.sink, speed=speed, emit=self._emit,
-                                   work_dir=s.output_dir / "replay")
+                                   work_dir=s.output_dir / "replay", sink_lead_s=s.replay_sink_lead_ms / 1000.0,
+                                   before_first_burst=self._start_recording if record else None)
         self.session: Optional[LiveSession] = None
         self._jobs: queue.Queue = queue.Queue()
         self._busy = threading.Event()
@@ -500,6 +521,8 @@ class ReplayRun(ReplayHost):
         if self.sink is not None and getattr(self.sink, "available", False):
             if not ensure_null_sink(self.sink.sink):
                 logger.warning("Replay sink %s is not available; audio will not reach a recording", self.sink.sink)
+        if self.record:
+            self._prepare_recording()
         for name, target in (("replay-transcribe", self._transcribe_loop), ("replay-poll", self._poll_loop)):
             t = threading.Thread(target=target, name=name, daemon=True)
             t.start()
@@ -515,6 +538,8 @@ class ReplayRun(ReplayHost):
             session.stop()
         self._jobs.put(None)
         self.manager.stop()
+        if self.record:
+            self._finish_recording()
 
     def status(self) -> dict:
         sessions = self.manager.sessions
@@ -523,14 +548,72 @@ class ReplayRun(ReplayHost):
                 "model": self.model, "commit": APP_COMMIT, "started": self.started,
                 "fallback": self.fallback, "driver": self.driver.status(),
                 "session": current.snapshot() if current else None, "sessions": [x.id for x in sessions],
-                "transcriptions": list(self.transcriptions)}
+                "transcriptions": list(self.transcriptions), "recording": self.recording}
+
+    # -- recording (record=True): the window, ffmpeg around the bursts, then the sync check ----
+    def _prepare_recording(self) -> None:
+        s = self.ctl.settings
+        url = f"http://127.0.0.1:{s.port}/"
+        self._window = self.ctl.engines.make_browser(s, url)
+        geo = getattr(self._window, "geometry", None)
+        if geo is None:
+            raise RuntimeError("The recording window did not open; nothing to capture")
+        folder = Path(s.replay_record_dir) / f"{time.strftime('%Y-%m-%d')}_{APP_COMMIT}"
+        folder.mkdir(parents=True, exist_ok=True)
+        out = folder / f"{self.callset.id}.mp4"
+        self._recorder = self.ctl.engines.make_recorder(s, out, geo)
+        self.recording = {"path": str(out), "folder": str(folder), "geometry": [geo.x, geo.y, geo.width, geo.height],
+                          "display": s.replay_display, "fps": s.replay_record_fps, "state": "prepared",
+                          "sink_lead_ms": s.replay_sink_lead_ms}
+
+    def _start_recording(self) -> None:
+        """Runs on the driver thread just before burst 1."""
+        if self._recorder is None:
+            return
+        self._stage("Recording started")
+        self._recorder.start()
+        self.recording["state"] = "recording"
+        self.recording["started_wall"] = self._recorder.started_wall
+        self.ctl.broker.publish({"type": "replay", "event": "recording", **self.driver.status(), "provider": self.provider,
+                                 "model": self.model, "commit": APP_COMMIT, "fallback": self.fallback, "recording": self.recording})
+
+    def _finish_recording(self) -> None:
+        """After done or error: stop ffmpeg, write the summary, run the sync check, add the index line."""
+        if self._recorder is None or self.recording is None or self.recording.get("state") in ("done", "failed"):
+            return
+        try:
+            info = self._recorder.stop()
+            self.recording.update(info, state="done")
+            folder = Path(self.recording["folder"])
+            path = Path(self.recording["path"])
+            summary = folder / f"{self.callset.id}.summary.json"
+            summary.write_text(json.dumps(self.status(), indent=1))
+            self._stage("Checking audio/video sync")
+            sync = self.ctl.engines.check_sync(path, len(self.callset.bursts))
+            (folder / f"{self.callset.id}.sync.json").write_text(json.dumps(sync, indent=1))
+            self.recording["sync"] = sync
+            self.recording["index_line"] = append_index_line(Path(self.ctl.settings.replay_record_dir), self.callset.id,
+                                                             self.provider, self.model, APP_COMMIT,
+                                                             info.get("duration_s"), sync, path)
+            summary.write_text(json.dumps(self.status(), indent=1))
+            logger.info("Recording finished: %s (%s bytes, %s s), sync %s", path, info.get("bytes"), info.get("duration_s"),
+                        "pass" if sync.get("pass") else "FAIL")
+        except Exception as e:  # noqa: BLE001 - the replay itself is done; say what went wrong with the file
+            logger.exception("Recording failed")
+            self.recording.update(state="failed", error=f"{type(e).__name__}: {e}")
+        self.ctl.broker.publish({"type": "replay", "event": "recorded", **self.driver.status(), "provider": self.provider,
+                                 "model": self.model, "commit": APP_COMMIT, "fallback": self.fallback, "recording": self.recording})
 
     # -- events --------------------------------------------------------------
     def _emit(self, event: dict) -> None:
         event.update(provider=self.provider, model=self.model, commit=APP_COMMIT, fallback=self.fallback)
+        if self.recording is not None:
+            event["recording"] = self.recording
         self.ctl.broker.publish(event)
         if event.get("phase") in ("done", "error"):
             self.ctl._replay_ended(self)
+            if self.record:
+                threading.Thread(target=self._finish_recording, name="replay-record-finish", daemon=True).start()
 
     def _stage(self, message: str) -> None:
         logger.info("Replay stage: %s", message)
@@ -823,7 +906,8 @@ def create_app(settings: Settings, engines: Optional[Engines] = None,
             if not body.get("callset"):
                 return fail("Choose a call-set.")
             try:
-                status = ctl.start_replay(str(body["callset"]), body.get("provider"), body.get("speed"))
+                status = ctl.start_replay(str(body["callset"]), body.get("provider"), body.get("speed"),
+                                          record=bool(body.get("record")))
             except (ValueError, FileNotFoundError, LLMError) as e:
                 return fail(str(e))
             except RuntimeError as e:
