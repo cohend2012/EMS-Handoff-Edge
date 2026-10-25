@@ -5,7 +5,8 @@
 
 Side by side for the two folders:
   crashes          log rows that failed or timed out for a reason other than a refusal,
-                   and wrong-model rejections, each listed with its error
+                   and wrong-model rejections, each listed with its error; rate-limit waits
+                   that were retried are counted on their own line
   refusals         'too short to process' errors (the pre-fix refusal) and reports whose
                    alert_type is UNCLEAR (what a short transcript gets after the fix)
   missing reports  targets from ~/labels/callsets.csv with no report file in the folder
@@ -82,14 +83,15 @@ def load_run(folder, log_path):
     bad = [r for r in log if r["status"] not in ("ok", "skipped")]
     # a target that later succeeded is not a crash of the run, but it is still a failed attempt; list both
     ok_targets = {r["target"] for r in log if r["status"] == "ok"}
-    crashes = [r for r in bad if r["status"] != "rejected_wrong_model" and REFUSAL not in r["error"].lower()]
+    crashes = [r for r in bad if r["status"] not in ("rejected_wrong_model", "rate_limited", "daily_cap") and REFUSAL not in r["error"].lower()]
     wrong_model = [r for r in bad if r["status"] == "rejected_wrong_model"]
+    rate_limited = [r for r in bad if r["status"] in ("rate_limited", "daily_cap")]
     refused = [r for r in bad if REFUSAL in r["error"].lower()]
     unclear = [rid for rid, rep in reports.items() if str(rep.get("alert_type")).upper() == "UNCLEAR"]
     missing = [rid for _, rid, _ in targets if rid not in reports]
     fwd, _ = ch.check_folder(reports_dir=folder)
     return {"folder": folder, "log": log_path, "targets": targets, "reports": reports, "ok_targets": ok_targets,
-            "crashes": crashes, "wrong_model": wrong_model, "refused": refused, "unclear": unclear, "missing": missing, "fwd": fwd}
+            "crashes": crashes, "wrong_model": wrong_model, "rate_limited": rate_limited, "refused": refused, "unclear": unclear, "missing": missing, "fwd": fwd}
 
 
 def fields_filled(run, shared):
@@ -144,6 +146,7 @@ def main(argv=None):
     say("CRASHES AND REFUSALS (from the run logs; a target that later succeeded is still listed)")
     pair("crashes (failed/timeout)", len(runs[0]["crashes"]), len(runs[1]["crashes"]))
     pair("wrong-model rejections", len(runs[0]["wrong_model"]), len(runs[1]["wrong_model"]))
+    pair("rate-limit waits (retried)", len(runs[0]["rate_limited"]), len(runs[1]["rate_limited"]))
     pair("refusals (too short)", len(runs[0]["refused"]), len(runs[1]["refused"]))
     pair("UNCLEAR reports", len(runs[0]["unclear"]), len(runs[1]["unclear"]))
     pair("missing reports", len(runs[0]["missing"]), len(runs[1]["missing"]))
