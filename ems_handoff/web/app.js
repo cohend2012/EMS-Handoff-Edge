@@ -120,6 +120,7 @@
     $("scriptPanel").hidden = !sample;
     $("liveGrid").classList.toggle("solo", !sample);
     $("liveTranscript").innerHTML = '<span class="placeholder">Listening… start talking.</span>';
+    fixedSeen.delete("liveTranscript");
     $("recTime").textContent = "0:00";
     $("meterFill").style.width = "0%";
     $("doneBtn").disabled = false;
@@ -145,12 +146,27 @@
   }
 
   // ---------------------------------------------------------------- live
+  // Captions with repair: rough words (Vosk, now) are muted; repaired words (Whisper, a few
+  // seconds later) are normal and flash green once when they replace the rough ones.
+  const fixedSeen = new Map();          // box id -> Set of segment indexes already shown repaired
+  function captionHtml(ev, boxId) {
+    if (!ev.segments) {
+      return `<span class="final">${esc(ev.final)}</span>` + (ev.partial ? ` <span class="partial">${esc(ev.partial)}</span>` : "");
+    }
+    if (!fixedSeen.has(boxId)) fixedSeen.set(boxId, new Set());
+    const seen = fixedSeen.get(boxId);
+    const html = ev.segments.filter((s) => s.text).map((s) => {
+      const fresh = s.fixed && !seen.has(s.i);
+      if (s.fixed) seen.add(s.i);
+      return `<span class="cap-seg ${s.fixed ? "fixed" : "rough"}${fresh ? " just-fixed" : ""}">${esc(s.text)}</span>`;
+    }).join(" ");
+    return html + (ev.partial ? ` <span class="partial">${esc(ev.partial)}</span>` : "");
+  }
   function renderCaption(ev) {
     const box = $("liveTranscript");
     const nearBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 60;
-    if (!ev.final && !ev.partial) return;
-    box.innerHTML = `<span class="final">${esc(ev.final)}</span>` +
-      (ev.partial ? ` <span class="partial">${esc(ev.partial)}</span>` : "");
+    if (!ev.final && !ev.partial && !(ev.segments && ev.segments.length)) return;
+    box.innerHTML = captionHtml(ev, "liveTranscript");
     if (nearBottom) box.scrollTop = box.scrollHeight;
   }
   function renderLevel(ev) {
@@ -390,6 +406,7 @@
       phase.textContent = `Burst ${ev.burst} of ${ev.of} playing`;
       $("rpBurstNow").textContent = `· burst ${ev.burst}`;
       $("rpCaptions").innerHTML = '<span class="placeholder">Listening…</span>';
+      fixedSeen.delete("rpCaptions");
     } else if (ev.phase === "waiting") {
       phase.textContent = "All bursts played · waiting for the report";
     } else if (ev.phase === "done") {
@@ -446,9 +463,9 @@
   }
   function renderReplayCaption(ev) {
     const box = $("rpCaptions");
-    if (!ev.final && !ev.partial) return;
+    if (!ev.final && !ev.partial && !(ev.segments && ev.segments.length)) return;
     const nearBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 60;
-    box.innerHTML = `<span class="final">${esc(ev.final)}</span>` + (ev.partial ? ` <span class="partial">${esc(ev.partial)}</span>` : "");
+    box.innerHTML = captionHtml(ev, "rpCaptions");
     if (nearBottom) box.scrollTop = box.scrollHeight;
   }
   function renderReplayLevel(ev) {
@@ -471,7 +488,7 @@
     if (ev.replay_burst) {                 // a replayed burst's listener events: replay screen only
       if (ev.type === "caption") renderReplayCaption(ev);
       else if (ev.type === "level") renderReplayLevel(ev);
-      else if (ev.type === "listening") $("rpCaptionEngine").textContent = ev.captions ? `· ${ev.captions}` : "";
+      else if (ev.type === "listening") $("rpCaptionEngine").textContent = ev.captions ? `· ${ev.captions}${/repair/i.test(ev.captions) ? " · grey = rough, white = repaired" : ""}` : "";
       else if (ev.type === "transcript") $("rpStage").textContent = `Burst ${ev.replay_burst} transcribed by ${ev.transcriber} in ${ev.transcribe_s} s · ${ev.words} words${ev.notes && ev.notes.length ? " · " + ev.notes.join("; ") : ""}`;
       return;
     }

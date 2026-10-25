@@ -113,6 +113,10 @@ textarea { resize: vertical; font-size: .95rem; line-height: 1.45; }
 .transcript-panel { border-color: #2f5674; }
 .transcript .final { color: var(--text); }
 .transcript .partial { color: var(--muted); font-style: italic; }
+.cap-seg.rough { color: var(--muted); }
+.cap-seg.fixed { color: var(--text); }
+.cap-seg.just-fixed { animation: fixflash 1.4s ease-out; border-radius: 3px; }
+@keyframes fixflash { from { background: #1f5a33; color: #c8f5d3; } to { background: transparent; } }
 .placeholder { color: var(--faint); font-style: italic; }
 .action-bar { display: flex; align-items: center; justify-content: space-between; gap: 1rem; flex-wrap: wrap; padding-top: .3rem; }
 .phrase-tip { color: var(--muted); }
