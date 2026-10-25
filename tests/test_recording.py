@@ -48,6 +48,12 @@ def test_ffmpeg_command_one_process_wallclock_passthrough_lightest():
     assert cmd.index("-i") < cmd.index("-c:v"), "no post-mux: one encode of both inputs"
 
 
+def test_ffmpeg_capture_size_is_rounded_down_to_even():
+    cmd = ffmpeg_command(Path("/tmp/x/a.mp4"), Geometry(66, 32, 1280, 757))
+    assert "1280x756" in " ".join(cmd), "an odd height would stop the encoder from opening"
+    assert "+66,32" in " ".join(cmd)
+
+
 def test_find_window_skips_helper_windows_and_reads_client_geometry(monkeypatch):
     calls = []
 

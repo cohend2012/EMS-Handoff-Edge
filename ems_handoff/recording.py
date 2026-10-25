@@ -99,6 +99,26 @@ def window_geometry(display: str, wid: str) -> Optional[Geometry]:
     return Geometry(vals["x"], vals["y"], vals["w"], vals["h"])
 
 
+def set_client_geometry(display: str, wid: str, x: int, y: int, width: int, height: int) -> bool:
+    """Move and resize the window's client area with python-xlib (mutter re-sizes a window whose
+    decorations were stripped after mapping: 1280x720 became 1280x757). False when xlib is missing."""
+    try:
+        from Xlib import display as xdisplay
+    except ImportError:
+        logger.warning("python-xlib not installed: cannot resize the recording window")
+        return False
+    try:
+        d = xdisplay.Display(display)
+        win = d.create_resource_object("window", int(wid, 16))
+        win.configure(x=x, y=y, width=width, height=height)
+        d.sync()
+        d.close()
+        return True
+    except Exception as e:  # noqa: BLE001 - the window may have gone
+        logger.warning("Could not set the recording window geometry: %s", e)
+        return False
+
+
 def strip_decorations(display: str, wid: str) -> bool:
     """Ask the window manager to draw no title bar or border (Motif hints; mutter honours them)."""
     try:
@@ -127,7 +147,7 @@ def close_recording_browsers(wm_class: str = "handoff-record", wait_s: float = 5
             cmd = (pid_dir / "cmdline").read_bytes().split(b"\0")
         except OSError:
             continue
-        if cmd and cmd[0].endswith(b"chrome") and f"--class={wm_class}".encode() in cmd and b"--type=" not in b" ".join(cmd):
+        if cmd and f"--class={wm_class}".encode() in cmd and not any(c.startswith(b"--type=") for c in cmd):
             try:
                 os.kill(int(pid_dir.name), 15)
                 killed += 1
@@ -178,6 +198,10 @@ def launch_recording_browser(url: str, display: str = ":1", width: int = 1280, h
         time.sleep(0.8)
         geo = window_geometry(display, wid)
         if geo and (geo.width != width or geo.height != height):
+            set_client_geometry(display, wid, geo.x, geo.y, width, height)
+            time.sleep(0.5)
+            geo = window_geometry(display, wid)
+        if geo and (geo.width != width or geo.height != height):
             logger.warning("Recording window is %s, wanted %dx%d", geo.size, width, height)
     logger.info("Recording window: %s at %s", wid, geo)
     return BrowserWindow(proc, wid, geo, cmd)
@@ -187,9 +211,10 @@ def ffmpeg_command(out: Path, geometry: Geometry, display: str = ":1", sink: str
                    fps: int = 15, ffmpeg: str = "ffmpeg") -> List[str]:
     """One ffmpeg: the window region and the sink monitor, wall-clock timestamps on both inputs,
     frames passed through (a dropped frame leaves a gap, never a shorter video), lightest preset."""
+    size = f"{geometry.width - geometry.width % 2}x{geometry.height - geometry.height % 2}"   # yuv420p needs even sides
     return [ffmpeg, "-y", "-hide_banner", "-loglevel", "warning",
             "-use_wallclock_as_timestamps", "1", "-f", "x11grab", "-framerate", str(fps),
-            "-video_size", geometry.size, "-draw_mouse", "0", "-i", f"{display}.0{geometry.x11grab_input}",
+            "-video_size", size, "-draw_mouse", "0", "-i", f"{display}.0{geometry.x11grab_input}",
             "-use_wallclock_as_timestamps", "1", "-f", "pulse", "-i", f"{sink}.monitor",
             "-map", "0:v:0", "-map", "1:a:0",
             "-c:v", "libx264", "-preset", "ultrafast", "-tune", "zerolatency", "-crf", "23", "-pix_fmt", "yuv420p",
