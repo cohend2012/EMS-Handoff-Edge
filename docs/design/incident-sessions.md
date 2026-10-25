@@ -154,10 +154,40 @@ it with one re-extraction.
    burst by burst, the report builds and then updates on the same screen, and the run is
    recorded to a video. The table above is the script; the pass criteria are unchanged.
 
+## Recording the acceptance run (decided 2026-10-25)
+
+Audio and video on one clock, on the Jetson. A PulseAudio null sink is created for replay.
+The replay driver owns burst start timing: at the moment it starts feeding a burst's WAV
+into the file source it also plays the same WAV into the sink, so the audio on the
+recording and the captions on screen come from the same samples. One ffmpeg process
+captures the app window at 720p 15 fps and the sink's monitor together, with wallclock
+timestamps on the grab so dropped frames do not shorten the video. No post-mux.
+
+Sync check: at each burst start the driver plays a 50 ms click into the sink and flashes a
+marker in the banner for two frames. `scripts/check_sync.py` locates the clicks in the
+audio track and the flashes in the video track and prints the offset per burst; a
+recording passes only if every burst is within 150 ms.
+
+Output: `~/recordings/<date>_<commit>/<callset>.mp4` with the run's summary JSON and the
+sync report beside it; copied to a laptop with scp. Speaker playback stays off by default;
+with a speaker attached the sink can be the hardware device instead. The remote option (a
+laptop browser on the LAN recording the page) remains the alternative for a laptop-side
+video.
+
+## Transcript sanity checks (step 7 of the replay branch)
+
+- Words per second: fewer than one word per two seconds on a burst over ten seconds means
+  Whisper most likely dropped the burst (the post-fix S038_01 two-word transcript). Retry
+  once, then fall back to local Whisper, and record what happened in `_meta`.
+- Silence: when a recording's level never rose above the noise floor, treat it as no
+  speech, skip Whisper, and show "no speech detected" instead of a phantom transcript. A
+  silent mic on 2026-10-25 came back from Whisper as "Thank you." and produced an UNCLEAR
+  report; the level meter had read zero throughout.
+
 ## Parked (not before the replay branch passes its test)
 
-- Recording options for the acceptance video: screen capture on the Jetson, or a laptop
-  browser pointed at the Jetson over the LAN with capture there.
+- Recording on a laptop instead of the Jetson: a browser pointed at the Jetson over the
+  LAN with capture there (the on-Jetson method above is the decided default).
 - Second Jetson: the deployment doc for a second unit.
 - Browser memory: how long a session's captions and transcript can grow in the page before
   the tab needs trimming.
