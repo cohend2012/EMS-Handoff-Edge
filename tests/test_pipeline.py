@@ -60,12 +60,19 @@ def test_optional_fields_get_independent_defaults():
     ("[1, 2]", "not an object"),
     (json.dumps({"alert_type": "STEMI"}), "left out required fields"),
     (json.dumps(report_dict(alert_level="PURPLE")), "invalid alert level"),
-    (json.dumps(report_dict(alert_level=None)), "invalid alert level"),   # a named alert type needs a priority
     (json.dumps(report_dict(patient="67M")), "'patient' field"),
 ])
 def test_bad_llm_output_gives_a_readable_error(reply, message):
     with pytest.raises(PipelineError, match=message):
         run(SAMPLE_STEMI, FakeLLM([reply]))
+
+
+def test_null_alert_level_is_kept_for_any_alert_type():
+    # gpt-oss-120b on the radio corpus: a clear STROKE report with no priority spoken came back with
+    # alert_level null, and the pipeline failed eight reports over it. Nothing said means null.
+    report, _, _ = run(SAMPLE_STEMI, FakeLLM([json.dumps(report_dict(alert_type="STROKE", alert_level=None))]))
+    assert report["alert_type"] == "STROKE" and report["alert_level"] is None
+    assert "alert level" in report["data_quality"]["missing_info"]
 
 
 def test_lowercase_alert_level_is_normalised():
