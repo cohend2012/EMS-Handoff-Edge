@@ -30,6 +30,17 @@ def test_sample_report_end_to_end():
     assert "MEDICAL LEXICON" in prompt and "Unit 41" in prompt
 
 
+def test_attribution_text_is_off_unless_asked():
+    from ems_handoff.prompt import EXTRACTION_PROMPT, extraction_prompt
+    _, _, pipe = run(SAMPLE_STEMI)
+    assert '"sources"' not in pipe.llm.prompts[0] and "Burst" not in pipe.llm.prompts[0]
+    assert extraction_prompt(False) is EXTRACTION_PROMPT
+    _, _, pipe = run(SAMPLE_STEMI, attribution=True)
+    prompt = pipe.llm.prompts[0]
+    assert '"sources": {"field path such as patient.age' in prompt and "[Burst 3" in prompt
+    assert prompt.rstrip().endswith("/no_think") and prompt.count("/no_think") == 1
+
+
 def test_stop_phrase_is_removed_before_the_llm_sees_it():
     report, _, pipe = run(SAMPLE_STEMI.strip() + " Confirm report ready.")
     assert "confirm report ready" not in pipe.llm.prompts[0].lower().split("ems radio report:")[1]

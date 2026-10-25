@@ -3,9 +3,7 @@ prompt.py — the two prompts sent to the language model.
 
 EXTRACTION_PROMPT
     Turns a paramedic radio report into the structured handoff JSON shown on the
-    dashboard. Placeholders: {ems_report}, {lexicon_context}. The "sources"
-    entry (burst number per filled field) is additive: a session transcript
-    carries burst headers; a single transcript is burst 1.
+    dashboard. Placeholders: {ems_report}, {lexicon_context}.
 GUIDANCE_PROMPT
     Optional second call. It suggests courses of action grounded only in
     retrieved textbook excerpts. Placeholders: {handoff_json}, {reference}.
@@ -14,6 +12,10 @@ GUIDANCE_PROMPT
 
 Both prompts end with "/no_think" for qwen3 models. The LLM client also turns
 thinking off in the request itself.
+
+extraction_prompt(attribution)
+    EXTRACTION_PROMPT as is, or with the burst-attribution text added (see the
+    end of this file). Incident sessions ask for it; the live path does not.
 """
 
 # =============================================================================
@@ -95,9 +97,7 @@ Generate a JSON response with this EXACT structure (return ONLY valid JSON, no m
     "confidence": "HIGH" | "MEDIUM" | "LOW",
     "missing_info": ["Important information not provided"],
     "assumptions": ["Any assumptions made from context"]
-  }},
-
-  "sources": {{"field path such as patient.age or vital_signs.spo2": burst number that stated it}}
+  }}
 }}
 
 Guidance:
@@ -106,7 +106,6 @@ Guidance:
 - Patient sex: when it is not said outright, infer it from the pronouns used for the patient ("he", "his", "him" = Male; "she", "her" = Female) and record that in data_quality.assumptions. Use null only when there are no such pronouns.
 - history.allergies and history.code_status are null unless the paramedic actually spoke them. A report that never mentions allergies has allergies null; one that never mentions a code status or directive has code_status null. When the paramedic did speak them, write what was said (for example "no known allergies" or "DNR"). Never fill either field with a default, and list "allergies" or "code status" in missing_info when null.
 - The report may be a fragment: a few words, a single question, or a reply with no clinical content. Still return the full structure. Use "UNCLEAR" only when no chief complaint, no mechanism of injury, and no alert word (stroke, CVA, brain bleed, trauma, STEMI, cardiac arrest, sepsis, seizure, overdose, chest pain and the like) was stated at all. If any one of those was stated, even in a fragment such as "trauma, priority 2", choose the matching alert_type and leave every unstated field null. When UNCLEAR does apply, set alert_level to null, data_quality.confidence to "LOW", and list what was not provided in missing_info. Never invent a patient, vitals, history, or interventions that were not said.
-- The report may arrive as numbered bursts, each under a header such as "[Burst 3 · 07:43:10 UTC · feed 4390]". In "sources", give for every field you filled the number of the burst that stated it, keyed by the field path. With no burst headers, every source is 1.
 /no_think
 """
 
@@ -136,3 +135,37 @@ Return ONLY a valid JSON object (no markdown) with this shape, holding 3-6 actio
 Do not use double quotes inside any string value — paraphrase instead. No trailing commas, no text before or after the object.
 /no_think
 """
+
+# =============================================================================
+# BURST ATTRIBUTION (incident sessions only; the live path never sends it)
+# =============================================================================
+# A "sources" entry in the schema (burst number per filled field) and one guidance
+# line. The four sample cases scored the same or better with it on 2026-10-25, but the
+# extra output cost about 25 s per report on the Jetson and one score moved, so it is
+# added only when the pipeline is built with attribution=True (incident sessions).
+
+ATTRIBUTION_SCHEMA = (
+    "  }},\n"
+    "\n"
+    '  "sources": {{"field path such as patient.age or vital_signs.spo2": burst number that stated it}}\n'
+    "}}\n"
+)
+
+ATTRIBUTION_GUIDANCE = (
+    "- The report may arrive as numbered bursts, each under a header such as "
+    '"[Burst 3 · 07:43:10 UTC · feed 4390]". In "sources", give for every field you filled '
+    "the number of the burst that stated it, keyed by the field path. With no burst headers, "
+    "every source is 1.\n"
+    "/no_think\n"
+)
+
+_SCHEMA_END = "  }}\n}}\n"
+
+
+def extraction_prompt(attribution: bool = False) -> str:
+    """The extraction prompt template; with ``attribution`` the "sources" entry and its guidance line."""
+    if not attribution:
+        return EXTRACTION_PROMPT
+    assert EXTRACTION_PROMPT.count(_SCHEMA_END) == 1
+    text = EXTRACTION_PROMPT.replace(_SCHEMA_END, ATTRIBUTION_SCHEMA, 1)
+    return text.replace("/no_think\n", ATTRIBUTION_GUIDANCE, 1)

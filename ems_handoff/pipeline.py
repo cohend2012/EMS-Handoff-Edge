@@ -44,7 +44,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from .llm import LLMClient, LLMError
 from .phrase import strip_phrase
-from .prompt import EXTRACTION_PROMPT, GUIDANCE_PROMPT
+from .prompt import GUIDANCE_PROMPT, extraction_prompt
 from .transcript_corrector import assumption_notes, correct_transcript, format_suspects_for_llm
 
 logger = logging.getLogger(__name__)
@@ -318,9 +318,10 @@ def parse_guidance(text: str) -> Optional[List[dict]]:
 class ReportPipeline:
     def __init__(self, llm: LLMClient, stop_phrase: str = "",
                  lexicon_store: Any = None, textbook_rag: Any = None,
-                 on_stage: Optional[Callable[[str], None]] = None):
+                 on_stage: Optional[Callable[[str], None]] = None, attribution: bool = False):
         self.llm = llm
         self.stop_phrase = stop_phrase
+        self.attribution = attribution     # ask for burst sources (incident sessions); off on the live path
         self.lexicon_store = lexicon_store
         self.textbook_rag = textbook_rag
         self.on_stage = on_stage or (lambda _msg: None)
@@ -352,7 +353,7 @@ class ReportPipeline:
         if suspects:
             context = f"{context}\n{suspects}" if context else suspects
         self.last_context, self.last_reference = context, ""
-        prompt = EXTRACTION_PROMPT.format(ems_report=fix.text, lexicon_context=context)
+        prompt = extraction_prompt(self.attribution).format(ems_report=fix.text, lexicon_context=context)
 
         # 3. extract
         t0 = time.perf_counter()
