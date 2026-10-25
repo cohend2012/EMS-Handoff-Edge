@@ -3,7 +3,9 @@ prompt.py — the two prompts sent to the language model.
 
 EXTRACTION_PROMPT
     Turns a paramedic radio report into the structured handoff JSON shown on the
-    dashboard. Placeholders: {ems_report}, {lexicon_context}.
+    dashboard. Placeholders: {ems_report}, {lexicon_context}. The "sources"
+    entry (burst number per filled field) is additive: a session transcript
+    carries burst headers; a single transcript is burst 1.
 GUIDANCE_PROMPT
     Optional second call. It suggests courses of action grounded only in
     retrieved textbook excerpts. Placeholders: {handoff_json}, {reference}.
@@ -93,7 +95,9 @@ Generate a JSON response with this EXACT structure (return ONLY valid JSON, no m
     "confidence": "HIGH" | "MEDIUM" | "LOW",
     "missing_info": ["Important information not provided"],
     "assumptions": ["Any assumptions made from context"]
-  }}
+  }},
+
+  "sources": {{"field path such as patient.age or vital_signs.spo2": burst number that stated it}}
 }}
 
 Guidance:
@@ -102,6 +106,7 @@ Guidance:
 - Patient sex: when it is not said outright, infer it from the pronouns used for the patient ("he", "his", "him" = Male; "she", "her" = Female) and record that in data_quality.assumptions. Use null only when there are no such pronouns.
 - history.allergies and history.code_status are null unless the paramedic actually spoke them. A report that never mentions allergies has allergies null; one that never mentions a code status or directive has code_status null. When the paramedic did speak them, write what was said (for example "no known allergies" or "DNR"). Never fill either field with a default, and list "allergies" or "code status" in missing_info when null.
 - The report may be a fragment: a few words, a single question, or a reply with no clinical content. Still return the full structure. Use "UNCLEAR" only when no chief complaint, no mechanism of injury, and no alert word (stroke, CVA, brain bleed, trauma, STEMI, cardiac arrest, sepsis, seizure, overdose, chest pain and the like) was stated at all. If any one of those was stated, even in a fragment such as "trauma, priority 2", choose the matching alert_type and leave every unstated field null. When UNCLEAR does apply, set alert_level to null, data_quality.confidence to "LOW", and list what was not provided in missing_info. Never invent a patient, vitals, history, or interventions that were not said.
+- The report may arrive as numbered bursts, each under a header such as "[Burst 3 · 07:43:10 UTC · feed 4390]". In "sources", give for every field you filled the number of the burst that stated it, keyed by the field path. With no burst headers, every source is 1.
 /no_think
 """
 

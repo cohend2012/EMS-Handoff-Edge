@@ -245,6 +245,20 @@ def infer_sex(text: str) -> Optional[Tuple[str, str]]:
     return None
 
 
+def clean_sources(value: Any) -> Dict[str, int]:
+    """The model's "sources" as {field path: burst number}; anything else is dropped.
+    An absent or malformed entry is an empty dict, never an error: attribution is additive."""
+    if not isinstance(value, dict):
+        return {}
+    out: Dict[str, int] = {}
+    for path, n in value.items():
+        if isinstance(n, bool):
+            continue
+        if isinstance(n, (int, float)) or (isinstance(n, str) and n.strip().isdigit()):
+            out[str(path)] = int(n)
+    return out
+
+
 def parse_report(text: str) -> Dict[str, Any]:
     """Parse and validate the LLM's JSON. Null or missing parts take their empty shape, so a
     sparse reply to a short transcript is still a complete report."""
@@ -264,6 +278,7 @@ def parse_report(text: str) -> Dict[str, Any]:
         # the model said nothing about its own confidence; MEDIUM, as before
         data["data_quality"] = {"confidence": "MEDIUM"}
     data = fill_blanks(blank_report(), data)
+    data["sources"] = clean_sources(data.get("sources"))
 
     data["alert_type"] = str(data.get("alert_type") or "UNCLEAR").upper().strip()
     if data["alert_type"] not in ALERT_TYPES:
