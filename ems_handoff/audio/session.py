@@ -8,10 +8,18 @@ Purpose
         "phrase"   the stop phrase was heard (by the spotter or in the captions)
         "timeout"  Settings.max_recording_s was reached. The audio is still
                    processed, never thrown away.
+        "eof"      the audio source ran out (a replayed clip; the mic never does)
     Cancel is the only path that discards audio, and only on purpose.
 
+Audio source
+    The session takes any object with the AudioSource shape (audio/sources.py):
+    the microphone (AudioCapture, the default) or a replayed clip
+    (FileAudioSource). A source that can end offers ``set_on_end``; the session
+    registers finish("eof") on it. AudioCapture has no such method, so the mic
+    path takes no new branch.
+
 Threads
-    audio-capture     (inside AudioCapture) mic -> 16 kHz blocks
+    audio-capture     (inside the audio source) mic or clip -> 16 kHz blocks
     live-captions     captioner.feed() -> "caption" events
     phrase-spotter    spotter.feed()   -> DONE when the phrase is heard
     session-watch     level meter + elapsed time + timeout, 5x per second
@@ -35,18 +43,19 @@ from typing import Callable, Optional
 import numpy as np
 
 from .capture import AudioCapture
+from .sources import AudioSource
 
 logger = logging.getLogger(__name__)
 
 
 class LiveSession:
-    def __init__(self, capture: AudioCapture,
+    def __init__(self, capture: Optional[AudioSource] = None,
                  captioner_factory: Optional[Callable] = None,
                  spotter_factory: Optional[Callable] = None,
                  emit: Callable[[dict], None] = lambda e: None,
                  on_finish: Callable[[str], None] = lambda reason: None,
                  max_seconds: float = 600, captions_label: str = ""):
-        self.capture = capture
+        self.capture = capture if capture is not None else AudioCapture()
         self._captioner_factory = captioner_factory
         self._spotter_factory = spotter_factory
         self._emit = emit
@@ -79,6 +88,9 @@ class LiveSession:
         spotter = self._make(self._spotter_factory, "Stop-phrase spotter")
         cap_q = self.capture.subscribe() if captioner else None
         spot_q = self.capture.subscribe() if spotter else None
+        set_on_end = getattr(self.capture, "set_on_end", None)
+        if set_on_end is not None:
+            set_on_end(lambda: self.finish("eof"))
         self.capture.start()
         self.started_at = time.time()
         if captioner:
