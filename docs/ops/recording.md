@@ -15,8 +15,9 @@ design decision is in `docs/design/incident-sessions.md`, "Recording the accepta
 
 3. The server opens a Chromium app window on the Jetson display (`HANDOFF_REPLAY_DISPLAY`,
    default `:1`) at exactly 1920x1080 (`HANDOFF_RECORD_WIDTH`/`HEIGHT`) with the page zoomed 1.5x
-   (`HANDOFF_RECORD_SCALE`), so the layout is the 1280x720 one at twice the pixel density; strips
-   the window manager's title bar, and measures the page's client area. Just before burst 1 it
+   (`HANDOFF_RECORD_SCALE`), so the layout is the 1280x720 one at twice the pixel density. The
+   window is fullscreen (Chromium kiosk, `HANDOFF_RECORD_KIOSK`), over GNOME's top bar and dock,
+   which would otherwise shrink it to the work area; the server measures the page's client area. Just before burst 1 it
    starts one ffmpeg process that captures that area at 15 fps together with the null sink's
    monitor (`handoff_replay.monitor`), both with
    wall-clock timestamps, preset ultrafast, no post-mux. After the last burst and the final

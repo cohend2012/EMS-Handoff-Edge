@@ -160,17 +160,19 @@ def close_recording_browsers(wm_class: str = "handoff-record", wait_s: float = 5
 
 
 def chromium_command(exe: str, url: str, width: int, height: int, profile_dir: Path, wm_class: str = "handoff-record",
-                     scale: float = 1.0) -> List[str]:
+                     scale: float = 1.0, kiosk: bool = False) -> List[str]:
+    """Kiosk: a fullscreen window over the panels and dock, the whole display (for a recording at
+    the display's size, which the window manager would otherwise shrink to its work area)."""
     return [exe, "--no-sandbox", f"--app={url}", f"--window-size={width},{height}", "--window-position=0,0",
             "--no-first-run", "--no-default-browser-check", "--disable-infobars", "--disable-session-crashed-bubble",
             "--hide-scrollbars", f"--force-device-scale-factor={scale:g}", f"--user-data-dir={profile_dir}",
-            f"--class={wm_class}", "--autoplay-policy=no-user-gesture-required"]
+            f"--class={wm_class}", "--autoplay-policy=no-user-gesture-required"] + (["--kiosk"] if kiosk else [])
 
 
 def launch_recording_browser(url: str, display: str = ":1", width: int = 1280, height: int = 720,
                              profile_dir: Optional[Path] = None, chromium: str = "",
                              wm_class: str = "handoff-record", wait_s: float = 8.0, fresh: bool = True,
-                             scale: float = 1.0) -> BrowserWindow:
+                             scale: float = 1.0, kiosk: bool = False) -> BrowserWindow:
     """Open the page in a Chromium app window of exactly width x height at the origin, strip the
     window manager's decorations, and return the window's client geometry for the grab. ``scale``
     is the page zoom: the layout is laid out at width/scale x height/scale CSS pixels.
@@ -191,7 +193,7 @@ def launch_recording_browser(url: str, display: str = ":1", width: int = 1280, h
         raise RuntimeError("No Chromium found for the recording window (install Playwright's chromium or set HANDOFF_CHROMIUM)")
     profile_dir = profile_dir or Path.home() / ".cache" / "handoff-ai" / "record-profile"
     profile_dir.mkdir(parents=True, exist_ok=True)
-    cmd = chromium_command(exe, url, width, height, profile_dir, wm_class, scale)
+    cmd = chromium_command(exe, url, width, height, profile_dir, wm_class, scale, kiosk)
     env = dict(os.environ, DISPLAY=display)
     proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, env=env)
     deadline = time.time() + wait_s
@@ -200,7 +202,10 @@ def launch_recording_browser(url: str, display: str = ":1", width: int = 1280, h
         time.sleep(0.5)
         wid = find_window(display, wm_class)
     geo = None
-    if wid:
+    if wid and kiosk:
+        time.sleep(0.8)                                   # fullscreen: no frame to strip, the display's size
+        geo = window_geometry(display, wid)
+    elif wid:
         strip_decorations(display, wid)
         time.sleep(0.8)
         geo = window_geometry(display, wid)

@@ -55,6 +55,7 @@ def test_chromium_window_is_an_app_window_at_the_origin_with_the_page_scale(tmp_
     assert "--force-device-scale-factor=1.5" in cmd, "the 720p layout at 1080p"
     assert "--class=handoff-record" in cmd and f"--user-data-dir={tmp_path}" in cmd
     assert "--force-device-scale-factor=1" in chromium_command("c", "u", 1280, 720, tmp_path)
+    assert "--kiosk" not in cmd and chromium_command("c", "u", 1920, 1080, tmp_path, kiosk=True)[-1] == "--kiosk"
 
 
 def test_default_recording_is_1080p_with_the_720p_layout(settings):

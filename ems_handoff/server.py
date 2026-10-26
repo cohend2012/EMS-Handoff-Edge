@@ -105,7 +105,7 @@ class Engines:
     # recording a replay: the browser window, the ffmpeg capture, the sync check (all swappable in tests)
     make_browser: Callable[[Settings, str], Any] = lambda s, url: launch_recording_browser(
         url, s.replay_display, s.replay_record_width, s.replay_record_height, chromium=s.replay_chromium,
-        scale=s.replay_record_scale)
+        scale=s.replay_record_scale, kiosk=s.replay_record_kiosk)
     make_recorder: Callable[[Settings, Path, Any], Any] = lambda s, out, geo: Recorder(
         out, geo, s.replay_display, s.replay_sink, s.replay_record_fps)
     check_sync: Callable[[Path, int], dict] = lambda path, expected: sync_check.check(path, expected)
