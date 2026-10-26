@@ -99,7 +99,7 @@ def transcript_scores(cid: str, info: Dict[str, Any], ref_dir: Path, callsets_di
     for summ in summaries:
         d = json.loads(summ.read_text())
         texts = burst_texts_from_session(((d.get("session") or {}).get("transcript")) or "")
-        label = f"app {summ.parent.name.split('_')[-1]}"
+        label = f"app {summ.parent.name.split('_')[-1]}" + (f" {summ.name.split('.')[1]}" if summ.name.count(".") > 2 else "")
         for seg, text in zip(segs, texts):
             if seg in refs:
                 out.setdefault(label, {})[seg] = wer(refs[seg], text)
@@ -129,7 +129,8 @@ def report_scores(cid: str, gold: Dict[str, Any], summaries: List[Path]) -> List
                          "error": "no final report in the summary"})
             continue
         s = benchmark.score(rep, gold)
-        s.update(run=summ.parent.name, commit=d.get("commit"), provider=d.get("provider"), model=d.get("model"), truth=alert_truth(gold, rep))
+        run = summ.parent.name + (f" {summ.name.split('.')[1]}" if summ.name.count(".") > 2 else "")
+        s.update(run=run, commit=d.get("commit"), provider=d.get("provider"), model=d.get("model"), truth=alert_truth(gold, rep))
         rows.append(s)
     return rows
 
@@ -187,13 +188,14 @@ def main(argv=None) -> int:
     ap.add_argument("--callsets-dir", type=Path, default=Path.home() / "callsets")
     ap.add_argument("--reference-dir", type=Path, default=Path.home() / "labels" / "reference")
     ap.add_argument("--gold-dir", type=Path, default=Path.home() / "labels" / "gold")
-    ap.add_argument("--summaries", default=str(Path.home() / "recordings" / "*"), help="glob of recording folders")
+    ap.add_argument("--summaries", default=f"{Path.home() / 'recordings' / '*'},{Path.home() / 'replays' / '*'}",
+                    help="comma-separated globs of run folders (recordings and unrecorded replays)")
     ap.add_argument("--md", type=Path)
     args = ap.parse_args(argv)
     out = ["# Call-set scores", ""]
     for cid in args.callsets:
         info = load_callset(args.callsets_dir, cid)
-        summaries = sorted(Path(p) for p in glob.glob(f"{args.summaries}/{cid}.summary.json"))
+        summaries = sorted(Path(p) for g in args.summaries.split(",") for p in glob.glob(f"{g.strip()}/{cid}*.summary.json"))
         ts = transcript_scores(cid, info, args.reference_dir, args.callsets_dir, summaries)
         gold_path = args.gold_dir / f"{cid}.json"
         rr = report_scores(cid, json.loads(gold_path.read_text()), summaries) if gold_path.exists() else []

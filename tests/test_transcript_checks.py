@@ -105,3 +105,26 @@ def test_same_transcriber_as_fallback_is_not_tried_twice():
     r = transcribe_checked(local, local, long_audio(15.0))
     assert local.calls == 2, "primary and its retry only"
     assert [a["role"] for a in r.attempts] == ["primary", "retry"]
+
+
+# --- a transcriber loop is collapsed -------------------------------------------------------
+from ems_handoff.transcript_checks import collapse_repeats  # noqa: E402
+
+
+def test_collapse_repeats_cuts_a_whisper_loop_but_keeps_a_real_double_call():
+    looped = ("Cady Grove, this is Medic 729 with a 3-month-old female. Cady Grove, call you the pediatric site. "
+              "Cady Grove, call you the pediatric site. Cady Grove, call you the pediatric site. Cady Grove, call you the pediatric site.")
+    text, note = collapse_repeats(looped)
+    assert text == "Cady Grove, this is Medic 729 with a 3-month-old female. Cady Grove, call you the pediatric site."
+    assert note == "collapsed 3 repeated sentence(s) (a transcriber loop)"
+    double = "Shady Grove online. Shady Grove online. This is Medic 731."
+    assert collapse_repeats(double) == (double, None), "two in a row is how a crew calls"
+    assert collapse_repeats("") == ("", None) and collapse_repeats("one sentence only.") == ("one sentence only.", None)
+    mixed = "How old, sorry. how old sorry! HOW OLD SORRY. Thanks."
+    assert collapse_repeats(mixed)[0] == "How old, sorry. Thanks.", "case and punctuation do not break a run"
+
+
+def test_transcribe_checked_notes_the_collapse():
+    loop = Scripted(["A b c. " + "Same thing here. " * 5], name="groq")
+    r = transcribe_checked(loop, None, long_audio(3.0))
+    assert r.text == "A b c. Same thing here." and any("collapsed 4 repeated" in n for n in r.notes)
