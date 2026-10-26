@@ -223,6 +223,59 @@ def alert_from_words(text: str) -> Optional[Tuple[str, str]]:
     return None
 
 
+_PRIORITY = re.compile(r"\bpriority\s+(?:number\s+)?(one|two|three|1|2|3|to|too|won|tree|free)\b", re.I)
+_PRIORITY_WORDS = {"one": 1, "won": 1, "1": 1, "two": 2, "to": 2, "too": 2, "2": 2, "three": 3, "tree": 3, "free": 3, "3": 3}
+LEVEL_FOR_PRIORITY = {1: "RED", 2: "YELLOW", 3: "GREEN"}
+_PREPOSITION_NEXT = re.compile(r"\s+(?:the|a|an|our|your|this|that|his|her|their|my|its|be|get|go|make)\b", re.I)
+_BURST_HEADER = re.compile(r"^\[Burst (\d+)\b", re.M)
+
+
+def stated_priority(text: str) -> Optional[Tuple[int, str, Optional[int]]]:
+    """The priority the crew stated, as (priority, the phrase, the burst it was said in or None).
+
+    "Priority 2" is how the crew states the level on the radio, and Whisper writes the number as
+    "to" or "too" about as often as "2". The last statement wins (a crew that upgrades says the
+    new priority last). The burst is read from the session's "[Burst N" headers when present."""
+    last = None
+    for m in _PRIORITY.finditer(text):
+        word = m.group(1).lower()
+        n = _PRIORITY_WORDS.get(word)
+        if word in ("to", "too") and _PREPOSITION_NEXT.match(text, m.end()):
+            continue                                   # "priority to the airway": a preposition, not a number
+        if n:
+            last = (n, m.group(0), m.start())
+    if last is None:
+        return None
+    n, phrase, pos = last
+    burst = None
+    for h in _BURST_HEADER.finditer(text):
+        if h.start() < pos:
+            burst = int(h.group(1))
+    return n, phrase, burst
+
+
+def apply_stated_priority(report: Dict[str, Any], text: str) -> Optional[str]:
+    """The alert level follows a stated priority (1 RED, 2 YELLOW, 3 GREEN). Returns the note
+    added to data_quality.assumptions, or None when no priority was stated. The model's own
+    level stays only when nothing was stated; attribution points at the burst of the statement."""
+    hit = stated_priority(text)
+    if hit is None:
+        return None
+    n, phrase, burst = hit
+    level = LEVEL_FOR_PRIORITY[n]
+    before = report.get("alert_level")
+    report["alert_level"] = level
+    if burst is not None and isinstance(report.get("sources"), dict):
+        report["sources"]["alert_level"] = burst
+    note = (f"Alert level {level} from the stated '{phrase}'" +
+            (f" (the model said {before})" if before and before != level else ""))
+    report.setdefault("data_quality", {}).setdefault("assumptions", []).append(note)
+    missing = report["data_quality"].get("missing_info")
+    if isinstance(missing, list):
+        report["data_quality"]["missing_info"] = [m for m in missing if "alert level" not in str(m).lower()]
+    return note
+
+
 _MALE_WORDS = re.compile(r"\b(?:he|his|him|himself)\b", re.I)
 _FEMALE_WORDS = re.compile(r"\b(?:she|her|hers|herself)\b", re.I)
 
@@ -379,6 +432,7 @@ class ReportPipeline:
                 report["alert_type"], word = hit
                 report["data_quality"]["assumptions"].append(
                     f"Alert type {hit[0]} from the word '{word}' in the transcript; the model answered UNCLEAR")
+        apply_stated_priority(report, fix.text)      # a stated priority sets the level, whatever the model chose
         if report["patient"].get("sex") is None:
             # the prompt asks the model to read pronouns; a small model often does not
             guess = infer_sex(fix.text)

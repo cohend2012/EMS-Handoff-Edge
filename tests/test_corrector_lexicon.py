@@ -49,9 +49,11 @@ def test_lexicon_finds_the_important_terms():
     assert store.build_context("") == ""
 
 
-def test_whisper_hint_is_bounded():
+def test_whisper_hint_is_bounded_and_ends_with_the_radio_phrases():
     hint = whisper_hint()
     assert hint.startswith("The following is a paramedic radio report.") and len(hint) <= 800
+    assert hint.endswith("last known well.") and "priority 2" in hint and "How do you copy?" in hint, "the tail is what Whisper attends to"
+    assert "BP" in hint and "STEMI" in hint, "the terminology still leads"
 
 
 def test_full_treatment_is_not_read_as_full_code():
