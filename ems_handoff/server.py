@@ -565,7 +565,7 @@ class ReplayRun(ReplayHost):
         self._recorder = self.ctl.engines.make_recorder(s, out, geo)
         self.recording = {"path": str(out), "folder": str(folder), "geometry": [geo.x, geo.y, geo.width, geo.height],
                           "display": s.replay_display, "fps": s.replay_record_fps, "scale": s.replay_record_scale,
-                          "state": "prepared", "sink_lead_ms": s.replay_sink_lead_ms}
+                          "state": "prepared", "sink_lead_ms": s.replay_sink_lead_ms, "tail_s": s.replay_record_tail_s}
 
     def _start_recording(self) -> None:
         """Runs on the driver thread just before burst 1."""
