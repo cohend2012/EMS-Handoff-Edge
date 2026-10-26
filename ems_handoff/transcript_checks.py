@@ -22,9 +22,10 @@ use transcribe_checked; nothing here depends on either.
 from __future__ import annotations
 
 import logging
+import re
 import time
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, List, Optional
+from typing import Tuple, Any, Callable, Dict, List, Optional
 
 import numpy as np
 
@@ -81,6 +82,35 @@ class TranscriptionResult:
                 "notes": list(self.notes), "level": dict(self.stats)}
 
 
+_SENTENCE = re.compile(r"(?<=[.!?])\s+")
+
+
+def collapse_repeats(text: str, min_run: int = 3) -> Tuple[str, Optional[str]]:
+    """Whisper loops on garbled radio audio: the same sentence three, four, five times in a row.
+    A run of min_run or more identical sentences (ignoring case and punctuation) is cut to one.
+    Returns (text, note or None). Two in a row stay: "Shady Grove online. Shady Grove online."
+    is how a crew really calls."""
+    parts = _SENTENCE.split(text.strip()) if text and text.strip() else []
+    if len(parts) < min_run:
+        return text, None
+    key = [re.sub(r"[^\w\s]", "", s).lower().split() for s in parts]
+    out, i, cut = [], 0, 0
+    while i < len(parts):
+        j = i
+        while j + 1 < len(parts) and key[j + 1] == key[i] and key[i]:
+            j += 1
+        run = j - i + 1
+        if run >= min_run:
+            out.append(parts[i])
+            cut += run - 1
+        else:
+            out.extend(parts[i:j + 1])
+        i = j + 1
+    if not cut:
+        return text, None
+    return " ".join(out), f"collapsed {cut} repeated sentence(s) (a transcriber loop)"
+
+
 def transcribe_checked(primary: Any, fallback: Any, audio: np.ndarray, caption_text: str = "",
                        on_stage: Callable[[str], None] = lambda m: None,
                        caption_min_words: int = 5) -> TranscriptionResult:
@@ -122,6 +152,9 @@ def transcribe_checked(primary: Any, fallback: Any, audio: np.ndarray, caption_t
         attempt = {"role": role, "transcriber": t.describe(), "seconds": seconds}
         try:
             text = t.transcribe(audio) or ""
+            text, loop_note = collapse_repeats(text)
+            if loop_note:
+                result.notes.append(f"{t.describe()}: {loop_note}")
             words = len(text.split())
             attempt.update(words=words, plausible=plausible_rate(words, seconds) and words > 0,
                            took_s=round(time.perf_counter() - t0, 2))
