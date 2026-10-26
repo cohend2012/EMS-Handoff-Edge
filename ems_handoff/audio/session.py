@@ -158,10 +158,12 @@ class LiveSession:
                 close()
 
     def _caption_loop_inner(self, captioner, q: "queue.Queue") -> None:
-        while not self._stopped.is_set():
+        while True:
             try:
                 block = q.get(timeout=0.25)
             except queue.Empty:
+                if self._stopped.is_set():
+                    return
                 continue
             if block is None:
                 return
@@ -178,6 +180,8 @@ class LiveSession:
                 self._emit(event)
             if update.heard_phrase and not self.is_finished:
                 self.finish("phrase", f"live captions heard: '{' '.join((update.final + ' ' + update.partial).split()[-8:])}'")
+            if self._stopped.is_set() and q.empty():
+                return                                    # stopped: the blocks already queued were fed, nothing lost
 
     def _spotter_loop(self, spotter, q: "queue.Queue") -> None:
         while not self._stopped.is_set():
