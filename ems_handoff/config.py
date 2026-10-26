@@ -130,7 +130,7 @@ class Settings:
     replay_record_scale: float = 1.5              # page zoom (device scale factor): 1.5 at 1080p = the 720p layout, sharper
     replay_record_kiosk: bool = True              # fullscreen window over the panels: needed when recording the display's size
     replay_record_fps: int = 15
-    replay_record_tail_s: float = 8.0            # keep recording this long after the final report, so it can be read
+    replay_record_tail_s: float = 16.0           # after the final report: hold 2.5 s, scroll to the bottom, hold 3 s
     replay_chromium: str = ""                    # path to a Chromium binary; "" = Playwright's or PATH
 
     # --- derived helpers ---------------------------------------------------

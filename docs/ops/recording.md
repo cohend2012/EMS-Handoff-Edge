@@ -21,7 +21,9 @@ design decision is in `docs/design/incident-sessions.md`, "Recording the accepta
    starts one ffmpeg process that captures that area at 15 fps together with the null sink's
    monitor (`handoff_replay.monitor`), both with
    wall-clock timestamps, preset ultrafast, no post-mux. After the last burst and the final
-   report it stops ffmpeg, writes the summary, runs the sync check and adds a line to
+   report the recording runs on for `HANDOFF_RECORD_TAIL_S` (default 16 s): the page holds on
+   the report for 2.5 s, scrolls to the bottom of the report the way a person would, and holds
+   there for 3 s. Then it stops ffmpeg, writes the summary, runs the sync check and adds a line to
    `~/recordings/INDEX.md` with the verdict column left as `pending` for a person.
 4. Output: `~/recordings/<date>_<commit>/<callset>.mp4`, with `<callset>.summary.json` (the
    replay status: timings, transcriptions, session, report) and `<callset>.sync.json` beside it.

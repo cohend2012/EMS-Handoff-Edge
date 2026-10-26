@@ -341,6 +341,26 @@
     ui.replay.timer = setInterval(() => { $("rpElapsed").textContent = clock((Date.now() - ui.replay.startedAt) / 1000); }, 500);
     show("replay");
   }
+  // While the recording's tail runs: hold on the final report, then scroll everything that can
+  // scroll (the page, the report column) to the bottom at an easy pace, and hold there.
+  function tourReport(tailS) {
+    const hold = 2.5, settle = 3;
+    const dur = Math.max(2, (tailS || 8) - hold - settle);
+    const targets = [document.scrollingElement, $("rpDashboard")].filter(el => el && el.scrollHeight - el.clientHeight > 4);
+    if (!targets.length) return;
+    const starts = targets.map(el => el.scrollTop), maxes = targets.map(el => el.scrollHeight - el.clientHeight);
+    setTimeout(() => {
+      const t0 = performance.now();
+      const step = (now) => {
+        const p = Math.min(1, (now - t0) / (dur * 1000));
+        const e = p < 0.5 ? 2 * p * p : 1 - Math.pow(-2 * p + 2, 2) / 2;
+        targets.forEach((el, i) => { el.scrollTop = starts[i] + (maxes[i] - starts[i]) * e; });
+        if (p < 1) requestAnimationFrame(step);
+      };
+      requestAnimationFrame(step);
+    }, hold * 1000);
+  }
+  window.handoffTourReport = tourReport;
   function endReplayScreen() {
     if (ui.replay.timer) clearInterval(ui.replay.timer);
     ui.replay.timer = null;
@@ -412,6 +432,7 @@
     } else if (ev.phase === "done") {
       phase.textContent = `Replay finished · ${clock(ev.elapsed_s || 0)}`;
       endReplayScreen();
+      if (ev.recording && ev.recording.state === "recording") tourReport(ev.recording.tail_s);   // a person would scroll down
     } else if (ev.phase === "error") {
       phase.textContent = `Replay failed: ${ev.error || "unknown error"}`;
       endReplayScreen();

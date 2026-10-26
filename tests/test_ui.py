@@ -172,6 +172,12 @@ def test_replay_screen_shows_bursts_report_and_updating_marker(settings, page, t
         assert "burst 2 of 2" in banner and "groq" in banner and "commit" in banner
         assert "Report as of burst 2 of 2" in page.inner_text("#rpAsOf")
         assert page.inner_text("#rpChange").startswith("burst 2")
+        # the recording's tail: a short window, so the page has something to scroll; the tour brings the bottom into view
+        page.set_viewport_size({"width": 1280, "height": 400})
+        assert page.evaluate("document.scrollingElement.scrollTop") == 0
+        page.evaluate("window.handoffTourReport(4)")           # hold 2.5 s, then a 2 s scroll (the minimum)
+        page.wait_for_function("document.scrollingElement.scrollTop > 50", timeout=8000)
+        page.wait_for_function("Math.abs(document.scrollingElement.scrollTop - (document.scrollingElement.scrollHeight - document.scrollingElement.clientHeight)) < 3", timeout=8000)
         assert page.locator(".kv.suspect").count() >= 1, "unattributed fields are marked suspect"
         page.screenshot(path=str(ARTIFACTS / "replay.png"), full_page=True)
     finally:
