@@ -14,9 +14,11 @@ design decision is in `docs/design/incident-sessions.md`, "Recording the accepta
             http://127.0.0.1:5050/api/replay/start
 
 3. The server opens a Chromium app window on the Jetson display (`HANDOFF_REPLAY_DISPLAY`,
-   default `:1`) at exactly 1280x720, strips the window manager's title bar, and measures the
-   page's client area. Just before burst 1 it starts one ffmpeg process that captures that area
-   at 15 fps together with the null sink's monitor (`handoff_replay.monitor`), both with
+   default `:1`) at exactly 1920x1080 (`HANDOFF_RECORD_WIDTH`/`HEIGHT`) with the page zoomed 1.5x
+   (`HANDOFF_RECORD_SCALE`), so the layout is the 1280x720 one at twice the pixel density; strips
+   the window manager's title bar, and measures the page's client area. Just before burst 1 it
+   starts one ffmpeg process that captures that area at 15 fps together with the null sink's
+   monitor (`handoff_replay.monitor`), both with
    wall-clock timestamps, preset ultrafast, no post-mux. After the last burst and the final
    report it stops ffmpeg, writes the summary, runs the sync check and adds a line to
    `~/recordings/INDEX.md` with the verdict column left as `pending` for a person.
@@ -25,7 +27,8 @@ design decision is in `docs/design/incident-sessions.md`, "Recording the accepta
 
 Audio: the driver plays each burst's samples into the PipeWire null sink `handoff_replay`
 (created with `pw-cli` if missing) at the instant it feeds the file source, started
-`HANDOFF_REPLAY_SINK_LEAD_MS` early (default 100) to cancel the player's startup. A 50 ms
+offset by `HANDOFF_REPLAY_SINK_LEAD_MS` (default -270: the player starts 270 ms after the file
+source, calibrated from recordings on the Jetson, 2026-10-25). A 50 ms
 1 kHz click is mixed over the first 50 ms of each burst, and the banner's sync marker flashes
 white for two frames at the same moment.
 
@@ -47,6 +50,6 @@ Use the Jetson's LAN address if `vox-ai` does not resolve.
 ## Alternative: record on a laptop
 
 Not the default. Bind the server to the LAN (`HANDOFF_HOST=0.0.0.0`), open
-`http://<jetson>:5050/` in a laptop browser at 1280x720, and capture there. The sink audio
+`http://<jetson>:5050/` in a laptop browser at 1920x1080 zoomed 150%, and capture there. The sink audio
 stays on the Jetson, so a laptop recording has no click track and the sync check does not
 apply; use OBS with a window capture, or ffmpeg's screen grab for your platform.
