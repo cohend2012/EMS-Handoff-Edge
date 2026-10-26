@@ -126,6 +126,42 @@ def set_client_geometry(display: str, wid: str, x: int, y: int, width: int, heig
         return False
 
 
+def request_fullscreen(display: str, wid: str) -> bool:
+    """Ask the window manager (EWMH _NET_WM_STATE) to make the window fullscreen: the whole
+    display, over the panels and dock. Chromium's --kiosk asks for the same, but the request is
+    sometimes lost when a window is mapped right after another was killed; this repeats it."""
+    try:
+        from Xlib import X, display as xdisplay, protocol
+    except ImportError:
+        logger.warning("python-xlib not installed: cannot request fullscreen")
+        return False
+    try:
+        d = xdisplay.Display(display)
+        win = d.create_resource_object("window", int(wid, 16))
+        state = d.intern_atom("_NET_WM_STATE")
+        full = d.intern_atom("_NET_WM_STATE_FULLSCREEN")
+        ev = protocol.event.ClientMessage(window=win, client_type=state, data=(32, [1, full, 0, 1, 0]))   # 1 = _NET_WM_STATE_ADD
+        d.screen().root.send_event(ev, event_mask=X.SubstructureRedirectMask | X.SubstructureNotifyMask)
+        d.sync()
+        d.close()
+        return True
+    except Exception as e:  # noqa: BLE001
+        logger.warning("Could not request fullscreen for the recording window: %s", e)
+        return False
+
+
+def wait_for_geometry(display: str, wid: str, width: int, height: int, timeout: float = 5.0) -> Optional[Geometry]:
+    """The window's geometry once it is width x height, or the last seen geometry after timeout."""
+    deadline = time.time() + timeout
+    geo = None
+    while time.time() < deadline:
+        geo = window_geometry(display, wid)
+        if geo and geo.width == width and geo.height == height:
+            return geo
+        time.sleep(0.25)
+    return geo
+
+
 def strip_decorations(display: str, wid: str) -> bool:
     """Ask the window manager to draw no title bar or border (Motif hints; mutter honours them)."""
     try:
@@ -258,8 +294,11 @@ def launch_recording_browser(url: str, display: str = ":1", width: int = 1280, h
             logger.warning("Recording window %s belongs to pid %s, not the new browser %d", wid, owner, proc.pid)
     geo = None
     if wid and kiosk:
-        time.sleep(0.8)                                   # fullscreen: no frame to strip, the display's size
-        geo = window_geometry(display, wid)
+        geo = wait_for_geometry(display, wid, width, height, timeout=3.0)   # Chromium's own fullscreen request
+        if geo and (geo.width != width or geo.height != height):
+            logger.info("Recording window is %s after kiosk launch; asking the window manager for fullscreen", geo.size)
+            request_fullscreen(display, wid)
+            geo = wait_for_geometry(display, wid, width, height, timeout=5.0)
     elif wid:
         strip_decorations(display, wid)
         time.sleep(0.8)
