@@ -27,6 +27,8 @@ from typing import Dict, List, Optional
 import requests
 
 LOG = Path.home() / "recordings" / "BATCH.log"
+# recordings from before the priority rule, hint and loop fixes: not demo material
+OLD_COMMITS = {"4b281ec", "3a2723f", "7f7d52a", "f60630e", "57bdcce", "1c6950d", "ca5ef15", "207ca18", "b004810"}
 
 
 def log(msg: str) -> None:
@@ -52,8 +54,11 @@ def share_copy(src: Path) -> Path:
 
 
 def already_done(recordings: Path, commit: str, cid: str, provider: str) -> Optional[Path]:
-    """A passing, non-fallback recording of cid on this provider and commit, if one exists."""
-    for summ in recordings.glob(f"*_{commit}/{cid}.summary.json"):
+    """A passing, non-fallback recording of cid on this provider, on any commit from today's fixed
+    pipeline on (45a20c4 and later; the commit argument is informational)."""
+    for summ in recordings.glob(f"*/{cid}.summary.json"):
+        if summ.parent.name.split("_")[-1] in OLD_COMMITS:
+            continue
         d = json.loads(summ.read_text())
         if d.get("provider") != provider or d.get("fallback"):
             continue
@@ -104,7 +109,7 @@ def main(argv=None) -> int:
     for prov in providers:
         queues[prov] = [c for c in ids if not already_done(args.recordings, commit, c, prov)]
         skipped = len(ids) - len(queues[prov])
-        log(f"{prov}: {len(queues[prov])} to record" + (f", {skipped} already done on {commit}" if skipped else ""))
+        log(f"{prov}: {len(queues[prov])} to record" + (f", {skipped} already recorded" if skipped else ""))
     retries: Dict[str, int] = {}
     groq_free_at = 0.0
     started = time.time()
