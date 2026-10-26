@@ -48,9 +48,8 @@ def _get(d: Any, path: str) -> Any:
 def _text(v: Any) -> str:
     if v is None:
         return ""
-    if isinstance(v, (list, dict)):
-        return json.dumps(v).lower()
-    return str(v).lower()
+    s = json.dumps(v, ensure_ascii=False) if isinstance(v, (list, dict)) else str(v)
+    return s.lower().replace("\u202f", " ").replace("\u00a0", " ")   # models write "324\u202fmg": a narrow space is a space
 
 
 def _is_unknown(v: Any) -> bool:
