@@ -10,7 +10,7 @@ import numpy as np
 import pytest
 
 from ems_handoff import recording, sync_check
-from ems_handoff.recording import Geometry, append_index_line, ffmpeg_command, find_window, window_geometry
+from ems_handoff.recording import Geometry, append_index_line, chromium_command, ffmpeg_command, find_window, window_geometry
 from ems_handoff.replay import click
 
 TREE = """xwininfo: Window id: 0x5a3 (the root window) (has no name)
@@ -46,6 +46,20 @@ def test_ffmpeg_command_one_process_wallclock_passthrough_lightest():
     assert "-preset ultrafast" in joined and "-vsync passthrough" in joined
     assert "-map 0:v:0 -map 1:a:0" in joined and "-c:a aac" in joined
     assert cmd.index("-i") < cmd.index("-c:v"), "no post-mux: one encode of both inputs"
+
+
+def test_chromium_window_is_an_app_window_at_the_origin_with_the_page_scale(tmp_path):
+    cmd = chromium_command("/opt/chrome", "http://127.0.0.1:5050/", 1920, 1080, tmp_path, scale=1.5)
+    assert cmd[0] == "/opt/chrome" and "--app=http://127.0.0.1:5050/" in cmd
+    assert "--window-size=1920,1080" in cmd and "--window-position=0,0" in cmd
+    assert "--force-device-scale-factor=1.5" in cmd, "the 720p layout at 1080p"
+    assert "--class=handoff-record" in cmd and f"--user-data-dir={tmp_path}" in cmd
+    assert "--force-device-scale-factor=1" in chromium_command("c", "u", 1280, 720, tmp_path)
+
+
+def test_default_recording_is_1080p_with_the_720p_layout(settings):
+    assert (settings.replay_record_width, settings.replay_record_height, settings.replay_record_scale) == (1920, 1080, 1.5)
+    assert settings.replay_record_width / settings.replay_record_scale == 1280
 
 
 def test_ffmpeg_capture_size_is_rounded_down_to_even():
@@ -136,6 +150,16 @@ def test_sync_check_measures_the_click_to_flash_offset_per_burst(tmp_path):
     assert not missed["pass"] and missed["bursts"][0]["flash_s"] is None, "the first flash is reported missing"
     assert [b["offset_ms"] for b in missed["bursts"][1:]] == [0.0, 0.0] or all(abs(b["offset_ms"]) <= 35 for b in missed["bursts"][1:]), \
         "the later bursts still pair with their own clicks"
+
+
+def test_marker_is_found_at_the_1080p_size_too():
+    """At 1080p with the page zoomed 1.5x the 48 px marker is 72 px: 18 px at analysis scale."""
+    frames = np.full((30, sync_check.FRAME_H, sync_check.FRAME_W), 20, np.uint8)
+    frames[10:12, 8:26, 290:308] = 255                      # 18x18 flash at frames 10-11
+    frames[20:, 40:80, 40:200] = 220                          # a text block appearing is not the marker
+    assert sync_check.locate_marker(frames) == (16, 298)
+    times = [i / 15 for i in range(30)]
+    assert sync_check.find_flashes(frames, times) == [round(10 / 15, 4)]
 
 
 def test_pair_events_matches_nearest_and_keeps_strays():

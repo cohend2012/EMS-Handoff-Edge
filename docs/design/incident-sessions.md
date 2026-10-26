@@ -160,7 +160,8 @@ Audio and video on one clock, on the Jetson. A PulseAudio null sink is created f
 The replay driver owns burst start timing: at the moment it starts feeding a burst's WAV
 into the file source it also plays the same WAV into the sink, so the audio on the
 recording and the captions on screen come from the same samples. One ffmpeg process
-captures the app window at 720p 15 fps and the sink's monitor together, with wallclock
+captures the app window at 1080p 15 fps (page zoomed 1.5x, so the 720p layout at twice the density;
+1080p15 ultrafast measured at full rate with no dropped frames on the Jetson) and the sink's monitor together, with wallclock
 timestamps on the grab so dropped frames do not shorten the video. No post-mux.
 
 Sync check: at each burst start the driver plays a 50 ms click into the sink and flashes a

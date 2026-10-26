@@ -104,7 +104,8 @@ class Engines:
     make_sink: Callable[[Settings], Any] = lambda s: SinkPlayer(s.replay_sink)   # replay audio out (null sink)
     # recording a replay: the browser window, the ffmpeg capture, the sync check (all swappable in tests)
     make_browser: Callable[[Settings, str], Any] = lambda s, url: launch_recording_browser(
-        url, s.replay_display, s.replay_record_width, s.replay_record_height, chromium=s.replay_chromium)
+        url, s.replay_display, s.replay_record_width, s.replay_record_height, chromium=s.replay_chromium,
+        scale=s.replay_record_scale)
     make_recorder: Callable[[Settings, Path, Any], Any] = lambda s, out, geo: Recorder(
         out, geo, s.replay_display, s.replay_sink, s.replay_record_fps)
     check_sync: Callable[[Path, int], dict] = lambda path, expected: sync_check.check(path, expected)
@@ -563,8 +564,8 @@ class ReplayRun(ReplayHost):
         out = folder / f"{self.callset.id}.mp4"
         self._recorder = self.ctl.engines.make_recorder(s, out, geo)
         self.recording = {"path": str(out), "folder": str(folder), "geometry": [geo.x, geo.y, geo.width, geo.height],
-                          "display": s.replay_display, "fps": s.replay_record_fps, "state": "prepared",
-                          "sink_lead_ms": s.replay_sink_lead_ms}
+                          "display": s.replay_display, "fps": s.replay_record_fps, "scale": s.replay_record_scale,
+                          "state": "prepared", "sink_lead_ms": s.replay_sink_lead_ms}
 
     def _start_recording(self) -> None:
         """Runs on the driver thread just before burst 1."""
