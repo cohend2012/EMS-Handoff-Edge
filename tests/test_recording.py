@@ -122,6 +122,21 @@ def test_close_recording_browsers_terminates_kills_survivors_and_helpers_and_mat
                 pr.wait()
 
 
+def test_wait_for_geometry_returns_when_the_window_reaches_the_size(monkeypatch):
+    sizes = iter([(1854, 1011), (1854, 1011), (1920, 1080)])
+
+    def fake_x(display, *cmd, timeout=5):
+        w, h = next(sizes)
+        return f"  Absolute upper-left X:  0\n  Absolute upper-left Y:  0\n  Width: {w}\n  Height: {h}\n"
+
+    monkeypatch.setattr(recording, "_x", fake_x)
+    geo = recording.wait_for_geometry(":1", "0x1", 1920, 1080, timeout=3.0)
+    assert (geo.width, geo.height) == (1920, 1080)
+    monkeypatch.setattr(recording, "_x", lambda display, *cmd, timeout=5: "  Absolute upper-left X:  66\n  Absolute upper-left Y:  69\n  Width: 1854\n  Height: 1011\n")
+    geo = recording.wait_for_geometry(":1", "0x1", 1920, 1080, timeout=0.3)
+    assert (geo.width, geo.height) == (1854, 1011), "after the timeout the last geometry seen is returned"
+
+
 def test_window_pid_reads_net_wm_pid(monkeypatch):
     monkeypatch.setattr(recording, "_x", lambda display, *cmd, timeout=5: "_NET_WM_PID(CARDINAL) = 4242\n")
     assert recording.window_pid(":1", "0x1") == 4242
