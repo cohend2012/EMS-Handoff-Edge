@@ -56,13 +56,13 @@ def share_copy(src: Path) -> Path:
 def already_done(recordings: Path, commit: str, cid: str, provider: str) -> Optional[Path]:
     """A passing, non-fallback recording of cid on this provider, on any commit from today's fixed
     pipeline on (45a20c4 and later; the commit argument is informational)."""
-    for summ in recordings.glob(f"*/{cid}.summary.json"):
+    for summ in recordings.glob(f"*/{cid}.*summary.json"):  # <cid>.<provider>.summary.json, or <cid>.summary.json before 2026-10-26
         if summ.parent.name.split("_")[-1] in OLD_COMMITS:
             continue
         d = json.loads(summ.read_text())
         if d.get("provider") != provider or d.get("fallback"):
             continue
-        sync = summ.with_name(f"{cid}.sync.json")
+        sync = summ.with_name(summ.name[:-len("summary.json")] + "sync.json")
         if sync.exists() and json.loads(sync.read_text()).get("pass"):
             return summ
     return None
