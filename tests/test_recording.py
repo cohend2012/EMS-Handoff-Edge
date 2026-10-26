@@ -223,6 +223,20 @@ def test_marker_is_found_at_the_1080p_size_too():
     assert sync_check.find_flashes(frames, times) == [round(10 / 15, 4)]
 
 
+def test_marker_search_ignores_a_bright_flash_elsewhere_in_the_top_band():
+    """CS003 on 2026-10-25: a card flashing bright at the left of the band pulled the median to (40, 238)
+    and the three real flashes at (31, 305) were missed. The search is confined to the top-right."""
+    frames = np.full((40, sync_check.FRAME_H, sync_check.FRAME_W), 20, np.uint8)
+    for i in (5, 15, 25):
+        frames[i:i + 2, 26:38, 299:311] = 255                 # the real marker, three flashes
+    for i in (8, 9, 18, 19, 28, 29, 33, 34):
+        frames[i:i + 2, 36:48, 230:246] = 255                 # a decoy of marker size, left of the marker
+    r, c = sync_check.locate_marker(frames)
+    assert abs(r - 32) <= 2 and abs(c - 305) <= 2, (r, c)
+    times = [i / 15 for i in range(40)]
+    assert len(sync_check.find_flashes(frames, times)) == 3
+
+
 def test_pair_events_matches_nearest_and_keeps_strays():
     pairs = sync_check.pair_events([1.0, 3.0, 4.6], [1.04, 3.0, 4.72])
     assert [p["offset_ms"] for p in pairs] == [40.0, 0.0, 120.0]

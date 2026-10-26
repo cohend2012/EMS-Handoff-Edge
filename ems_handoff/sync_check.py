@@ -89,12 +89,15 @@ def frame_times(path: Path) -> List[float]:
     return times
 
 
-def locate_marker(frames: np.ndarray, band: float = 0.35) -> Optional[tuple]:
-    """(row, col) of the marker at analysis scale: the small square that flips dark -> bright."""
+def locate_marker(frames: np.ndarray, band: float = 0.35, right: float = 0.15) -> Optional[tuple]:
+    """(row, col) of the marker at analysis scale: the small square that flips dark -> bright.
+    Only the top band's right part is searched (the marker sits in the banner's top-right corner);
+    a card or caption flashing bright elsewhere in the band must not pull the median off it."""
     if len(frames) < 2:
         return None
     top = int(frames.shape[1] * band)
-    prev, cur = frames[:-1, :top, :].astype(np.int16), frames[1:, :top, :].astype(np.int16)
+    left = int(frames.shape[2] * (1 - right))
+    prev, cur = frames[:-1, :top, left:].astype(np.int16), frames[1:, :top, left:].astype(np.int16)
     flips = (prev < 70) & (cur > 190)
     counts = flips.reshape(len(flips), -1).sum(axis=1)
     lo, hi = (MARKER_PX * MARKER_PX) * 0.4, (MARKER_PX * MARKER_PX) * 3.0
@@ -105,7 +108,7 @@ def locate_marker(frames: np.ndarray, band: float = 0.35) -> Optional[tuple]:
     for i in candidates:
         ys, xs = np.nonzero(flips[i])
         rows.append(np.median(ys))
-        cols.append(np.median(xs))
+        cols.append(np.median(xs) + left)
     return int(np.median(rows)), int(np.median(cols))
 
 
