@@ -24,6 +24,7 @@ import logging
 import os
 import re
 import shutil
+import signal
 import subprocess
 import time
 from dataclasses import dataclass, field
@@ -86,6 +87,12 @@ def find_window(display: str, wm_class: str) -> Optional[str]:
     return None
 
 
+def window_pid(display: str, wid: str) -> Optional[int]:
+    """The pid that owns a window (_NET_WM_PID), or None when the property is missing."""
+    m = re.search(r"_NET_WM_PID\(CARDINAL\) = (\d+)", _x(display, "xprop", "-id", wid, "_NET_WM_PID") or "")
+    return int(m.group(1)) if m else None
+
+
 def window_geometry(display: str, wid: str) -> Optional[Geometry]:
     """Absolute client-area geometry of a window (the page, without any frame)."""
     out = _x(display, "xwininfo", "-id", wid)
@@ -138,25 +145,71 @@ class BrowserWindow:
     command: List[str] = field(default_factory=list)
 
 
-def close_recording_browsers(wm_class: str = "handoff-record", wait_s: float = 5.0) -> int:
-    """End every Chromium started with --class=<wm_class>, so the next recording gets a fresh page.
-    (A page left open across a server restart keeps running the old script.)"""
-    killed = 0
+def _main_processes(wm_class: str, helpers: bool = False) -> List[int]:
+    """Pids of the Chromium browser processes started with --class=<wm_class>; with ``helpers`` also
+    their renderer, GPU and zygote processes (they carry the parent's switches, and a GPU process
+    left behind keeps the X windows open). Chromium rewrites its argv into one space-joined
+    string, so the command line is matched as text, not as NUL-separated arguments."""
+    flag = re.compile(rb"(?:^|\s)--class=" + re.escape(wm_class.encode()) + rb"(?:\s|$)")
+    pids = []
     for pid_dir in Path("/proc").glob("[0-9]*"):
         try:
-            cmd = (pid_dir / "cmdline").read_bytes().split(b"\0")
+            text = (pid_dir / "cmdline").read_bytes().replace(b"\0", b" ").strip()
         except OSError:
             continue
-        if cmd and f"--class={wm_class}".encode() in cmd and not any(c.startswith(b"--type=") for c in cmd):
+        if text and flag.search(text) and (helpers or not re.search(rb"\s--type=", text)):
+            pids.append(int(pid_dir.name))
+    return pids
+
+
+def close_recording_browsers(wm_class: str = "handoff-record", wait_s: float = 5.0, profile_dir: Optional[Path] = None) -> int:
+    """End every Chromium started with --class=<wm_class>, so the next recording gets a fresh page.
+    (A page left open across a server restart keeps running the old script, and a new launch on
+    the same profile would only hand its URL to the old instance.) SIGTERM first; whatever is
+    still alive after wait_s gets SIGKILL. The profile's singleton lock is removed afterwards."""
+    pids = _main_processes(wm_class)
+    for pid in pids:
+        try:
+            os.kill(pid, signal.SIGTERM)
+        except OSError:
+            pass
+    deadline = time.time() + wait_s
+    while pids and time.time() < deadline and any(_alive(p) for p in pids):
+        time.sleep(0.2)
+    for pid in pids:
+        if _alive(pid):
+            logger.warning("Recording browser %d ignored SIGTERM for %.0f s; killing it and its helpers", pid, wait_s)
+    leftovers = [p for p in _main_processes(wm_class, helpers=True) if _alive(p)]   # a helper alone keeps the windows
+    for pid in leftovers:
+        try:
+            os.kill(pid, signal.SIGKILL)
+        except OSError:
+            pass
+    for pid in pids + leftovers:
+        for _ in range(25):
+            if not _alive(pid):
+                break
+            time.sleep(0.2)
+    if profile_dir:
+        for name in ("SingletonLock", "SingletonSocket", "SingletonCookie"):
             try:
-                os.kill(int(pid_dir.name), 15)
-                killed += 1
+                (profile_dir / name).unlink()
             except OSError:
                 pass
-    deadline = time.time() + wait_s
-    while killed and time.time() < deadline and find_window(os.environ.get("DISPLAY", ":1"), wm_class):
-        time.sleep(0.2)
-    return killed
+    return len(pids)
+
+
+def _alive(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except OSError:
+        return True
+    try:
+        return "Z" not in (Path(f"/proc/{pid}/stat").read_text().split(")")[-1].split()[0])
+    except OSError:
+        return False
 
 
 def chromium_command(exe: str, url: str, width: int, height: int, profile_dir: Path, wm_class: str = "handoff-record",
@@ -179,10 +232,11 @@ def launch_recording_browser(url: str, display: str = ":1", width: int = 1280, h
 
     With ``fresh`` (the default) any earlier window of the class is closed first, so the page and
     its script are the ones the running server serves; otherwise an open window is reused."""
+    profile_dir = profile_dir or Path.home() / ".cache" / "handoff-ai" / "record-profile"
     wid = find_window(display, wm_class)
-    if wid and fresh:
-        os.environ.setdefault("DISPLAY", display)
-        close_recording_browsers(wm_class)
+    if fresh:
+        if close_recording_browsers(wm_class, profile_dir=profile_dir):
+            logger.info("Closed the previous recording browser")
         wid = None
     if wid:
         geo = window_geometry(display, wid)
@@ -191,7 +245,6 @@ def launch_recording_browser(url: str, display: str = ":1", width: int = 1280, h
     exe = find_chromium(chromium)
     if not exe:
         raise RuntimeError("No Chromium found for the recording window (install Playwright's chromium or set HANDOFF_CHROMIUM)")
-    profile_dir = profile_dir or Path.home() / ".cache" / "handoff-ai" / "record-profile"
     profile_dir.mkdir(parents=True, exist_ok=True)
     cmd = chromium_command(exe, url, width, height, profile_dir, wm_class, scale, kiosk)
     env = dict(os.environ, DISPLAY=display)
@@ -201,6 +254,8 @@ def launch_recording_browser(url: str, display: str = ":1", width: int = 1280, h
     while time.time() < deadline and wid is None:
         time.sleep(0.5)
         wid = find_window(display, wm_class)
+        if wid and (owner := window_pid(display, wid)) not in (None, proc.pid):
+            logger.warning("Recording window %s belongs to pid %s, not the new browser %d", wid, owner, proc.pid)
     geo = None
     if wid and kiosk:
         time.sleep(0.8)                                   # fullscreen: no frame to strip, the display's size
