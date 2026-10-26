@@ -68,3 +68,15 @@ def test_scores_from_saved_summaries_and_renders_markdown(tmp_path):
     assert "bad" not in text, "a failed candidate is left out"
     assert "RED (YELLOW) **miss**" in text and "5 (5) |" in text
     assert "alert_level wrong (RED)" in text
+
+
+def test_benchmark_searched_field_is_not_unknown_because_one_part_says_not_reported():
+    import benchmark
+    report = {"assessment_findings": {"circulation": "pulses not reported", "breathing": "respiratory distress, drooling"},
+              "handoff_summary": None, "chief_complaint": None}
+    f = {"path": "assessment_findings", "kind": "contains", "expect": ["drool"], "search": ["chief_complaint", "assessment_findings", "handoff_summary"]}
+    assert benchmark.check(f, report)[0] == "hit"
+    f = {"path": "assessment_findings", "kind": "contains", "expect": ["cough"], "search": ["chief_complaint", "assessment_findings", "handoff_summary"]}
+    assert benchmark.check(f, report)[0] == "wrong", "searched and not found is wrong, not an omission"
+    empty = {"assessment_findings": None, "handoff_summary": "", "chief_complaint": "not stated"}
+    assert benchmark.check(f, empty)[0] == "omission"

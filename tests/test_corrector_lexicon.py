@@ -54,6 +54,9 @@ def test_whisper_hint_is_bounded_and_ends_with_the_radio_phrases():
     assert hint.startswith("The following is a paramedic radio report.") and len(hint) <= 800
     assert hint.endswith("last known well.") and "priority 2" in hint and "How do you copy?" in hint, "the tail is what Whisper attends to"
     assert "BP" in hint and "STEMI" in hint, "the terminology still leads"
+    local = whisper_hint(vocab="Shady Grove, Medic 729")
+    assert local.endswith("last known well. Shady Grove, Medic 729.") and len(local) <= 800, "the local names come last of all"
+    assert whisper_hint(vocab="  ") == hint
 
 
 def test_full_treatment_is_not_read_as_full_code():
