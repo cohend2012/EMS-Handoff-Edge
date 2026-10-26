@@ -65,7 +65,7 @@ class GroqTranscriber:
     def __init__(self, settings: Settings, client=None):
         self.settings = settings
         self.model = settings.groq_whisper_model
-        self.hint = whisper_hint()
+        self.hint = whisper_hint(vocab=getattr(settings, 'radio_vocab', ''))
         if client is None:
             if not settings.groq_api_key:
                 raise TranscriptionError("Groq transcription needs GROQ_API_KEY in the .env file.")
@@ -122,7 +122,7 @@ class LocalTranscriber:
     def __init__(self, settings: Settings, model_size: Optional[str] = None):
         self.settings = settings
         self.model_size = model_size or settings.local_whisper_model
-        self.hint = whisper_hint()
+        self.hint = whisper_hint(vocab=getattr(settings, 'radio_vocab', ''))
         self._model = None
         self._lock = threading.Lock()
 

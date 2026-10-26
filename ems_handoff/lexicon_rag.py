@@ -204,7 +204,7 @@ class LexiconStore:
         """Convenience: retrieve + format in one call."""
         return self.to_prompt_context(self.retrieve(ems_report, top_k=top_k))
 
-def whisper_hint(categories: Optional[List[str]] = None, max_chars: int = 800) -> str:
+def whisper_hint(categories: Optional[List[str]] = None, max_chars: int = 800, vocab: str = "") -> str:
     """
     Static terminology hint for Whisper's `prompt` parameter, biasing ASR
     toward EMS abbreviations and drug names.
@@ -239,14 +239,15 @@ def whisper_hint(categories: Optional[List[str]] = None, max_chars: int = 800) -
 
     prefix = "The following is a paramedic radio report. Terminology: "
     body = ""
-    budget = max_chars - len(RADIO_PHRASES) - 1
+    tail = RADIO_PHRASES + (f" {vocab.strip().rstrip('.')}." if vocab and vocab.strip() else "")
+    budget = max_chars - len(tail) - 1
     for s in ordered:
         candidate = f"{body}{s}, "
         if len(prefix) + len(candidate) > budget:
             break
         body = candidate
     # Whisper attends to the tail of the prompt: the radio phrases go last
-    return prefix + body.rstrip(", ") + ". " + RADIO_PHRASES
+    return prefix + body.rstrip(", ") + ". " + tail
 
 
 # How the crew talks on the radio, for Whisper's prompt. "Priority 2" came out as "priority to"

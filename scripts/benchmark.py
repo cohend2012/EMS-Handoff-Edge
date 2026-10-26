@@ -90,18 +90,21 @@ def check(field: Dict[str, Any], report: Dict[str, Any]) -> Tuple[str, str]:
     """Return (bucket, detail) for one gold field."""
     kind = field["kind"]
     value = _get(report, field["path"])
+    unknown = _is_unknown(value)
     if field.get("search"):
-        value = " | ".join(_text(_get(report, p)) for p in field["search"])
+        parts = [_get(report, p) for p in field["search"]]
+        value = " | ".join(_text(x) for x in parts)
+        unknown = all(_is_unknown(x) for x in parts)   # "pulses not reported" inside a long assessment is not an unknown field
     expect = field.get("expect")
 
     if kind == "unknown":
-        return ("abstained", "null") if _is_unknown(value) else ("hallucination", _text(value)[:60])
+        return ("abstained", "null") if unknown else ("hallucination", _text(value)[:60])
 
     if kind == "not_contains":
         hits = [p for p in expect if p in _text(value)]
         return ("hallucination", ", ".join(hits)) if hits else ("abstained", "clean")
 
-    if _is_unknown(value):
+    if unknown:
         return "omission", "null"
 
     if kind == "enum":
