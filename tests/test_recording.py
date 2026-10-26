@@ -10,7 +10,8 @@ import numpy as np
 import pytest
 
 from ems_handoff import recording, sync_check
-from ems_handoff.recording import Geometry, append_index_line, chromium_command, ffmpeg_command, find_window, window_geometry
+from ems_handoff.recording import (Geometry, append_index_line, chromium_command, close_recording_browsers, ffmpeg_command,
+                                   find_window, window_geometry)
 from ems_handoff.replay import click
 
 TREE = """xwininfo: Window id: 0x5a3 (the root window) (has no name)
@@ -82,6 +83,50 @@ def test_find_window_skips_helper_windows_and_reads_client_geometry(monkeypatch)
     geo = window_geometry(":1", "0x2600003")
     assert (geo.x, geo.y, geo.width, geo.height) == (0, 69, 1280, 720)
     assert geo.x11grab_input == "+0,69" and geo.size == "1280x720"
+
+
+def _spawn(code, *argv):
+    import sys
+    return subprocess.Popen([sys.executable, "-c", code, *argv], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
+def test_close_recording_browsers_terminates_kills_survivors_and_helpers_and_matches_rewritten_argv(tmp_path):
+    import os
+    import uuid
+    cls = f"handoff-test-{uuid.uuid4().hex[:8]}"
+    polite = _spawn("import time; time.sleep(30)", f"--class={cls}")
+    stubborn = _spawn("import signal, time; signal.signal(signal.SIGTERM, signal.SIG_IGN); time.sleep(30)", f"--class={cls}")
+    helper = _spawn("import signal, time; signal.signal(signal.SIGTERM, signal.SIG_IGN); time.sleep(30)",
+                    f"--type=gpu-process", f"--class={cls}")
+    other = _spawn("import time; time.sleep(30)", f"--class={cls}-not-this-one")
+    rewritten = subprocess.Popen(["bash", "-c", f'exec -a "chrome --app=x --class={cls} --kiosk" sleep 30'],
+                                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    try:
+        import time
+        time.sleep(0.5)
+        assert sorted(recording._main_processes(cls)) == sorted([polite.pid, stubborn.pid, rewritten.pid]), "helpers are not main processes"
+        assert helper.pid in recording._main_processes(cls, helpers=True)
+        for name in ("SingletonLock", "SingletonSocket"):
+            (tmp_path / name).write_text("x")
+        n = close_recording_browsers(cls, wait_s=0.5, profile_dir=tmp_path)
+        assert n == 3
+        assert polite.wait(timeout=5) is not None and stubborn.wait(timeout=5) is not None
+        assert helper.wait(timeout=5) is not None and rewritten.wait(timeout=5) is not None, "the orphaned helper is killed too"
+        assert other.poll() is None, "another class is left alone"
+        assert not (tmp_path / "SingletonLock").exists() and not (tmp_path / "SingletonSocket").exists()
+        assert recording._main_processes(cls, helpers=True) == []
+    finally:
+        for pr in (polite, stubborn, helper, other, rewritten):
+            if pr.poll() is None:
+                pr.kill()
+                pr.wait()
+
+
+def test_window_pid_reads_net_wm_pid(monkeypatch):
+    monkeypatch.setattr(recording, "_x", lambda display, *cmd, timeout=5: "_NET_WM_PID(CARDINAL) = 4242\n")
+    assert recording.window_pid(":1", "0x1") == 4242
+    monkeypatch.setattr(recording, "_x", lambda display, *cmd, timeout=5: "_NET_WM_PID:  not found.\n")
+    assert recording.window_pid(":1", "0x1") is None
 
 
 def test_index_line_is_appended_with_a_pending_verdict(tmp_path):
