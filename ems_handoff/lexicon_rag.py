@@ -239,9 +239,18 @@ def whisper_hint(categories: Optional[List[str]] = None, max_chars: int = 800) -
 
     prefix = "The following is a paramedic radio report. Terminology: "
     body = ""
+    budget = max_chars - len(RADIO_PHRASES) - 1
     for s in ordered:
         candidate = f"{body}{s}, "
-        if len(prefix) + len(candidate) > max_chars:
+        if len(prefix) + len(candidate) > budget:
             break
         body = candidate
-    return prefix + body.rstrip(", ") + "."
+    # Whisper attends to the tail of the prompt: the radio phrases go last
+    return prefix + body.rstrip(", ") + ". " + RADIO_PHRASES
+
+
+# How the crew talks on the radio, for Whisper's prompt. "Priority 2" came out as "priority to"
+# and "How do you copy?" as "Howdy, copy" on the real calls (CS008, CS014, 2026-10-25).
+RADIO_PHRASES = ("Priority 1, priority 2, priority 3. How do you copy? Copy. ETA ten minutes. "
+                 "12-lead unremarkable, normal sinus with PVCs. Blow-by oxygen, dexamethasone, racemic epinephrine, "
+                 "nitroglycerin sublingual, aspirin 324. LAMS, Cincinnati, last known well.")

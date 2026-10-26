@@ -280,7 +280,7 @@ def test_fragment_with_an_alert_word_is_not_unclear():
     text = ("Right, I'll do this. Hi, Reverend L9, this is Dirk Coney, do you need a physician? This is Ambulance "
             "721 coming to, what is it, trauma? We're going to consider him priority 2 at this time, how do you copy?")
     report, _, _ = run(text, FakeLLM([SPARSE_REPLY]))
-    assert report["alert_type"] == "TRAUMA" and report["alert_level"] is None
+    assert report["alert_type"] == "TRAUMA" and report["alert_level"] == "YELLOW", "the fragment states priority 2"
     assert report["data_quality"]["confidence"] == "LOW"
     assert any("from the word 'trauma'" in a for a in report["data_quality"]["assumptions"])
     report, _, _ = run("CVA, brain bleed.", FakeLLM([SPARSE_REPLY]))            # S009_01, 3 words
@@ -337,3 +337,41 @@ def test_sex_is_inferred_from_pronouns_when_the_model_left_it_null():
     said_female = report_dict(patient={"age": 72, "age_unit": "years", "sex": "Female"})
     report, _, _ = run(radio, FakeLLM([json.dumps(said_female)]))
     assert report["patient"]["sex"] == "Female" and not any("inferred" in a for a in report["data_quality"]["assumptions"])
+
+
+# --- a stated priority sets the alert level ---------------------------------------------------
+from ems_handoff.pipeline import apply_stated_priority, stated_priority  # noqa: E402
+
+
+def test_stated_priority_reads_digits_words_and_whispers_homophones():
+    assert stated_priority("It's going to be a priority 2 chest pain.") == (2, "priority 2", None)
+    assert stated_priority("It's going to be a priority to chest pain.")[0] == 2, "Whisper writes 'to' for 'two'"
+    assert stated_priority("priority too, ten minutes")[0] == 2 and stated_priority("priority won")[0] == 1
+    assert stated_priority("trauma, priority three")[0] == 3 and stated_priority("priority number 1")[0] == 1
+    assert stated_priority("we'll be there in ten minutes") is None
+    assert stated_priority("top priority to the airway") is None, "'priority to the' is not a number"
+    # the last statement wins, and the burst comes from the session header before it
+    t = "[Burst 1 · 00:00:00 UTC · feed 1] 9 words\npriority 2 chest pain\n\n[Burst 3 · 00:02:00 UTC · feed 1] 5 words\nupgrading to priority 1 now\n"
+    assert stated_priority(t) == (1, "priority 1", 3)
+
+
+def test_apply_stated_priority_overrides_the_model_and_attributes_the_burst():
+    report = {"alert_level": "RED", "sources": {"alert_level": 5}, "data_quality": {"assumptions": [], "missing_info": ["alert level"]}}
+    text = "[Burst 1 · 00:00:00 UTC · feed 1] 9 words\nMedic 731, priority to chest pain\n"
+    note = apply_stated_priority(report, text)
+    assert report["alert_level"] == "YELLOW" and report["sources"]["alert_level"] == 1
+    assert note == "Alert level YELLOW from the stated 'priority to' (the model said RED)" and note in report["data_quality"]["assumptions"]
+    assert report["data_quality"]["missing_info"] == []
+    untouched = {"alert_level": "RED", "data_quality": {"assumptions": []}}
+    assert apply_stated_priority(untouched, "62-year-old female with chest pain") is None and untouched["alert_level"] == "RED"
+    agree = {"alert_level": "YELLOW", "data_quality": {"assumptions": []}}
+    assert apply_stated_priority(agree, "priority 2") == "Alert level YELLOW from the stated 'priority 2'"
+
+
+def test_pipeline_applies_the_stated_priority_to_the_model_report():
+    llm = FakeLLM([json.dumps(report_dict(alert_type="MEDICAL", alert_level="RED"))])
+    report, _, _ = run("Medic 731 with a 62-year-old female, priority to chest pain, BP 188 over 111, ETA five minutes.", llm)
+    assert report["alert_level"] == "YELLOW"
+    assert any(a.startswith("Alert level YELLOW from the stated") for a in report["data_quality"]["assumptions"])
+    report, _, _ = run("Medic 731 with a 62-year-old female, chest pain, BP 188 over 111.", FakeLLM([json.dumps(report_dict(alert_level="RED"))]))
+    assert report["alert_level"] == "RED", "nothing stated: the model's level stands"
