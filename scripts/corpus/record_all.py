@@ -86,7 +86,7 @@ def main(argv=None) -> int:
             log(f"stopping: {args.max_minutes:.0f} minutes used", logp)
             return 2
         if args.skip_done and commit:
-            done = list(args.recordings.glob(f"*_{commit}/{cid}.sync.json"))
+            done = list(args.recordings.glob(f"*_{commit}/{cid}*.sync.json"))
             if done and json.loads(done[0].read_text()).get("pass"):
                 log(f"{cid}: already recorded with a sync pass on {commit}, skipped", logp)
                 continue

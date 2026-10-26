@@ -32,14 +32,15 @@ PROVIDERS = ("groq", "ollama")
 
 def newest_good(recordings: Path, cid: str, provider: str) -> Optional[Path]:
     best = None
-    for summ in recordings.glob(f"*/{cid}.summary.json"):
+    for summ in recordings.glob(f"*/{cid}.*summary.json"):  # <cid>.<provider>.summary.json, or <cid>.summary.json before 2026-10-26
         d = json.loads(summ.read_text())
         if d.get("provider") != provider or d.get("fallback"):
             continue
-        sync = summ.with_name(f"{cid}.sync.json")
+        base = summ.name[: -len(".summary.json")]
+        sync = summ.with_name(base + ".sync.json")
         if not sync.exists() or not json.loads(sync.read_text()).get("pass"):
             continue
-        mp4 = summ.with_name(f"{cid}.mp4")
+        mp4 = summ.with_name(base + ".mp4")
         if not mp4.exists():
             continue
         if best is None or summ.stat().st_mtime > best.stat().st_mtime:
@@ -94,7 +95,7 @@ def main(argv=None) -> int:
             score = benchmark.score(report, gold)["weighted"] if (gold and benchmark and report) else None
             cells[prov] = {"type": report.get("alert_type"), "level": report.get("alert_level"), "eta": report.get("eta_minutes"),
                            "words": words, "commit": d.get("commit"), "folder": summ.parent.name, "score": score,
-                           "sync": json.loads(summ.with_name(f"{cid}.sync.json").read_text()).get("max_abs_offset_ms")}
+                           "sync": json.loads(summ.with_name(base + ".sync.json").read_text()).get("max_abs_offset_ms")}
         g, o = cells.get("groq") or {}, cells.get("ollama") or {}
         agree = "-" if not (g and o) else ("yes" if (g["type"], g["level"], g["eta"]) == (o["type"], o["level"], o["eta"]) else "NO")
         rows.append((cid, info, g, o, agree))

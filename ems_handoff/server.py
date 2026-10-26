@@ -561,7 +561,8 @@ class ReplayRun(ReplayHost):
             raise RuntimeError("The recording window did not open; nothing to capture")
         folder = Path(s.replay_record_dir) / f"{time.strftime('%Y-%m-%d')}_{APP_COMMIT}"
         folder.mkdir(parents=True, exist_ok=True)
-        out = folder / f"{self.callset.id}.mp4"
+        # the provider is part of the name: a call-set recorded on both lands twice in the same folder
+        out = folder / f"{self.callset.id}.{self.provider}.mp4"
         self._recorder = self.ctl.engines.make_recorder(s, out, geo)
         self.recording = {"path": str(out), "folder": str(folder), "geometry": [geo.x, geo.y, geo.width, geo.height],
                           "display": s.replay_display, "fps": s.replay_record_fps, "scale": s.replay_record_scale,
@@ -587,11 +588,12 @@ class ReplayRun(ReplayHost):
             self.recording.update(info, state="done")
             folder = Path(self.recording["folder"])
             path = Path(self.recording["path"])
-            summary = folder / f"{self.callset.id}.summary.json"
+            stem = path.name[:-len(".mp4")]
+            summary = folder / f"{stem}.summary.json"
             summary.write_text(json.dumps(self.status(), indent=1))
             self._stage("Checking audio/video sync")
             sync = self.ctl.engines.check_sync(path, len(self.callset.bursts))
-            (folder / f"{self.callset.id}.sync.json").write_text(json.dumps(sync, indent=1))
+            (folder / f"{stem}.sync.json").write_text(json.dumps(sync, indent=1))
             self.recording["sync"] = sync
             self.recording["index_line"] = append_index_line(Path(self.ctl.settings.replay_record_dir), self.callset.id,
                                                              self.provider, self.model, APP_COMMIT,

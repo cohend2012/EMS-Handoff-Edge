@@ -142,14 +142,21 @@ def check(path: Path, expected: Optional[int] = None, pass_ms: float = PASS_MS) 
     marker = locate_marker(frames)
     flashes = [t + starts.get("video", 0.0) for t in find_flashes(frames, times, marker)]
     bursts = pair_events(flashes, clicks)
-    offsets = [abs(b["offset_ms"]) for b in bursts if b["offset_ms"] is not None]
     n_expected = expected if expected is not None else max(len(flashes), len(clicks))
+    # A 1 kHz tone in the call audio itself (a radio beep: CS010's second burst has a 75 ms one) is
+    # found as a click too. When every expected flash is there and each has its click, a click with
+    # no flash is such a tone, not a missed burst: it is listed as stray and does not fail the check.
+    stray: List[float] = []
+    if expected is not None and len(flashes) == expected and all(b["click_s"] is not None for b in bursts if b["flash_s"] is not None):
+        stray = [round(float(b["click_s"]), 3) for b in bursts if b["flash_s"] is None]
+        bursts = [dict(b, burst=i) for i, b in enumerate((b for b in bursts if b["flash_s"] is not None), 1)]
+    offsets = [abs(b["offset_ms"]) for b in bursts if b["offset_ms"] is not None]
     complete = all(b["flash_s"] is not None and b["click_s"] is not None for b in bursts)
     ok = (len(bursts) == n_expected and n_expected > 0 and complete and all(o <= pass_ms for o in offsets))
     return {"file": str(path), "pass": ok, "pass_ms": pass_ms, "expected_bursts": n_expected,
             "flashes": len(flashes), "clicks": len(clicks), "marker_at": list(marker) if marker else None,
             "frames": int(len(frames)), "audio_s": round(len(audio) / AUDIO_RATE, 2),
-            "max_abs_offset_ms": max(offsets) if offsets else None, "bursts": bursts,
+            "max_abs_offset_ms": max(offsets) if offsets else None, "bursts": bursts, "stray_clicks": stray,
             "flash_times": [round(x, 3) for x in flashes], "click_times": [round(x, 3) for x in clicks]}
 
 
@@ -193,6 +200,8 @@ def format_report(r: Dict[str, Any]) -> str:
             continue
         over = "" if abs(b["offset_ms"]) <= r["pass_ms"] else "  <-- over"
         lines.append(f"  burst {b['burst']}: flash {b['flash_s']:.3f} s · click {b['click_s']:.3f} s · offset {b['offset_ms']:+.1f} ms{over}")
+    if r.get("stray_clicks"):
+        lines.append(f"  1 kHz tones in the call audio, not sync clicks: {r['stray_clicks']} s")
     if r["flashes"] != r["clicks"]:
         lines.append(f"  flash times {r['flash_times']}; click times {r['click_times']}")
     return "\n".join(lines)

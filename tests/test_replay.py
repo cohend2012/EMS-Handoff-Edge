@@ -410,8 +410,10 @@ def test_record_option_runs_ffmpeg_around_the_bursts_and_checks_sync(settings, t
     assert rec["state"] == "done" and rec["bytes"] == 300 and rec["duration_s"] == 2.5 and rec["sync"]["pass"]
     assert checks == [(Path(rec["path"]), 2)]
     folder = Path(rec["folder"])
-    assert folder.name.endswith(ctl._replay.status()["commit"]) and (folder / "CS900.summary.json").exists()
-    assert json.loads((folder / "CS900.sync.json").read_text())["max_abs_offset_ms"] == 12.0
+    prov = ctl._replay.status()["provider"]
+    assert folder.name.endswith(ctl._replay.status()["commit"]) and (folder / f"CS900.{prov}.summary.json").exists()
+    assert Path(rec["path"]).name == f"CS900.{prov}.mp4", "the provider is in the name: both providers' recordings share a folder"
+    assert json.loads((folder / f"CS900.{prov}.sync.json").read_text())["max_abs_offset_ms"] == 12.0
     index = (tmp_path / "rec" / "INDEX.md").read_text()
     assert "| CS900 | groq |" in index and "pass (2/2 bursts, worst 12 ms) | pending |" in index
     assert all(50 <= e["sink_lead_ms"] <= 200 for e in ctl._replay.driver.log), "the sink lead was applied"

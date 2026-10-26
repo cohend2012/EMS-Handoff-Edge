@@ -207,6 +207,13 @@ def test_sync_check_measures_the_click_to_flash_offset_per_burst(tmp_path):
     short = sync_check.check(synthetic_recording(tmp_path / "short.mp4", [1.0, 3.0], [1.0]), expected=2)
     assert not short["pass"] and short["clicks"] == 1 and "flash times" in sync_check.format_report(short)
     assert short["bursts"][1]["click_s"] is None and "no click found" in sync_check.format_report(short)
+    # a 1 kHz tone inside the call audio (CS010's radio beep) is not a sync click: every expected
+    # flash has its click, so the recording passes and the tone is listed as stray
+    beep = sync_check.check(synthetic_recording(tmp_path / "beep.mp4", [1.0, 3.0], [1.04, 3.0, 4.0]), expected=2)
+    assert beep["pass"] and beep["clicks"] == 3 and abs(beep["stray_clicks"][0] - 4.0) < 0.05 and len(beep["bursts"]) == 2
+    assert [b["burst"] for b in beep["bursts"]] == [1, 2] and "not sync clicks" in sync_check.format_report(beep)
+    beep_first = sync_check.check(synthetic_recording(tmp_path / "beep1.mp4", [2.0, 4.0], [0.5, 2.0, 4.04]), expected=2)
+    assert beep_first["pass"] and abs(beep_first["stray_clicks"][0] - 0.5) < 0.05 and beep_first["bursts"][0]["flash_s"] == 2.0
     missed = sync_check.check(synthetic_recording(tmp_path / "missed.mp4", [3.0, 4.6], [1.04, 3.0, 4.6]), expected=3)
     assert not missed["pass"] and missed["bursts"][0]["flash_s"] is None, "the first flash is reported missing"
     assert [b["offset_ms"] for b in missed["bursts"][1:]] == [0.0, 0.0] or all(abs(b["offset_ms"]) <= 35 for b in missed["bursts"][1:]), \
