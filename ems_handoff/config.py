@@ -128,6 +128,7 @@ class Settings:
     replay_record_width: int = 1920
     replay_record_height: int = 1080
     replay_record_scale: float = 1.5              # page zoom (device scale factor): 1.5 at 1080p = the 720p layout, sharper
+    replay_record_kiosk: bool = True              # fullscreen window over the panels: needed when recording the display's size
     replay_record_fps: int = 15
     replay_record_tail_s: float = 8.0            # keep recording this long after the final report, so it can be read
     replay_chromium: str = ""                    # path to a Chromium binary; "" = Playwright's or PATH
@@ -218,6 +219,7 @@ def load_settings(env: Optional[Mapping[str, str]] = None) -> Settings:
         replay_record_width=_int(g("HANDOFF_RECORD_WIDTH"), defaults.replay_record_width),
         replay_record_height=_int(g("HANDOFF_RECORD_HEIGHT"), defaults.replay_record_height),
         replay_record_scale=_float(g("HANDOFF_RECORD_SCALE"), defaults.replay_record_scale),
+        replay_record_kiosk=_bool(g("HANDOFF_RECORD_KIOSK"), defaults.replay_record_kiosk),
         replay_record_fps=_int(g("HANDOFF_RECORD_FPS"), defaults.replay_record_fps),
         replay_record_tail_s=_float(g("HANDOFF_RECORD_TAIL_S"), defaults.replay_record_tail_s),
         replay_chromium=g("HANDOFF_CHROMIUM") or "",
