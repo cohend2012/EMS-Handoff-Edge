@@ -194,7 +194,12 @@ video.
   the tab needs trimming.
 - Provider caps: Groq's 200k tokens per day stops a 73-report corpus pass at about 16
   reports in a day with gpt-oss-120b; a corpus pass needs a plan for the cap or a paid tier.
-- Alert level stability: the same CS008 audio on Groq gpt-oss-120b came out MEDICAL YELLOW,
+- Alert level stability, resolved 2026-10-25: a stated priority now sets the level
+  (`pipeline.apply_stated_priority`, 1 RED / 2 YELLOW / 3 GREEN, homophones "to"/"too" included,
+  attributed to the burst that said it). Both CS008 runs that had come out RED said "priority 2";
+  scored in `docs/reports/SCORES_2026-10-25.md`. The alert *type* still moves (MEDICAL vs STEMI on
+  CS008) and is the open part. The original note:
+  the same CS008 audio on Groq gpt-oss-120b came out MEDICAL YELLOW,
   MEDICAL RED, MEDICAL YELLOW, STEMI RED and MEDICAL YELLOW in five replays on 2026-10-25
   (transcripts near-identical, 183 to 186 words); the type moves as well as the level. Three of
   the reports are saved side by side in `~/reports_replay/CS008_alert_level/`
@@ -205,3 +210,16 @@ video.
   complaint or mechanism present (S032_01 and the "stroke? No." fragment), and the Whisper
   sanity check (retry, then local fallback, when words per second is implausible; the
   post-fix S038_01 two-word transcript).
+
+## Scoring on real call-sets (2026-10-25)
+
+Reference transcripts and gold reports for CS008, CS014 and CS001 live outside the repo in
+`~/labels/reference/<id>/` (one `.ref.txt` per burst, `corrections.md` listing every change from
+the app's transcript with a confidence, `.candidates.json` with five transcribers' outputs) and
+`~/labels/gold/<id>.json` (the `tests/gold` format plus a `stated` block: priority, ETA, alert
+words). They were drafted by Claude from the candidates, not from listening; rows marked
+**verify** need a person. Tools: `scripts/corpus/draft_reference.py` (candidates),
+`scripts/corpus/replay_run.py` (unrecorded runs through the live server, saved as summaries),
+`scripts/corpus/score_callsets.py` (WER per burst per transcript source, benchmark buckets per
+run, stated priority and ETA against the report), `scripts/corpus/hint_ablation.py` (Whisper
+hint variants, repeated). Results per commit go under `docs/reports/`.

@@ -99,7 +99,8 @@ class Settings:
     vosk_model_dir: Path = PROJECT_ROOT / "models" / "vosk-model-small-en-us-0.15"
     caption_whisper_model: str = "tiny.en"       # fallback caption model when Vosk is missing
     caption_repair: bool = True                  # Groq Whisper repairs Vosk's words a few seconds later (needs a Groq key)
-    radio_vocab: str = "Shady Grove, Medic 729, Medic 731, Medic 715"   # names Whisper should spell right (HANDOFF_RADIO_VOCAB)
+    radio_vocab: str = ""                         # local names for Whisper's hint (HANDOFF_RADIO_VOCAB); off: the 2026-10-25
+                                                  # ablation showed names made Whisper insert them where nothing was said
     stop_phrase: str = "confirm report ready"
     max_recording_s: int = 600                   # auto-DONE after 10 minutes
 
