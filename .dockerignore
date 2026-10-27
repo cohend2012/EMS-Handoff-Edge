@@ -1,0 +1,20 @@
+# Left out of the Docker build context (the image copies only what the Dockerfile names).
+.git/
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.env
+.env.*
+!.env.example
+output/
+models/
+dataset/
+docs/
+tests/
+legacy/
+user_settings.json
+*.wav
+*.m4a
+*.mp3
+*.mp4

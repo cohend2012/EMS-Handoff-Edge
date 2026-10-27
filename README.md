@@ -15,7 +15,7 @@ on the device; the report-writing AI can be Groq (cloud, fastest), Ollama (on th
 ## Quick start (Jetson)
 
 ```bash
-git clone -b handoff-app https://github.com/cohend2012/EMS-Handoff-Edge ~/EMS-Handoff-app
+git clone https://github.com/cohend2012/EMS-Handoff-Edge ~/EMS-Handoff-app
 cd ~/EMS-Handoff-app
 bash scripts/install_jetson.sh        # packages, venv, speech models, desktop icon, setup check
 # the installer reuses the Groq key from ~/EMS-Handoff if Groq still accepts it;
@@ -35,6 +35,21 @@ An app window opens. No terminal menus. The terminal prints the address, normall
 
 **http://127.0.0.1:5000 is the old EMS-Handoff app** (the intern version or its Docker container), not this
 one. The new app never uses port 5000. If 5050 is taken, it uses the next free port and prints it.
+
+## Docker (any Linux machine, no venv)
+
+```bash
+docker build -t handoff-ai .
+docker run --rm --network host --device /dev/snd \
+    -v ~/.config/handoff-ai:/root/.config/handoff-ai:ro \
+    -v handoff-output:/app/output -v handoff-hf:/root/.cache/huggingface handoff-ai
+```
+
+Then open **http://127.0.0.1:5050/** in a browser (the container runs the server only, no app window).
+`--network host` puts the app on the machine's port 5050 and lets it reach Ollama on `localhost:11434`;
+`--device /dev/snd` passes the microphone through, which works on Linux only. The first volume is the
+shared Groq key from `scripts/set_groq_key.sh` (or use `--env-file .env` with `GROQ_API_KEY=...`); the
+last one keeps the Whisper models between runs. On Windows or macOS use the venv install above.
 
 ## Using the app
 
@@ -153,6 +168,7 @@ ems_handoff/
 scripts/           install_jetson.sh, download_models.py, mic_test.py
 tests/             pytest suite (+ test_jetson.py for the real device)
 legacy/            the original single-file prototype, kept for reference
+Dockerfile         server-only container build (see Docker above)
 ```
 
 Every source file starts with a header: purpose, inputs, outputs, and threads.
