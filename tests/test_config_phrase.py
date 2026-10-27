@@ -72,3 +72,37 @@ def test_shared_secrets_file_beats_blank_key_in_project_env(tmp_path, monkeypatc
     config.load_env_files()
     s = config.load_settings()
     assert s.groq_api_key == "gsk_shared123" and s.provider == "ollama"
+
+
+def test_local_whisper_fallback_env(monkeypatch):
+    from ems_handoff.config import load_settings
+    monkeypatch.delenv("LOCAL_WHISPER_FALLBACK", raising=False)
+    assert load_settings().local_whisper_fallback is False
+    monkeypatch.setenv("LOCAL_WHISPER_FALLBACK", "1")
+    assert load_settings().local_whisper_fallback is True
+
+
+def test_local_transcriber_fallback_decode_options(monkeypatch):
+    import dataclasses
+    import numpy as np
+    from ems_handoff.config import load_settings
+    from ems_handoff.transcribe import LocalTranscriber
+
+    class Seg:
+        text = "hello"
+
+    calls = []
+
+    class FakeModel:
+        def transcribe(self, audio, **kw):
+            calls.append(kw)
+            return iter([Seg()]), None
+
+    audio = np.zeros(16000, dtype=np.float32)
+    for fb in (False, True):
+        t = LocalTranscriber(dataclasses.replace(load_settings(), local_whisper_fallback=fb), model_size="tiny.en")
+        t._model = FakeModel()
+        assert t.transcribe(audio) == "hello"
+    assert calls[0]["temperature"] == 0.0 and "no_speech_threshold" not in calls[0]
+    assert calls[1]["temperature"] == [0.0, 0.2, 0.4] and calls[1]["no_speech_threshold"] is None
+    assert "fallback" in LocalTranscriber(dataclasses.replace(load_settings(), local_whisper_fallback=True)).describe()
