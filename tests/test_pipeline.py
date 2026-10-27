@@ -6,7 +6,7 @@ import pytest
 
 from ems_handoff.lexicon_rag import LexiconStore
 from ems_handoff.llm import LLMError
-from ems_handoff.pipeline import REQUIRED_FIELDS, PipelineError, ReportPipeline, parse_guidance, parse_report
+from ems_handoff.pipeline import REQUIRED_FIELDS, PipelineError, ReportPipeline, eta_supported, parse_guidance, parse_report
 from ems_handoff.samples import SAMPLE_SEPSIS, SAMPLE_STEMI
 from fakes import FakeLLM, report_dict
 
@@ -155,7 +155,7 @@ def test_unclear_alert_forces_low_confidence_and_lists_what_is_missing():
 
 def test_null_lists_and_sections_from_the_model_become_empty_shapes():
     # the CS022 / S007_01 baseline failure: data_quality.assumptions was null and .extend crashed
-    reply = report_dict(ems_interventions=None, hospital_recommendations=None,
+    reply = report_dict(eta_minutes=12, ems_interventions=None, hospital_recommendations=None,
                         history={"past_medical": None, "medications": "metformin", "allergies": None, "code_status": None},
                         data_quality={"confidence": "MEDIUM", "missing_info": None, "assumptions": None})
     report, _, _ = run(SAMPLE_SEPSIS.replace("furosemide", "ferosemide"), FakeLLM([json.dumps(reply)]))
@@ -375,3 +375,33 @@ def test_pipeline_applies_the_stated_priority_to_the_model_report():
     assert any(a.startswith("Alert level YELLOW from the stated") for a in report["data_quality"]["assumptions"])
     report, _, _ = run("Medic 731 with a 62-year-old female, chest pain, BP 188 over 111.", FakeLLM([json.dumps(report_dict(alert_level="RED"))]))
     assert report["alert_level"] == "RED", "nothing stated: the model's level stands"
+
+
+def test_eta_is_cleared_when_its_number_is_not_a_time():
+    """Over the air on 2026-10-26 Whisper dropped the STEMI script's ETA sentence and the model took the
+    12 of "12-lead" as ETA 12. A number that is not spoken as a time is not an ETA."""
+    text = ("Unit 41 inbound with a 67-year-old male, chest pain. 12-lead shows ST elevation in leads V1 "
+            "through V4, consistent with anterior STEMI. Takes metformin daily. Unit 41 clear.")
+    report, _, _ = run(text, FakeLLM([json.dumps(report_dict(eta_minutes=12))]))
+    assert report["eta_minutes"] is None
+    assert any(m.startswith("ETA") for m in report["data_quality"]["missing_info"])
+
+
+@pytest.mark.parametrize("text, eta", [
+    ("Our ETA to your facility is approximately 8 minutes. Requesting cath lab activation.", 8),
+    ("It's going to be a priority two, about a ten minute ETA.", 10),
+    ("Priority 2, we are 5 out.", 5),
+    ("ETA 12 minutes. 12-lead unremarkable.", 12),
+])
+def test_eta_stays_when_the_transcript_says_it_as_a_time(text, eta):
+    assert eta_supported(text, eta)
+    report, _, _ = run(text, FakeLLM([json.dumps(report_dict(eta_minutes=eta))]))
+    assert report["eta_minutes"] == eta
+
+
+def test_eta_support_needs_a_time_cue_near_the_number():
+    assert not eta_supported("12-lead shows ST elevation. BP 158 over 92.", 12)
+    assert not eta_supported("324 milligrams aspirin chewed. Pain currently 6 out of 10.", 324)
+    assert not eta_supported("Pain currently 6 out of 10, down from 9.", 6)
+    assert not eta_supported("67-year-old male, BP 158 over 92.", 67)
+    assert not eta_supported("", None)

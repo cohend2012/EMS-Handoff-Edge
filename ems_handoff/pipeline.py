@@ -354,6 +354,32 @@ def parse_report(text: str) -> Dict[str, Any]:
     return data
 
 
+_NUMBER_WORDS = {"one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7, "eight": 8,
+                 "nine": 9, "ten": 10, "eleven": 11, "twelve": 12, "thirteen": 13, "fourteen": 14, "fifteen": 15,
+                 "twenty": 20, "thirty": 30, "forty": 40, "forty-five": 45, "sixty": 60}
+_ETA_CUES = {"eta", "minute", "minutes", "min", "mins", "away", "arrival", "arriving", "landing", "enroute", "route"}
+
+
+def eta_supported(transcript: str, eta: Any) -> bool:
+    """True when the ETA number is spoken as a time somewhere in the transcript: within eight words of
+    "ETA", "minutes", "away" or the like, or as "<n> out" (not "6 out of 10"). "12-lead" alone does not
+    make an ETA of 12, nor does a dose or an age."""
+    try:
+        n = int(float(eta))
+    except (TypeError, ValueError):
+        return False
+    tokens = [t for t in re.split(r"[^\w]+", transcript.lower()) if t]
+    tokens = [str(_NUMBER_WORDS.get(t, t)) for t in tokens]
+    for i, t in enumerate(tokens):
+        if t != str(n):
+            continue
+        if _ETA_CUES & set(tokens[max(0, i - 8): i + 9]):
+            return True
+        if tokens[i + 1: i + 2] == ["out"] and tokens[i + 2: i + 3] != ["of"]:
+            return True
+    return False
+
+
 def parse_guidance(text: str) -> Optional[List[dict]]:
     """Accept {"courses_of_action": [...]} or a bare list. Returns None if unusable."""
     try:
@@ -439,6 +465,13 @@ class ReportPipeline:
             if guess:
                 report["patient"]["sex"], note = guess
                 report["data_quality"]["assumptions"].append(note)
+
+        eta = report.get("eta_minutes")
+        if eta is not None and not eta_supported(fix.text, eta):
+            # a number that is not a time (the "12" of "12-lead", a dose, an age) is not an ETA
+            logger.info("ETA %r is not stated as a time in the transcript; cleared", eta)
+            report["eta_minutes"] = None
+            report["data_quality"]["missing_info"].append(f"ETA (the model's {eta} is not stated as a time)")
 
         # 4. optional textbook guidance (never fails the report)
         guidance = self._guidance(report, timings)
