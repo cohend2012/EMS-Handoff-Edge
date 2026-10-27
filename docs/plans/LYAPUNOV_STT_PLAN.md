@@ -42,7 +42,10 @@ reports as the final check. Missing: volume (three scripts is not a dataset) and
 
 ## 3. Build and test, in phases with stop rules
 
-**Phase 0, the generated gold set (week 1, needed for everything after).**
+**Phase 0, the generated gold set (week 1, needed for everything after).** Status 2026-10-27: scripts, gold, splits
+and the Piper render at five SNRs exist (`~/datasets/synth_v1`, 200 scripts, 1000 clips; gen_scripts.py, render_set.py);
+the first transcriber baselines over the test split are eval_set.py runs, see SYNTH_V1_2026-10-27.md. Cloned voices
+wait for a GPU (XTTS on this CPU is 8 min per script).
 - `scripts/corpus/gen_scripts.py`: template-based radio reports with sampled patient, complaint, vitals,
   interventions, drugs (a 200-item EMS drug and procedure list), units, hospitals, ETA, priority, and
   the corpus' phrasing habits ("how do you copy", "priority two", "be advised"). Each script writes the

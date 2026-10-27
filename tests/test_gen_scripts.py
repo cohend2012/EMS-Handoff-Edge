@@ -65,6 +65,14 @@ def test_unspoken_facts_demand_null_and_spoken_ones_are_in_the_text():
     assert etas["int"] > 0 and etas["unknown"] > 0, "both the spoken and the unspoken ETA must occur"
 
 
+def test_article_agrees_with_the_age():
+    import re
+    for i in range(1, 201):
+        text = gen.make_one(2, i)[1]
+        assert not re.search(r"\b[Aa] (?:8|11|18|8\d)-", text), text
+        assert not re.search(r"\b[Aa]n (?:[0-79]|1[0-79]|[2-79]\d)-", text), text
+
+
 def test_spoken_form_spells_the_abbreviations():
     for i in range(1, 31):
         sid, text, gold, sc = gen.make_one(1, i)

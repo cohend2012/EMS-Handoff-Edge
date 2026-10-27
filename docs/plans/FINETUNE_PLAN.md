@@ -22,7 +22,8 @@ audio, with confidence intervals. Nothing is claimed that a curve does not show.
 
 ## 2. Data and splits
 
-- **Generated set** (Phase 0 of the companion plan): about 200 scripts, each with text, spoken form and a
+- **Generated set** (Phase 0 of the companion plan; exists since 2026-10-27 as `~/datasets/synth_v1`, Piper voice only
+  so far, splits.json 140/30/30 by script): about 200 scripts, each with text, spoken form and a
   gold JSON in the `tests/gold` field format; rendered in the cloned voices and radio-filtered at SNR
   infinity, 20, 15, 10 and 5 dB with the corpus floor. First pass about 1000 clips.
 - **Training pairs come from the pipeline itself.** For the transcriber: (clip, script text). For the

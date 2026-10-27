@@ -194,6 +194,11 @@ def age_phrase(sc: Scenario) -> str:
     return f"{sc.age}-{unit}-old {sc.sex.lower()}"
 
 
+def article(n: int) -> str:
+    """"an 8-", "an 11-", "an 18-", "an 80-year-old"; otherwise "a"."""
+    return "an" if n in (8, 11, 18) or 80 <= n <= 89 else "a"
+
+
 def join_list(items: List[str]) -> str:
     if len(items) == 1:
         return items[0]
@@ -891,9 +896,10 @@ def render(r: random.Random, sc: Scenario, unit: str, hosp: str) -> str:
                           f"{unit} to {hosp}, how do you copy?", f"{unit} to {hosp} with a {notif}.", f"{hosp}, {unit} on the back line."]))
     prio = f", priority {PRIORITY_WORD[sc.priority]}" if sc.priority else ""
     ap = age_phrase(sc)
-    intro = pick(r, [f"We're en route to your facility with a {ap}, {sc.cc_short}{prio}. How do you copy so far?",
-                     f"Inbound with a {ap}, chief complaint {sc.cc_short}{prio}.",
-                     f"We have a {ap}, {sc.cc_short}{prio}.",
+    art = article(sc.age)
+    intro = pick(r, [f"We're en route to your facility with {art} {ap}, {sc.cc_short}{prio}. How do you copy so far?",
+                     f"Inbound with {art} {ap}, chief complaint {sc.cc_short}{prio}.",
+                     f"We have {art} {ap}, {sc.cc_short}{prio}.",
                      f"{(prio[2:].capitalize() + ', ') if prio else ''}{ap}, {sc.cc_short}. How do you copy?"])
     if sc.eta and chance(r, 0.3):
         intro = intro.rstrip(".").replace(". How do you copy so far?", "").replace(" How do you copy?", "") + f", approximately {sc.eta} minutes out."
