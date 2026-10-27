@@ -82,7 +82,10 @@ Resident while a report runs on the Jetson (measured during the post-fix batch, 
 - Options not yet taken: OLLAMA_KV_CACHE_TYPE=q8_0 (halves the KV cache), OLLAMA_KEEP_ALIVE short so the model
   unloads between reports (costs a reload), stopping docker and GNOME on a demo box.
 
-## Round 3 candidates (not started; v2.1.1-round2 is the cut)
+## Round 3 candidates (v2.1.1-round2 is the cut)
+
+Status 2026-10-27: 1 landed as `eta_supported` (c6308c1), 3 as `transcript_checks.transcribe_checked` (3dfcf3e,
+8d10e53), 2 as the positive-statement rule in `alert_from_words` (47a6a5f); the complaint-or-mechanism half of 2 is open.
 
 1. **ETA guard.** `eta_minutes` is null unless a number stands next to "ETA", "minutes", "min" or "out" in the
    transcript; otherwise null, "ETA" in missing_info, a note in assumptions. Round 2 has 10 reports with an ETA
