@@ -34,7 +34,7 @@ import io
 import logging
 import threading
 import time
-from typing import Optional
+from typing import List, Optional
 
 import numpy as np
 import scipy.io.wavfile as wavfile
@@ -124,12 +124,14 @@ class LocalTranscriber:
         self.model_size = model_size or settings.local_whisper_model
         self.hint = whisper_hint(vocab=getattr(settings, 'radio_vocab', ''))
         self.fallback = bool(getattr(settings, "local_whisper_fallback", False))
+        self.redecode = bool(getattr(settings, "local_whisper_redecode", False))
+        self.last_notes: List[str] = []
         self._model = None
         self._lock = threading.Lock()
 
     def describe(self) -> str:
         return (f"local faster-whisper {self.model_size} ({self.settings.local_whisper_device})"
-                + (", fallback" if self.fallback else ""))
+                + (", fallback" if self.fallback else "") + (", gap re-decode" if self.redecode else ""))
 
     def _get_model(self):
         with self._lock:
@@ -156,17 +158,71 @@ class LocalTranscriber:
             # no-speech gate is off so that window is not thrown away as silence first: on the generated set
             # (SYNTH_V1_2026-10-27.md) medium lost the middle 28 s of a report that way in 3 of 300 clips.
             decode = dict(temperature=[0.0, 0.2, 0.4], no_speech_threshold=None) if self.fallback else dict(temperature=0.0)
-            segments, _info = self._get_model().transcribe(
-                np.asarray(audio, dtype=np.float32), language="en", beam_size=1,
-                condition_on_previous_text=False, **decode,
-                initial_prompt=self.hint or None, hotwords=getattr(self, "hotwords", None) or None, vad_filter=True,
-                vad_parameters={"min_silence_duration_ms": 500})
+            x = np.asarray(audio, dtype=np.float32)
+            segments = list(self._decode(x, decode))
+            self.last_notes = []
+            if self.redecode:
+                segments = self._redecode_gaps(x, segments, decode)
             text = " ".join(s.text.strip() for s in segments).strip()
         except Exception as e:  # noqa: BLE001
             raise TranscriptionError(f"Local transcription failed: {type(e).__name__}: {e}") from e
         logger.info("Local transcription: %.1fs of audio in %.2fs",
                     len(audio) / SAMPLE_RATE, time.perf_counter() - t0)
         return text
+
+    def _decode(self, x: np.ndarray, decode: dict):
+        segments, _info = self._get_model().transcribe(
+            x, language="en", beam_size=1, condition_on_previous_text=False, **decode,
+            initial_prompt=self.hint or None, hotwords=getattr(self, "hotwords", None) or None, vad_filter=True,
+            vad_parameters={"min_silence_duration_ms": 500})
+        return segments
+
+    GAP_SECONDS = 6.0          # a stretch of audio this long with no words from the first pass
+    GAP_RMS_RATIO = 0.5        # ...and at least half the level of the stretches that did get words
+
+    def _redecode_gaps(self, x: np.ndarray, segments: list, decode: dict) -> list:
+        """Whisper's decoder now and then collapses a whole 30 s window to one word or nothing, and the
+        no-speech gate drops it: the transcript jumps from "sugar is" to "approximately 20 minutes" with
+        the middle of the report gone (medium on the generated set, 3 clips in 300, see
+        SYNTH_V1_2026-10-27.md). The collapse is a property of the window, not the audio: the same span
+        decoded on its own comes out whole. So any gap between worded segments that is long and as loud as
+        the speech around it is decoded again alone and spliced in. Leading and trailing silence is left."""
+        worded = [s for s in segments if s.text.strip() and (s.end - s.start) > 0]
+        if len(worded) < 1:
+            return segments
+        def rms(a: float, b: float) -> float:
+            seg = x[int(a * SAMPLE_RATE):int(b * SAMPLE_RATE)]
+            return float(np.sqrt(np.mean(seg * seg))) if len(seg) else 0.0
+        speech_rms = np.median([rms(s.start, s.end) for s in worded]) if worded else 0.0
+        covered = [(s.start, s.end) for s in worded]
+        gaps = []
+        for (a_end), (b_start) in zip([c[1] for c in covered[:-1]], [c[0] for c in covered[1:]]):
+            if b_start - a_end >= self.GAP_SECONDS and rms(a_end, b_start) >= self.GAP_RMS_RATIO * speech_rms:
+                gaps.append((a_end, b_start))
+        # a collapsed window kept by a disabled no-speech gate shows up as a long segment with a word or two
+        for s in worded:
+            if (s.end - s.start) >= self.GAP_SECONDS * 2 and len(s.text.split()) <= 2:
+                gaps.append((s.start, s.end))
+        if not gaps:
+            return segments
+        out = list(segments)
+        for a, b in gaps:
+            span = x[int(a * SAMPLE_RATE):int(b * SAMPLE_RATE)]
+            redone = [s for s in self._decode(span, decode) if s.text.strip()]
+            words = sum(len(s.text.split()) for s in redone)
+            self.last_notes.append(f"re-decoded {a:.1f}-{b:.1f} s on its own: {words} words where the first pass had "
+                                   f"{sum(len(s.text.split()) for s in segments if a <= s.start and s.end <= b)}")
+            logger.info("Local transcription: %s", self.last_notes[-1])
+            out = [s for s in out if not (a <= s.start and s.end <= b)]
+            for s in redone:
+                out.append(_Shifted(s, a))
+        return sorted(out, key=lambda s: s.start)
+
+
+class _Shifted:
+    """A re-decoded segment placed back on the clip's timeline."""
+    def __init__(self, seg, offset: float):
+        self.start, self.end, self.text = seg.start + offset, seg.end + offset, seg.text
 
 
 def make_transcriber(settings: Settings):

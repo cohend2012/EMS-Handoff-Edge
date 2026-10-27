@@ -106,3 +106,35 @@ def test_local_transcriber_fallback_decode_options(monkeypatch):
     assert calls[0]["temperature"] == 0.0 and "no_speech_threshold" not in calls[0]
     assert calls[1]["temperature"] == [0.0, 0.2, 0.4] and calls[1]["no_speech_threshold"] is None
     assert "fallback" in LocalTranscriber(dataclasses.replace(load_settings(), local_whisper_fallback=True)).describe()
+
+
+def test_local_transcriber_redecodes_a_long_wordless_gap():
+    import dataclasses
+    import numpy as np
+    from ems_handoff.config import load_settings
+    from ems_handoff.transcribe import LocalTranscriber, SAMPLE_RATE
+
+    class Seg:
+        def __init__(self, start, end, text):
+            self.start, self.end, self.text = start, end, text
+
+    calls = []
+
+    class FakeModel:
+        def transcribe(self, audio, **kw):
+            calls.append(len(audio) / SAMPLE_RATE)
+            if len(audio) > 50 * SAMPLE_RATE:          # the whole clip: the middle window came out empty
+                return iter([Seg(0.0, 10.0, "vitals are"), Seg(40.0, 45.0, "any questions")]), None
+            return iter([Seg(0.0, 29.0, "pressure 80 over 55 sugar 285 sepsis alert")]), None
+
+    rng = np.random.default_rng(0)
+    audio = (0.1 * rng.standard_normal(60 * SAMPLE_RATE)).astype(np.float32)   # speech-like level throughout
+    t = LocalTranscriber(dataclasses.replace(load_settings(), local_whisper_redecode=True), model_size="tiny.en")
+    t._model = FakeModel()
+    text = t.transcribe(audio)
+    assert text == "vitals are pressure 80 over 55 sugar 285 sepsis alert any questions"
+    assert calls == [60.0, 30.0] and t.last_notes and "10.0-40.0" in t.last_notes[0]
+    # a quiet gap (a pause) is left alone
+    audio[10 * SAMPLE_RATE:40 * SAMPLE_RATE] *= 0.01
+    calls.clear(); t.last_notes = []
+    assert t.transcribe(audio) == "vitals are any questions" and calls == [60.0]
