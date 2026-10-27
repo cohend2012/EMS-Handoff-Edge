@@ -160,7 +160,8 @@ def test_null_lists_and_sections_from_the_model_become_empty_shapes():
                         data_quality={"confidence": "MEDIUM", "missing_info": None, "assumptions": None})
     report, _, _ = run(SAMPLE_SEPSIS.replace("furosemide", "ferosemide"), FakeLLM([json.dumps(reply)]))
     assert report["alert_type"] == "STEMI" and report["data_quality"]["confidence"] == "MEDIUM"
-    assert report["data_quality"]["missing_info"] == ["allergies", "code status"]   # the two null history facts
+    assert report["data_quality"]["missing_info"] == ["allergies"]   # the null history fact; "DNR" was spoken and fills code status
+    assert report["history"]["code_status"] == "DNR"
     assert any("ferosemide" in a for a in report["data_quality"]["assumptions"])
     assert report["ems_interventions"] == [] and report["history"]["medications"] == ["metformin"]
     assert report["history"]["allergies"] is None and report["hospital_recommendations"]["resources_to_prepare"] == []
@@ -340,7 +341,7 @@ def test_sex_is_inferred_from_pronouns_when_the_model_left_it_null():
 
 
 # --- a stated priority sets the alert level ---------------------------------------------------
-from ems_handoff.pipeline import apply_stated_priority, stated_priority  # noqa: E402
+from ems_handoff.pipeline import alert_from_words, apply_stated_priority, stated_priority  # noqa: E402
 
 
 def test_stated_priority_reads_digits_words_and_whispers_homophones():
@@ -405,3 +406,34 @@ def test_eta_support_needs_a_time_cue_near_the_number():
     assert not eta_supported("Pain currently 6 out of 10, down from 9.", 6)
     assert not eta_supported("67-year-old male, BP 158 over 92.", 67)
     assert not eta_supported("", None)
+
+
+def test_alert_words_count_only_when_stated_positively():
+    """Round 3 candidate 2 (ROUND2.md): a denied or questioned alert word, or one named as history, is not the problem."""
+    assert alert_from_words("This is Ambulance 721 coming to, what is it, trauma? ... priority 2") == ("TRAUMA", "trauma")
+    assert alert_from_words("Priority two, stroke alert, 70-year-old male.") == ("STROKE", "stroke")
+    assert alert_from_words("Did you just use your stroke? No.") is None
+    assert alert_from_words("Negative for stroke, Cincinnati negative.") is None
+    assert alert_from_words("No signs of trauma noted, chest pain.") is None
+    assert alert_from_words("Patient has a history of stroke, chief complaint chest pain.") is None
+    assert alert_from_words("Patient denies trauma. Stroke symptoms since 8 AM.") == ("STROKE", "Stroke")
+    assert alert_from_words("Fell down the stairs, no loss of consciousness") == ("TRAUMA", "Fell down"), "a negation after another phrase does not cancel the mechanism"
+
+
+def test_stated_no_known_allergies_and_code_status_fill_a_null_from_the_model():
+    """Generated set, clean text (2026-10-27): qwen3:4b-instruct read "No known allergies" as nothing said and wrote
+    null for both SY007 and SY012, with the assumption "No allergies mentioned". The spoken phrase goes in."""
+    text = "Medic 41 to County General. 79-year-old female, motorcycle crash. History of diabetes. No known allergies. Patient is DNR DNI per paperwork. ETA 8 minutes."
+    reply = json.dumps(report_dict(alert_type="TRAUMA", history={"past_medical": ["diabetes"], "medications": [], "allergies": None, "code_status": None},
+                                   data_quality={"confidence": "HIGH", "missing_info": ["allergies", "code status"], "assumptions": []}))
+    report, _, _ = run(text, FakeLLM([reply]))
+    assert report["history"]["allergies"] == ["No known allergies"]
+    assert report["history"]["code_status"] == "DNR DNI"
+    missing = [m.lower() for m in report["data_quality"]["missing_info"]]
+    assert "allergies" not in missing and "code status" not in missing
+    notes = " ".join(report["data_quality"]["assumptions"])
+    assert "Allergies taken from the transcript" in notes and "Code status taken from the transcript" in notes
+    # nothing said: still null, still missing
+    text2 = "Medic 41 to County General. 79-year-old female, motorcycle crash. ETA 8 minutes."
+    report, _, _ = run(text2, FakeLLM([reply]))
+    assert report["history"]["allergies"] is None and report["history"]["code_status"] is None

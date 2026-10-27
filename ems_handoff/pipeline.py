@@ -167,6 +167,10 @@ def unstated(report: Dict[str, Any]) -> List[str]:
 
 
 _ALLERGY_WORDS = re.compile(r"allerg|\bnkda\b|\bnka\b|no known drug", re.I)
+# the one allergy statement a transcript can make that a small model reads as "nothing to report"
+_NO_ALLERGIES = re.compile(r"\bnkda\b|\bnka\b|no known (?:drug |medication )?allerg\w*|no (?:drug |medication )?allergies|allergies[: ]+none\b|denies (?:any )?allergies", re.I)
+# an explicit code status spoken as such (the generic words of _CODE_WORDS are not a status by themselves)
+_CODE_STATED = re.compile(r"\b(?:dnr|dni|dnar|do not resuscitate|do not intubate|full code|no code|comfort (?:care|measures)(?: only)?|cmo)\b", re.I)
 _CODE_WORDS = re.compile(r"\b(?:dnr|dni|dnar|do not (?:resuscitate|intubate|attempt)|full code|no code|code status|"
                          r"polst|molst|full treatment|comfort (?:care|measures)|cmo|advance directive|living will|"
                          r"resuscitat\w*|life[- ]sustaining)\b", re.I)
@@ -191,8 +195,29 @@ def ground_history_defaults(report: Dict[str, Any], text: str) -> List[str]:
     if hist.get("code_status") and not _CODE_WORDS.search(text):
         notes.append(f"Code status set to null: the transcript never mentions one (the model wrote {hist['code_status']!r})")
         hist["code_status"] = None
+    # the opposite failure: the paramedic said "no known allergies" or "full code" and the model wrote null,
+    # reading a stated negative as nothing said. The spoken phrase itself goes in (the schema asks for the
+    # words as the paramedic said them), so the report stays grounded.
     dq = report.get("data_quality") or {}
     missing = dq.get("missing_info")
+    if not hist.get("allergies"):
+        m = _NO_ALLERGIES.search(text)
+        if m:
+            hist["allergies"] = [m.group(0).strip().rstrip(".,")]
+            notes.append(f"Allergies taken from the transcript ('{m.group(0).strip()}'); the model left them null")
+            if isinstance(missing, list):
+                missing[:] = [x for x in missing if "allerg" not in str(x).lower()]
+    if not hist.get("code_status"):
+        said = []
+        for m in _CODE_STATED.finditer(text):
+            w = m.group(0).strip()
+            if w.lower() not in (x.lower() for x in said):
+                said.append(w)
+        if said:
+            hist["code_status"] = " ".join(said)
+            notes.append(f"Code status taken from the transcript ('{' '.join(said)}'); the model left it null")
+            if isinstance(missing, list):
+                missing[:] = [x for x in missing if "code" not in str(x).lower()]
     if isinstance(missing, list):
         for label, key in (("allergies", "allergies"), ("code status", "code_status")):
             if not hist.get(key) and not any(label in str(m).lower() for m in missing):
@@ -210,15 +235,29 @@ _ALERT_WORDS = [
 ]
 
 
+# An alert word that is denied, asked about and answered "no", or named only as history is not a statement
+# of the problem: "Did you just use your stroke? No." (S030_01) stays UNCLEAR; "history of stroke" is a
+# condition, not the complaint.
+_NOT_STATED_BEFORE = re.compile(
+    r"\b(?:no|not|negative(?:\s+for)?|denies|denied|deny|without|rul(?:e|ed|ing)\s+out|non|didn't|did\s+not|isn't|is\s+not|"
+    r"wasn't|was\s+not|never|any|history\s+of|hx\s+of|prior|previous|past|old)\W+(?:\w+\W+){0,2}$", re.I)
+_NOT_STATED_AFTER = re.compile(r"^\W*(?:no|nope|negative|not)\b", re.I)
+
+
 def alert_from_words(text: str) -> Optional[Tuple[str, str]]:
-    """(alert_type, the word that names it) when the transcript states an alert word, else None.
+    """(alert_type, the word that names it) when the transcript states an alert word positively, else None.
 
     "This is Ambulance 721 coming to, what is it, trauma? ... priority 2" (S038_01) must be
     TRAUMA however short. The model is asked the same; this is the check behind it, used
-    only when the model answered UNCLEAR. A type the model did name is never overridden."""
+    only when the model answered UNCLEAR. A type the model did name is never overridden.
+    A word that is negated within three words before it, answered "no" right after it, or
+    introduced as history does not count."""
     for alert_type, pattern in _ALERT_WORDS:
-        m = pattern.search(text)
-        if m:
+        for m in pattern.finditer(text):
+            before = re.split(r"[.!?;]\s", text[max(0, m.start() - 60):m.start()])[-1]   # the same sentence only
+            after = text[m.end():m.end() + 20]
+            if _NOT_STATED_BEFORE.search(before) or _NOT_STATED_AFTER.match(after):
+                continue
             return alert_type, m.group(0)
     return None
 
