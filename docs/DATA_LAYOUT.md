@@ -26,12 +26,15 @@ generated data takes its default from it.
 |---|---|---|
 | `voices/refs/` | 12 s single-speaker clips cut from the corpus, used as cloning references | by hand (ffmpeg); see SPECTRAL_2026-10-26.md |
 | `voices/piper/` | Piper voice models | piper.download_voices |
-| `noise/` | real channel-floor beds per feed (`feed4390_floor.wav`, 77 s; `feed4395_floor.wav`, 13 s) | the noise-bank cut (to be scripted) |
+| `noise/` | real channel-floor beds per feed (`feed4390_floor.wav`, 77 s; `feed4395_floor.wav`, 13 s, cut by hand on 2026-10-26); `noise_bank.py` re-cuts them from the survey frames (stricter: 40 s and 6 s at -51 dBFS) and writes INDEX.tsv | by hand; noise_bank.py |
 | `spectral/` | the FFT survey of the corpus: files.csv, spectra.csv, frames/, png/ | spectral_survey.py |
 | `scripts_v0/` | the three practice scripts: text, spoken form, WAV per voice and variant (`<script>[_xtts_<ref>][_radio].wav`) | air_check.py --make-wavs, clone_voice*.py, radioize.py |
 | `air_runs/` | over-the-air runs, one folder each, and INDEX.tsv | air_check.py |
 | `synth_v1/` | the generated gold set, 200 scripts (seed 1): `scripts/<id>.txt` and `.spoken.txt`, `gold/<id>.json` (tests/gold format plus `stated` and `marker`), `index.tsv`, `splits.json` (70/15/15 by script, stratified by family), `terms.txt`, README.md | gen_scripts.py |
-| `synth_v1/audio/<voice>/<snr>/` and `synth_v1/callsets/` (planned) | the rendered clips per voice and SNR, and the same clips laid out as call-sets for replay mode | render step |
+| `synth_v1/audio/<voice>/clean/`, `.../snr{inf,20,15,10,5}/` | the voice reading each script (16 kHz), and the clip through the radio channel with the feed-4390 floor at that SNR | render_set.py |
+| `synth_v1/callsets/<id>_<voice>_<snr>/` | one-burst call-sets (callset_info.json, a link to the clip, the script text) for replay mode with `HANDOFF_CALLSETS=~/datasets/synth_v1/callsets` | render_set.py |
+| `synth_v1/evals/<label>/` | transcriber runs over the set: rows.tsv per clip, transcripts/, summary.md by SNR and family | eval_set.py |
+| `synth_v1/logs/` | render and evaluation logs and the runner scripts for unattended runs | by hand |
 
 ### How the app uses generated data
 

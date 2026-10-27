@@ -26,6 +26,7 @@ import subprocess
 import sys
 import wave
 from pathlib import Path
+from typing import Optional, Tuple
 
 import numpy as np
 
@@ -88,6 +89,50 @@ def shaped_noise(n: int, shape_db: np.ndarray, level_dbfs: float, rng: np.random
     return shaped * 10 ** (level_dbfs / 20)
 
 
+def channel_eq(x: np.ndarray, target_db: np.ndarray, max_gain: float = 24.0) -> np.ndarray:
+    """The equaliser that takes this clip's speech spectrum to the corpus' (dB per STFT bin)."""
+    source_db = mean_speech_spectrum_db(x)
+    eq = smooth_third_octave(target_db - source_db)
+    eq -= eq[(FREQS > 300) & (FREQS < 1000)].mean()          # unity gain where the voice lives
+    eq = np.clip(eq, -max_gain, max_gain)
+    eq[FREQS > 4600] = -60.0                                  # the channel's brick wall
+    return eq
+
+
+def radioize(x: np.ndarray, target_db: np.ndarray, bed: Optional[np.ndarray] = None, snr: Optional[float] = 20.0,
+             level: float = -26.0, max_gain: float = 24.0, silence_db: Optional[np.ndarray] = None,
+             synth_noise_dbfs: float = -48.0, seed: int = 1) -> Tuple[np.ndarray, np.ndarray]:
+    """Clean 16 kHz speech -> the radio channel: EQ to the corpus spectrum and brick wall, level, soft limiter,
+    then a noise bed. `bed` is real corpus floor looped under the speech at `snr` dB (snr None = no noise);
+    without a bed, synthetic noise shaped like the carrier-open floor at synth_noise_dbfs (0 = none).
+    Returns (audio, eq_db)."""
+    eq = channel_eq(x, target_db, max_gain)
+    y = stft_filter(x, eq)
+    y = y / (np.sqrt(np.mean(y[np.abs(y) > 1e-4] ** 2)) + 1e-9) * 10 ** (level / 20)
+    y = soft_limit(y)
+    if bed is not None and snr is not None:
+        reps = int(np.ceil(len(y) / len(bed)))
+        b = np.tile(bed, reps)[: len(y)]
+        b = b / (np.sqrt(np.mean(b ** 2)) + 1e-9) * 10 ** ((level - snr) / 20)
+        y = y + b
+    elif bed is None and synth_noise_dbfs < 0 and silence_db is not None:
+        y = y + shaped_noise(len(y), silence_db, synth_noise_dbfs, np.random.default_rng(seed))
+    return np.clip(y, -0.99, 0.99), eq
+
+
+def write_wav(path: Path, y: np.ndarray, sr: int = SR) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with wave.open(str(path), "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(sr)
+        w.writeframes((np.clip(y, -1, 1) * 32767).astype(np.int16).tobytes())
+
+
+def eq_summary(eq: np.ndarray) -> str:
+    return " ".join(f"{eq[np.argmin(np.abs(FREQS - hz))]:+.0f}" for hz in (250, 500, 1000, 2000, 3000, 4000)) + " dB"
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[1])
     ap.add_argument("src", type=Path)
@@ -102,32 +147,11 @@ def main() -> int:
 
     x = decode(args.src)
     target_db, silence_db = read_spectra(args.spectra)
-    source_db = mean_speech_spectrum_db(x)
-    eq = smooth_third_octave(target_db - source_db)
-    eq -= eq[(FREQS > 300) & (FREQS < 1000)].mean()          # unity gain where the voice lives
-    eq = np.clip(eq, -args.max_gain, args.max_gain)
-    eq[FREQS > 4600] = -60.0                                  # the channel's brick wall
-
-    y = stft_filter(x, eq)
-    y = y / (np.sqrt(np.mean(y[np.abs(y) > 1e-4] ** 2)) + 1e-9) * 10 ** (args.level / 20)
-    y = soft_limit(y)
-    if args.noise_file:
-        bed = decode(args.noise_file)
-        reps = int(np.ceil(len(y) / len(bed)))
-        bed = np.tile(bed, reps)[: len(y)]
-        bed = bed / (np.sqrt(np.mean(bed ** 2)) + 1e-9) * 10 ** ((args.level - args.snr) / 20)
-        y = y + bed
-    elif args.noise < 0 and silence_db is not None:
-        y = y + shaped_noise(len(y), silence_db, args.noise, np.random.default_rng(1))
-    y = np.clip(y, -0.99, 0.99)
-    with wave.open(str(args.dst), "wb") as w:
-        w.setnchannels(1)
-        w.setsampwidth(2)
-        w.setframerate(SR)
-        w.writeframes((y * 32767).astype(np.int16).tobytes())
+    bed = decode(args.noise_file) if args.noise_file else None
+    y, eq = radioize(x, target_db, bed, args.snr, args.level, args.max_gain, silence_db, args.noise)
+    write_wav(args.dst, y)
     rms = 20 * np.log10(np.sqrt(np.mean(y ** 2)) + 1e-9)
-    print(f"[OK] {args.dst} ({len(y) / SR:.1f} s, {rms:.1f} dBFS); EQ at 250/500/1k/2k/3k/4k Hz: "
-          + " ".join(f"{eq[np.argmin(np.abs(FREQS - hz))]:+.0f}" for hz in (250, 500, 1000, 2000, 3000, 4000)) + " dB")
+    print(f"[OK] {args.dst} ({len(y) / SR:.1f} s, {rms:.1f} dBFS); EQ at 250/500/1k/2k/3k/4k Hz: {eq_summary(eq)}")
     return 0
 
 
