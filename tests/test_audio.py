@@ -57,6 +57,34 @@ def test_capture_fans_out_and_keeps_full_recording():
     assert [q1.get() for _ in range(6)][-1] is None
 
 
+def test_capture_high_pass_removes_mains_hum_but_keeps_speech_band():
+    """The Jetson's USB mic delivers 60 Hz hum well above speech; the capture cuts it before anyone
+    sees the audio, block by block without a seam, and leaves a 1 kHz tone alone. 0 switches it off."""
+    from fakes import FakeStream
+    from ems_handoff.audio.capture import AudioCapture
+
+    def band(x, lo, hi):
+        sp = np.abs(np.fft.rfft(x * np.hanning(len(x)))) ** 2
+        f = np.fft.rfftfreq(len(x), 1 / 16000)
+        return float(sp[(f >= lo) & (f <= hi)].sum())
+
+    t = np.arange(16000) / 16000
+    signal = (0.3 * np.sin(2 * np.pi * 60 * t) + 0.03 * np.sin(2 * np.pi * 1000 * t)).astype(np.float32)
+    out = {}
+    for hz in (150.0, 0.0):
+        cap = AudioCapture("", stream_factory=lambda *a: FakeStream(), device_info=(0, "USB", 16000.0), highpass_hz=hz)
+        cap.start()
+        for i in range(10):                      # ten 100 ms blocks, as the mic delivers them
+            cap.feed(signal[i * 1600:(i + 1) * 1600])
+        assert wait_for(lambda: cap.seconds >= 1.0)
+        out[hz] = cap.stop()
+    filtered, raw = out[150.0][1600:], out[0.0][1600:]        # skip the filter's settling block
+    assert band(raw, 55, 65) / band(raw, 990, 1010) > 50, "the hum dominates the unfiltered audio"
+    assert band(filtered, 55, 65) / band(raw, 55, 65) < 1e-3, "hum down by more than 30 dB"
+    assert 0.7 < band(filtered, 990, 1010) / band(raw, 990, 1010) < 1.3, "the speech-band tone is kept"
+    assert np.abs(np.diff(filtered)).max() < 0.02, "no seam between blocks"
+
+
 def test_capture_opens_native_rate_first_and_resamples():
     opened = []
 
