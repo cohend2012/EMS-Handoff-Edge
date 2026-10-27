@@ -96,6 +96,18 @@ def test_enriched_callset_info_is_the_first_timing_source(tmp_path):
     assert s["bursts"] == 3 and s["hospital"] == "shady grove" and s["ages"] == "3m"
 
 
+def test_summary_keeps_plain_string_fields(tmp_path):
+    """callset_info may say "not stated" as a string, not a list: shown as is, not as letters."""
+    folder = make_callset(tmp_path, "CS002")
+    info_file = folder / "callset_info.json"
+    info = json.loads(info_file.read_text())
+    info["hospital"] = "not stated"
+    info["units"] = "not stated"
+    info_file.write_text(json.dumps(info))
+    s = load_callset(folder).summary()
+    assert s["hospital"] == "not stated" and s["units"] == "not stated"
+
+
 def test_filenames_give_timing_when_the_info_has_none(tmp_path):
     folder = tmp_path / "CS901"
     folder.mkdir()

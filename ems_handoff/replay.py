@@ -100,11 +100,18 @@ class CallSet:
     def summary(self) -> Dict[str, Any]:
         info = self.info
         patient = info.get("patient") or {}
+
+        def joined(value) -> str:
+            """callset_info fields are lists, or a plain string such as "not stated"."""
+            if isinstance(value, str):
+                return value
+            return ", ".join(str(v) for v in (value or []))
+
         return {"id": self.id, "bursts": len(self.bursts), "words": sum(b.words for b in self.bursts),
                 "audio_s": round(self.total_audio_s, 1), "span_s": round(self.span_s, 1),
-                "hospital": ", ".join(info.get("hospital") or []), "units": ", ".join(info.get("units") or []),
-                "ages": ", ".join(patient.get("ages") or []), "sex": ", ".join(patient.get("sex") or []),
-                "keywords": ", ".join(info.get("complaint_keywords") or []),
+                "hospital": joined(info.get("hospital")), "units": joined(info.get("units")),
+                "ages": joined(patient.get("ages")), "sex": joined(patient.get("sex")),
+                "keywords": joined(info.get("complaint_keywords")),
                 "first_burst_utc": info.get("first_burst_utc", ""), "timing_source": self.timing_source}
 
 
