@@ -17,6 +17,7 @@ def test_normalize_makes_number_words_digits_and_drops_punctuation():
         ["priority", "2", "95", "percent", "on", "room", "air", "bp", "188", "over", "111"]
     assert sc.normalize("Medic seven thirty one") == ["medic", "7", "30", "1"]
     assert sc.normalize("It's the patient's") == ["it's", "the", "patient's"]
+    assert sc.normalize("A-fib with RVR, 50 micrograms") == ["afib", "with", "rvr", "50", "mcg"]
 
 
 def test_wer_counts_substitutions_insertions_and_deletions():

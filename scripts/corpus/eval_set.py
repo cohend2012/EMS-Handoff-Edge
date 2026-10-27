@@ -141,6 +141,23 @@ def write_summary(out: Path, label: str) -> None:
     (out / "summary.md").write_text("\n".join(txt) + "\n")
 
 
+def rescore(set_dir: Path, out: Path) -> int:
+    """Rows and summary rebuilt from transcripts/ with the current metrics; timings are kept."""
+    terms = [normalize(t) for t in (set_dir / "terms.txt").read_text().splitlines() if t.strip()]
+    lines = (out / "rows.tsv").read_text().splitlines()
+    cols = lines[0].split("\t")
+    rows = [dict(zip(cols, l.split("\t"))) for l in lines[1:] if l.strip()]
+    for r in rows:
+        ref = (set_dir / "scripts" / f"{r['id']}.txt").read_text()
+        hyp = (out / "transcripts" / f"{r['id']}_{r['voice']}_{r['snr']}.txt").read_text().strip()
+        r.update({k: str(v) for k, v in metrics(ref, hyp, terms).items()})
+    (out / "rows.tsv").write_text("\n".join(["\t".join(cols)] + ["\t".join(r[c] for c in cols) for r in rows]) + "\n")
+    write_summary(out, out.name)
+    print(f"[OK] {len(rows)} rows rescored; {out / 'summary.md'}\n")
+    print((out / "summary.md").read_text().split("\n## ")[0])
+    return 0
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[1])
     ap.add_argument("--set", type=Path, default=paths.datasets() / "synth_v1")
@@ -155,7 +172,10 @@ def main() -> int:
     ap.add_argument("--label")
     ap.add_argument("--from", dest="from_label", help="do not transcribe: reuse the transcripts of this eval label (for --corrector)")
     ap.add_argument("--summary", type=Path, help="only rebuild summary.md for this eval folder")
+    ap.add_argument("--rescore", type=Path, help="recompute every row of this eval folder from its saved transcripts (after a scorer change)")
     args = ap.parse_args()
+    if args.rescore:
+        return rescore(args.set, args.rescore)
     if args.summary:
         write_summary(args.summary, args.summary.name); print((args.summary / "summary.md").read_text()); return 0
 
