@@ -40,6 +40,10 @@ _NUM = {"zero": "0", "oh": "0", "one": "1", "two": "2", "three": "3", "four": "4
         "hundred": "100"}
 
 
+_SPELLED = [("e t a", "eta"), ("i v", "iv"), ("b p", "bp"), ("g c s", "gcs"), ("c p r", "cpr"), ("d n r", "dnr"),
+            ("s p o 2", "spo2"), ("r v r", "rvr"), ("e k g", "ekg"), ("c h f", "chf"), ("c a d", "cad")]
+
+
 def normalize(text: str) -> List[str]:
     """Words for WER: lower case, no punctuation, hyphens split, % as percent, number words as digits."""
     t = text.lower().replace("%", " percent ").replace("-", " ").replace("/", " over ")
@@ -51,6 +55,8 @@ def normalize(text: str) -> List[str]:
     t = re.sub(r"\bsp02\b", "spo2", t)               # a zero for the O
     t = re.sub(r"\bx(\d)", r"times \1", t)            # "x4" is read "times four"
     t = re.sub(r"[^\w\s']", " ", t)
+    for spelled, written in _SPELLED:                    # after the punctuation strip: "E.T.A." and "E T A" written as letters is the script's "ETA"
+        t = re.sub(rf"\b{spelled}\b", written, t)
     words = [w.strip("'") for w in t.split()]
     return [_NUM.get(w, w) for w in words if w]
 
