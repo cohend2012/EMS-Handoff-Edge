@@ -44,6 +44,8 @@ def normalize(text: str) -> List[str]:
     """Words for WER: lower case, no punctuation, hyphens split, % as percent, number words as digits."""
     t = text.lower().replace("%", " percent ").replace("-", " ").replace("/", " over ")
     t = re.sub(r"(\d)([a-z])", r"\1 \2", t)          # 324mg and 324 mg are the same words
+    t = re.sub(r"\bmilligrams?\b", "mg", t)             # spoken units as written
+    t = re.sub(r"\bmillilit(?:er|re)s?\b", "ml", t)
     t = re.sub(r"[^\w\s']", " ", t)
     words = [w.strip("'") for w in t.split()]
     return [_NUM.get(w, w) for w in words if w]

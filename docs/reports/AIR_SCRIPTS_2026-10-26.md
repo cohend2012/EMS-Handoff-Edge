@@ -3,8 +3,7 @@
 `scripts/air_check.py all --play [--variant _radio]`: each script is read by Piper (en_US-lessac-medium, spoken
 form of the abbreviations) and played on the JMTek USB dongle's speaker (volume 0.8) into a live app session on
 the same dongle's mic: Vosk captions with Groq Whisper repair, Groq whisper-large-v3-turbo transcript,
-qwen3:4b-instruct report. Server dabd424 (150 Hz mic high-pass). "xtts-cs008" runs are the STEMI script read by XTTS-v2 in a voice cloned
-from 12 s of the CS008 paramedic (S025_01 at 69 s; `scripts/corpus/clone_voice.py`). "radioeq" runs play the same audio after
+qwen3:4b-instruct report. Server dabd424 (150 Hz mic high-pass). "radioeq" runs play the same audio after
 `scripts/corpus/radioize.py`: equalised to the corpus' mean speech spectrum and brick-walled at 4.6 kHz
 (SPECTRAL_2026-10-26.md). Runs are under `~/reports_air/`, one line each in `INDEX.tsv`.
 
@@ -12,12 +11,15 @@ from 12 s of the CS008 paramedic (S025_01 at 69 s; `scripts/corpus/clone_voice.p
 |---|---|---|---|---|---|---|---|
 | sepsis | usb-dongle-radioeq | 81 s | 80 s | 10% (161/161 words) | 20% | ENDOCRINE RED ETA 12 | ETA 12, no alert word |
 | sepsis | usb-dongle | 81 s | 80 s | 10% (161/161 words) | n/a | ENDOCRINE RED ETA 12 | ETA 12, no alert word |
+| sepsis | xtts-cs008-radioeq | 89 s | 83 s | 15% (166/162 words) | 51% | ENDOCRINE RED ETA 12 | ETA 12, no alert word |
 | stemi | usb-dongle-radioeq | 78 s | 75 s | 8% (171/169 words) | 14% | STEMI RED ETA 8 | ETA 8, STEMI, cath lab |
 | stemi | usb-dongle | 78 s | 65 s | 35% (119/169 words) | n/a | STEMI RED ETA 12 | ETA 8, STEMI, cath lab |
 | stemi | xtts-cs008-radioeq | 93 s | 78 s | 14% (175/171 words) | 30% | STEMI RED ETA 8 | ETA 8, STEMI, cath lab |
 | stemi | xtts-cs008 | 93 s | 86 s | 43% (117/169 words) | 48% | STEMI RED ETA 8 | ETA 8, STEMI, cath lab |
+| stemi | xtts-cs014-radioeq | 79 s | 77 s | 11% (178/171 words) | 37% | STEMI RED ETA 8 | ETA 8, STEMI, cath lab |
 | trauma | usb-dongle-radioeq | 77 s | 74 s | 5% (157/155 words) | 24% | TRAUMA RED ETA 6 | ETA 6, trauma activation |
 | trauma | usb-dongle | 77 s | 76 s | 6% (154/155 words) | n/a | TRAUMA RED ETA 6 | ETA 6, trauma activation |
+| trauma | xtts-cs008-radioeq | 87 s | 82 s | 9% (158/155 words) | 26% | TRAUMA RED ETA 6 | ETA 6, trauma activation |
 
 (captions WER n/a: the first run's caption text was joined wrongly by the script; fixed before the radioeq runs.)
 
@@ -27,6 +29,8 @@ from 12 s of the CS008 paramedic (S025_01 at 69 s; `scripts/corpus/clone_voice.p
 
 **sepsis / usb-dongle**: dropped: over. Replaced: squad -> fwad | 24 spo2 -> sbo2 | skin -> gin | lungs -> luns | rhonchi -> ronti | metoprolol furosemide donepezil -> metaprolol furosmide dumpizil | eliquis -> deliquis | iv -> roman 4 | 500ml -> 500 ml | polst -> pulsed.
 
+**sepsis / xtts-cs008-radioeq**: dropped: nothing. Replaced: squad -> block | chief complaint -> she's complained | per -> her | vitals bp -> vital vp | 108 -> 198 | liters -> lighters | coarse rhonchi -> 4 slunchy | metoprolol -> metaprol | donepezil -> dunpezil | drugs -> drug | iv established -> i have to establish | gauge -> day | ml bolus -> milliliters flawless | interventions -> intervention | polst -> pulse.
+
 **stemi / usb-dongle-radioeq**: dropped: over. Replaced: on scene -> unseen | spo2 94 -> sbo 294 | lisinopril -> listenaprol | administered 324mg -> administer 324 mg | 4mg -> 4 mg.
 
 **stemi / usb-dongle**: dropped: over. Replaced: on scene -> unseen | spo2 -> sbo2 | lisinopril -> lisinaprol | iv -> roman 4 | administered 324mg aspirin chewed and 0 4mg sublingual nitro times 2 with some relief currently running a saline lock patient is alert and oriented pain currently 6 out of 10 down from 9 out of 10 our eta to your facility is approximately 8 minutes requesting cath lab activation unit 41 clear -> i don't know.
@@ -35,9 +39,13 @@ from 12 s of the CS008 paramedic (S025_01 at 69 s; `scripts/corpus/clone_voice.p
 
 **stemi / xtts-cs008**: dropped: nothing. Replaced: chief complaint -> she'd complain | wife -> wives | vitals on scene bp 158 over 92 heart rate 98 and irregular respiratory rate 22 spo2 94 percent on room air now 98 percent on 4 liters nasal cannula 12 lead shows st elevation in leads v1 through v4 consistent with anterior stemi patient has history of hypertension and type 2 diabetes takes metformin and lisinopril daily no known allergies -> eta 10 minutes | ac -> to see | 324mg -> 324 milligrams | 4mg -> 4 milligrams | relief -> read | pain -> paying.
 
+**stemi / xtts-cs014-radioeq**: dropped: nothing. Replaced: 22 -> 222 | liters -> liders | st elevation in -> sensation of | v1 -> 1 | stemi -> stemming | lisinopril -> lysinopril | ac -> to see | mg -> milligrams | mg -> milligrams.
+
 **trauma / usb-dongle-radioeq**: dropped: over. Replaced: medic -> medics | spo2 -> sbo 2 | bore ivs -> borrome and 4.
 
 **trauma / usb-dongle**: dropped: nothing. Replaced: medic -> medics | bp 88 over -> bp88 | spo2 91 -> sbo 291 | bore ivs -> borrome and 4.
+
+**trauma / xtts-cs008-radioeq**: dropped: nothing. Replaced: bystanders -> bystander | vitals -> eiffel's | spo2 91 -> sp 0291 | liters -> lighters | rebreather -> rebrief | seatbelt sign -> heat belt signs | bore -> bar | bilateral -> deolateral | eta -> e t of.
 
 ## What it says
 
@@ -69,5 +77,18 @@ from 12 s of the CS008 paramedic (S025_01 at 69 s; `scripts/corpus/clone_voice.p
   brick-walled, soft-limited radio version (same loudness, no 0 dBFS peaks) scored 14 %, and both reports were
   STEMI RED ETA 8. Synthesis costs
   about 8 min per script on the Jetson CPU (torch 2.8 pinned: the torchcodec wheel needs the CUDA build).
+- **All three scripts in cloned voices, off the file and over the air** (Groq Whisper, radio-filtered
+  versions with the real feed-4390 floor at 20 dB SNR):
+
+  | script, voice | off the file | over the air | report |
+  |---|---|---|---|
+  | STEMI, CS008 | 10% (radio 15%) | 14% | STEMI RED ETA 8 |
+  | STEMI, CS014 | 9% (radio 8%) | 11% | STEMI RED ETA 8 |
+  | trauma, CS008 | 10% (radio 10%) | 9% | TRAUMA RED ETA 6 |
+  | sepsis, CS008 | 10% (radio 13%) | 15% | ENDOCRINE RED ETA 12 |
+
+  The misses are the radio kind: "liters" -> "lighters", "rhonchi" -> "slunchy", "seatbelt sign" ->
+  "heat belt signs", "SpO2 91" -> "sp 0291", and a mains-like "108" -> "198" on the sepsis heart rate.
+  Level, ETA and alert type held on every run; the sepsis alert type is the model's choice, as before.
 - **The Vosk captions are a safety net.** On every run the captions carried words the Whisper transcript
   lost; a transcript much shorter than its captions should fall back to them for the missing stretch.
