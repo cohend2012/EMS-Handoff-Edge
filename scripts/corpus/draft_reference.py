@@ -49,6 +49,7 @@ def groq_client(settings):
 def groq_text(client, audio: np.ndarray, model: str, prompt: str) -> str:
     r = client.audio.transcriptions.create(file=("burst.wav", to_wav_bytes(audio)), model=model, prompt=prompt[-800:],
                                            language="en", temperature=0.0, response_format="json")
+    time.sleep(3.2)                                   # the free tier allows 20 requests a minute
     return (r.text or "").strip()
 
 
