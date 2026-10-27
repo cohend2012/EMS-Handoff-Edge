@@ -98,7 +98,7 @@ class Engines:
     make_llm: Callable[[Settings], Any] = LLMClient
     make_transcriber: Callable[[Settings], Any] = make_transcriber
     make_fallback_transcriber: Optional[Callable[[Settings], Any]] = LocalTranscriber
-    make_capture: Callable[[Settings], AudioCapture] = lambda s: AudioCapture(s.mic_device)
+    make_capture: Callable[[Settings], AudioCapture] = lambda s: AudioCapture(s.mic_device, highpass_hz=s.mic_highpass_hz)
     make_listeners: Callable[[Settings], tuple] = make_listeners
     list_mics: Callable[[], List] = list_input_devices
     make_sink: Callable[[Settings], Any] = lambda s: SinkPlayer(s.replay_sink)   # replay audio out (null sink)

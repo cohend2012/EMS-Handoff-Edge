@@ -22,6 +22,10 @@ Sample rate
     The device's native rate is opened (raw ALSA devices, hw:X,Y, usually only
     offer 44.1/48 kHz) and resampled to 16 kHz. 16 kHz is tried if that fails.
 
+Mains hum
+    A high-pass (Settings.mic_highpass_hz / HANDOFF_MIC_HIGHPASS_HZ, default 150 Hz, 0 = off) runs on
+    the worker thread after resampling, so the level meter, the recording and every listener get
+    audio without the 50/60 Hz hum the USB mic on the Jetson picks up.
 Threads
     PortAudio callback thread -> queue -> "audio-capture" worker thread -> subscribers.
 """
@@ -111,9 +115,21 @@ class AudioCapture:
 
     def __init__(self, device_spec: str = "", block_ms: int = 100,
                  stream_factory: Optional[StreamFactory] = None,
-                 device_info: Optional[Tuple[int, str, float]] = None):
+                 device_info: Optional[Tuple[int, str, float]] = None,
+                 highpass_hz: float = 150.0):
         self.device_spec = device_spec
         self.block_ms = block_ms
+        # Mains hum: the USB mic on the Jetson delivers 60 Hz at -20 dBFS with speech 10 dB under it
+        # (2026-10-26). A 6th-order high-pass (about 47 dB down at 60 Hz for the 150 Hz default),
+        # run block by block with its state carried over, takes the hum out before the level meter,
+        # the recording and every listener see the audio. Speech intelligibility sits above 300 Hz.
+        self.highpass_hz = float(highpass_hz or 0.0)
+        self._hp_sos = None
+        self._hp_state = None
+        if self.highpass_hz > 0:
+            from scipy.signal import butter, sosfilt_zi
+            self._hp_sos = butter(6, self.highpass_hz, btype="highpass", fs=TARGET_RATE, output="sos")
+            self._hp_state = sosfilt_zi(self._hp_sos) * 0.0
         self._stream_factory = stream_factory or _default_stream_factory
         self._device_info = device_info
         self._raw: "queue.Queue[Optional[np.ndarray]]" = queue.Queue()
@@ -202,6 +218,10 @@ class AudioCapture:
             if block is None:
                 return
             block = resample(np.asarray(block, dtype=np.float32), self.native_rate)
+            if self._hp_sos is not None and block.size:
+                from scipy.signal import sosfilt
+                block, self._hp_state = sosfilt(self._hp_sos, block, zi=self._hp_state)
+                block = block.astype(np.float32)
             self.level = float(np.sqrt(np.mean(block ** 2))) if block.size else 0.0
             with self._lock:
                 self._chunks.append(block)
