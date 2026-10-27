@@ -128,3 +128,13 @@ def test_transcribe_checked_notes_the_collapse():
     loop = Scripted(["A b c. " + "Same thing here. " * 5], name="groq")
     r = transcribe_checked(loop, None, long_audio(3.0))
     assert r.text == "A b c. Same thing here." and any("collapsed 4 repeated" in n for n in r.notes)
+
+
+def test_collapse_repeats_cuts_a_counting_loop_but_keeps_a_gcs_breakdown():
+    counted = ("Oxygen saturation 96%. GCS 14. " + " ".join(f"{n}." for n in [4, 4, 6, 7, 7, 8, 8, 8, 8, 8, 9, 9, 9, 9, 9, 10, 10, 10, 11, 11, 11, 11, 12, 12, 12, 12, 12])
+               + " Injuries include a large scalp laceration.")
+    text, note = collapse_repeats(counted)
+    assert text == "Oxygen saturation 96%. GCS 14. 4. 4. 6. Injuries include a large scalp laceration."
+    assert note and "counted-off numbers" in note
+    plain = "GCS 14. 4. 4. 6. Pupils equal. BP 120 over 80. Heart rate 90. ETA 10."
+    assert collapse_repeats(plain) == (plain, None)

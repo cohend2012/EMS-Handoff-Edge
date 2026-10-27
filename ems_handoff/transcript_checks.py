@@ -106,9 +106,39 @@ def collapse_repeats(text: str, min_run: int = 3) -> Tuple[str, Optional[str]]:
         else:
             out.extend(parts[i:j + 1])
         i = j + 1
-    if not cut:
+    notes = []
+    if cut:
+        notes.append(f"collapsed {cut} repeated sentence(s) (a transcriber loop)")
+    out, counted = _cut_number_run(out)
+    if counted:
+        notes.append(f"cut {counted} counted-off numbers (a transcriber loop)")
+    if not notes:
         return text, None
-    return " ".join(out), f"collapsed {cut} repeated sentence(s) (a transcriber loop)"
+    return " ".join(out), "; ".join(notes)
+
+
+_NUMBER_SENTENCE = re.compile(r"^\d{1,3}[.,!?]?$")
+
+
+def _cut_number_run(parts: List[str], min_run: int = 10, keep: int = 3) -> Tuple[List[str], int]:
+    """The other loop shape: after "GCS 14" the decoder counts, "4. 4. 6. 7. 7. 8. 8. 8. 9. 9. ... 12." for sixty
+    tokens (large-v3-turbo on SY188 of the generated set, three SNRs). A run of min_run or more sentences that are
+    each one bare number keeps its first `keep` (a GCS breakdown is three numbers) and drops the rest."""
+    out: List[str] = []
+    i = cut = 0
+    while i < len(parts):
+        j = i
+        while j < len(parts) and _NUMBER_SENTENCE.match(parts[j].strip()):
+            j += 1
+        run = j - i
+        if run >= min_run:
+            out.extend(parts[i:i + keep])
+            cut += run - keep
+            i = j
+        else:
+            out.append(parts[i])
+            i += 1
+    return out, cut
 
 
 def transcribe_checked(primary: Any, fallback: Any, audio: np.ndarray, caption_text: str = "",
