@@ -1,0 +1,28 @@
+{
+  "case": "sepsis",
+  "fields": [
+    {"path": "alert_type", "kind": "enum", "expect": "SEPSIS", "weight": 3},
+    {"path": "alert_level", "kind": "enum", "expect": "RED", "weight": 2, "accept": ["RED", "YELLOW"]},
+    {"path": "patient.age", "kind": "int", "expect": 82, "weight": 2},
+    {"path": "patient.sex", "kind": "enum", "expect": "Female", "weight": 2},
+    {"path": "eta_minutes", "kind": "int", "expect": 12, "weight": 2},
+    {"path": "vital_signs.blood_pressure", "kind": "contains", "expect": ["92/58"], "weight": 2},
+    {"path": "vital_signs.heart_rate", "kind": "int", "expect": 108, "weight": 2},
+    {"path": "vital_signs.respiratory_rate", "kind": "int", "expect": 24, "weight": 2},
+    {"path": "vital_signs.spo2", "kind": "contains", "expect": ["93"], "weight": 2},
+    {"path": "vital_signs.temperature", "kind": "contains", "expect": ["102.4"], "weight": 2},
+    {"path": "vital_signs.blood_glucose", "kind": "int", "expect": 186, "weight": 2},
+    {"path": "history.past_medical", "kind": "list",
+     "expect": [["dementia", "alzheimer"], ["chf", "heart failure"], ["fibrillation", "afib", "a-fib"], ["kidney", "ckd", "renal"]], "weight": 2},
+    {"path": "history.medications", "kind": "list",
+     "expect": [["metoprolol"], ["furosemide", "lasix"], ["donepezil", "aricept"], ["eliquis", "apixaban"]], "weight": 3},
+    {"path": "history.allergies", "kind": "list", "expect": [["penicillin", "pcn"], ["sulfa"]], "weight": 3},
+    {"path": "history.code_status", "kind": "contains", "expect": ["dnr", "do not resuscitate"], "weight": 3,
+     "note": "DNR with full treatment per POLST; losing the DNR is the worst single error"},
+    {"path": "ems_interventions", "kind": "list", "expect": [["iv", "20"], ["bolus", "500"]], "weight": 3},
+    {"path": "assessment_findings.breathing", "kind": "contains", "expect": ["rhonchi"], "weight": 2},
+    {"path": "assessment_findings.other_findings", "kind": "contains", "expect": ["foley", "catheter", "cloudy"], "weight": 2},
+    {"path": "hospital_recommendations.suggested_destination", "kind": "enum", "expect": "Critical Care", "weight": 2,
+     "accept": ["Critical Care", "Resuscitation Bay"]}
+  ]
+}

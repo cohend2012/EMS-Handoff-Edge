@@ -1,3 +1,18 @@
+"""
+lexicon.py — EMS terminology: canonical terms, the aliases paramedics say, and short clinical notes.
+
+Structure
+    LEXICON         {category: {canonical_term: [alias, ...]}}  (14 categories, ~850 surface forms)
+    CLINICAL_NOTES  {canonical_term: one-line note shown to the LLM}
+
+Used by
+    lexicon_rag.py            finds the terms present in a report and builds prompt context,
+                              and builds the vocabulary hint given to Whisper
+    transcript_corrector.py   the correction targets for mis-heard drug names
+
+Data only. Edit freely, then run the tests (tests/test_corrector_lexicon.py).
+"""
+
 from typing import Dict, List, Tuple
 
 # =============================================================================
@@ -260,7 +275,8 @@ LEXICON: Dict[str, Dict[str, List[str]]] = {
         "tourniquet": ["TQ", "TK"],
         "indwelling urinary catheter": ["Foley", "Foley catheter", "urinary catheter"],
         "supplemental oxygen": ["O2", "oxygen", "on oxygen", "liters",
-                             "liters per minute", "LPM"],
+                             "liters per minute", "LPM", "blow-by", "blow-by oxygen",
+                             "blow by oxygen"],
         "normal saline bolus": ["fluid bolus", "saline bolus", "fluids wide open",
                              "running wide open", "500 mL bolus"],
     },
@@ -325,6 +341,7 @@ LEXICON: Dict[str, Dict[str, List[str]]] = {
         "phenylephrine": ["Neo-Synephrine", "neo"],
         "oxytocin": ["Pitocin"],
         "pralidoxime": ["2-PAM", "Protopam", "pralidoxime chloride"],
+        "racemic epinephrine": ["racemic epi", "rac epi", "racemic", "nebulized epinephrine"],
         "prednisone": [],
         "procainamide": ["Pronestyl"],
         "promethazine": ["Phenergan"],
@@ -374,7 +391,8 @@ LEXICON: Dict[str, Dict[str, List[str]]] = {
         "do not resuscitate": ["DNR", "DNAR", "do not attempt resuscitation",
                               "no code"],
         "do not intubate": ["DNI"],
-        "full code": ["full resuscitation", "all measures", "full treatment"],
+        "full code": ["full resuscitation", "all measures"],
+        # "full treatment" is a POLST section, not a code status: a patient can be DNR with full treatment
         "physician orders for life-sustaining treatment": ["POLST", "MOLST"],
         "advance directive": ["living will", "health care directive",
                              "health care proxy", "durable power of attorney"],
@@ -425,12 +443,14 @@ CLINICAL_NOTES: Dict[str, str] = {
     # interventions
     "intravenous access": "Record gauge and site. 14-18G = large bore, 20G standard, 22-24G small.",
     "endotracheal intubation": "Definitive airway. Record tube size, depth, and confirmation method.",
-    "supplemental oxygen": "Always pair the saturation with the delivery device and flow rate.",
+    "supplemental oxygen": "Always pair the saturation with the delivery device and flow rate. Blow-by = mask or tubing held near a child's face, low effective FiO2.",
+    "racemic epinephrine": "Nebulized for croup or stridor in children. Symptoms can rebound in 2-4 hours; the child needs observation.",
+    "dexamethasone": "Steroid given for croup (0.6 mg/kg, max 10-16 mg), asthma, and allergic reactions; onset in hours.",
     "tourniquet": "Record anatomical site and time applied -- the ED needs the clock.",
  
     # code status
     "do not resuscitate": "Legally binding. Requires documentation on scene. Does NOT mean withhold all treatment.",
     "physician orders for life-sustaining treatment": "Portable medical order. May permit full treatment while still declining CPR -- read it, do not assume.",
-    "full code": "Default when no directive is documented.",
+    "full code": "Only when stated. A report that says nothing about a directive has no code status.",
 }
  

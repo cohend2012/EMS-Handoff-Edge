@@ -1,6 +1,11 @@
 """
 Retrieves the subset of the medical lexicon that is actually relevant to a
 given EMS report, and formats it for injection into the extraction prompt.
+
+    lexicon side:   lexicon.py (data)      -> lexicon_rag.py (LexiconStore, whisper_hint)
+
+The lexicon layer runs BEFORE/DURING extraction (terminology for Whisper and the
+extraction prompt). 
 """
 
 import logging
@@ -199,7 +204,7 @@ class LexiconStore:
         """Convenience: retrieve + format in one call."""
         return self.to_prompt_context(self.retrieve(ems_report, top_k=top_k))
 
-def whisper_hint(categories: Optional[List[str]] = None, max_chars: int = 800) -> str:
+def whisper_hint(categories: Optional[List[str]] = None, max_chars: int = 800, vocab: str = "") -> str:
     """
     Static terminology hint for Whisper's `prompt` parameter, biasing ASR
     toward EMS abbreviations and drug names.
@@ -234,9 +239,19 @@ def whisper_hint(categories: Optional[List[str]] = None, max_chars: int = 800) -
 
     prefix = "The following is a paramedic radio report. Terminology: "
     body = ""
+    tail = RADIO_PHRASES + (f" {vocab.strip().rstrip('.')}." if vocab and vocab.strip() else "")
+    budget = max_chars - len(tail) - 1
     for s in ordered:
         candidate = f"{body}{s}, "
-        if len(prefix) + len(candidate) > max_chars:
+        if len(prefix) + len(candidate) > budget:
             break
         body = candidate
-    return prefix + body.rstrip(", ") + "."
+    # Whisper attends to the tail of the prompt: the radio phrases go last
+    return prefix + body.rstrip(", ") + ". " + tail
+
+
+# How the crew talks on the radio, for Whisper's prompt. "Priority 2" came out as "priority to"
+# and "How do you copy?" as "Howdy, copy" on the real calls (CS008, CS014, 2026-10-25).
+RADIO_PHRASES = ("Priority 1, priority 2, priority 3. How do you copy? Copy. ETA ten minutes. "
+                 "12-lead unremarkable, normal sinus with PVCs. Blow-by oxygen, dexamethasone, racemic epinephrine, "
+                 "nitroglycerin sublingual, aspirin 324. LAMS, Cincinnati, last known well.")

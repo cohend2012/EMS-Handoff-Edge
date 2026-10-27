@@ -12,8 +12,36 @@ ENV/
 # Environment variables
 .env
 .env.*
+!.env.example
+
+# local-only data 
+/dataset/*
+!/dataset/.gitkeep
+/database/
 
 # Generated results 
-output/
+/output/
+
+# speech models (downloaded by scripts/download_models.py)
+/models/
+
+# choices saved from the app (provider, mic)
+user_settings.json
+
+# test screenshots
+tests/artifacts/
+.pytest_cache/
+
+# corpus data stays outside the repo (~/calls, ~/segments, ~/callsets, ~/reports, see scripts/corpus/README.md)
 *.wav
-*.json
+*.m4a
+*.mp3
+/transcripts/
+/segments/
+/callsets/
+/reports/
+/reports_postfix/
+/backups/
+
+# detached worktrees used to run an older commit beside the checkout (scripts/corpus/run_samples.py --app)
+/.claude/worktrees/

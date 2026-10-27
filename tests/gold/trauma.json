@@ -1,0 +1,28 @@
+{
+  "case": "trauma",
+  "fields": [
+    {"path": "alert_type", "kind": "enum", "expect": "TRAUMA", "weight": 3},
+    {"path": "alert_level", "kind": "enum", "expect": "RED", "weight": 3},
+    {"path": "patient.age", "kind": "int", "expect": 34, "weight": 2},
+    {"path": "patient.sex", "kind": "enum", "expect": "Female", "weight": 2},
+    {"path": "eta_minutes", "kind": "int", "expect": 6, "weight": 2},
+    {"path": "vital_signs.blood_pressure", "kind": "contains", "expect": ["88/60"], "weight": 2},
+    {"path": "vital_signs.heart_rate", "kind": "int", "expect": 124, "weight": 2},
+    {"path": "vital_signs.respiratory_rate", "kind": "int", "expect": 28, "weight": 2},
+    {"path": "vital_signs.spo2", "kind": "contains", "expect": ["91"], "weight": 2},
+    {"path": "vital_signs.spo2", "kind": "contains", "expect": ["non-rebreather", "nrb", "15"], "weight": 2},
+    {"path": "vital_signs.gcs", "kind": "gcs", "expect": 13, "breakdown": [3, 4, 6], "weight": 3},
+    {"path": "history.past_medical", "kind": "unknown", "weight": 2, "note": "'no history available' is unknown, not none"},
+    {"path": "history.medications", "kind": "unknown", "weight": 3},
+    {"path": "history.allergies", "kind": "unknown", "weight": 3, "note": "'allergy status unknown' - NKDA here is a hallucination"},
+    {"path": "history.code_status", "kind": "unknown", "weight": 3},
+    {"path": "ems_interventions", "kind": "list", "expect": [["c-spine", "cspine", "immobiliz", "backboard"], ["iv", "large bore"]], "weight": 3},
+    {"path": "ems_interventions", "kind": "not_contains", "expect": ["saline", "lactated", "improved"], "weight": 2,
+     "note": "fluid type and any response were never stated"},
+    {"path": "assessment_findings.breathing", "kind": "contains", "expect": ["diminished", "right"], "weight": 2},
+    {"path": "assessment_findings.other_findings", "kind": "list",
+     "expect": [["scalp", "laceration"], ["forearm", "fracture"], ["seatbelt", "abdom"]], "weight": 2},
+    {"path": "hospital_recommendations.activation_requested", "kind": "contains", "expect": ["trauma"], "weight": 2},
+    {"path": "hospital_recommendations.suggested_destination", "kind": "enum", "expect": "Trauma Bay", "weight": 3}
+  ]
+}
