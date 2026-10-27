@@ -82,6 +82,16 @@ barrier rules (coverage measured: which hallucinations they catch and which they
 4. Report: one table per hypothesis, WER and term-error curves against SNR, field score per alert type,
    and the device budget. The real call-sets get their own column so synthetic gains are checked
    against reality.
+5. **The off-the-shelf bar.** Every transcript table carries the same columns for plain Whisper with
+   nothing of ours in front of it: Groq whisper-large-v3-turbo and large-v3 without the hint, the
+   local faster-whisper medium and small without hint or corrector, and Vosk alone. Beside WER, the
+   average n-gram F (mean over 1- to 4-gram precision/recall against the reference,
+   `scripts/corpus/ngram_scores.py`) and 4-gram recall, which is the share of whole phrases that came
+   through intact and is what the report model actually reads. "Ours" (hint, corrector, caption repair,
+   checks, and later the fine-tuned model) has to beat that bar on the real call-sets, not only on the
+   generated set; a change that does not is not shipped. On the three gold call-sets today, the hint
+   alone takes Groq turbo from 20 % to 14 % WER and 0.72 to 0.75 average n-gram F
+   (NGRAM_2026-10-26.md).
 
 ## 5. Stop rules and what counts as proof
 
