@@ -11,10 +11,10 @@ clone_voice_cloud.py — read the practice scripts in a cloned voice on ElevenLa
 Keys (in ~/.config/handoff-ai/secrets.env or the environment): ELEVENLABS_API_KEY, CARTESIA_API_KEY,
 FISH_AUDIO_API_KEY. A service without a key is skipped with a note. `--check` only says which keys exist.
 
-The reference clip must be a speaker who agreed to be cloned: your own 10-30 s recording of one of the
-scripts, read close to the mic, is the right one (Fish wants its exact transcript in --ref-text; ElevenLabs
-and Cartesia do not). The paramedics in the radio corpus did not agree, so their voices are not cloned
-here; the corpus gives the channel (scripts/corpus/radioize.py) and the noise (~/noise_bank), not a person.
+The reference clip is a 10-30 s single-speaker cut (a ~/voice_refs/medic_*.wav from the corpus, for internal
+test audio only, or your own reading of a script). Fish wants its exact transcript in --ref-text; ElevenLabs
+and Cartesia do not. The corpus also gives the channel (scripts/corpus/radioize.py) and the noise
+(~/noise_bank).
 
 Outputs ~/air_scripts/<script>_<service>.wav, 16 kHz mono, in the spoken form of the scripts
 (scripts/air_check.py `spoken()`), ready for `air_check.py <script> --play --variant _<service>` or for
