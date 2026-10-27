@@ -437,3 +437,32 @@ def test_stated_no_known_allergies_and_code_status_fill_a_null_from_the_model():
     text2 = "Medic 41 to County General. 79-year-old female, motorcycle crash. ETA 8 minutes."
     report, _, _ = run(text2, FakeLLM([reply]))
     assert report["history"]["allergies"] is None and report["history"]["code_status"] is None
+
+
+def test_unspoken_gcs_breakdown_ems_drugs_as_home_meds_and_unmentioned_interventions_are_removed():
+    """Generated set, clean text (SY055, SY099, SY014 on 2026-10-27): qwen3:4b-instruct wrote "9 (Eye: 3, Verbal: 4, Motor: 2)"
+    for "GCS is 9", filed the aspirin and nitro it had just given under home medications, and listed a cervical collar
+    nobody mentioned."""
+    text = ("Medic 41 to County General. 69-year-old male, chest pain. GCS is 9. Administered 324 mg aspirin chewed and 0.4 mg "
+            "nitro sublingual. Takes metformin daily. 18-gauge IV left AC. ETA 8 minutes.")
+    reply = json.dumps(report_dict(
+        alert_type="STEMI", vital_signs={"blood_pressure": None, "heart_rate": None, "respiratory_rate": None, "spo2": None,
+                                         "temperature": None, "blood_glucose": None, "gcs": "9 (Eye: 3, Verbal: 4, Motor: 2)"},
+        ems_interventions=[{"intervention": "Aspirin", "details": "324 mg chewed", "response": None},
+                           {"intervention": "Nitroglycerin", "details": "0.4 mg sublingual", "response": None},
+                           {"intervention": "IV access", "details": "18-gauge left AC", "response": None},
+                           {"intervention": "Cervical collar", "details": "Applied", "response": None}],
+        history={"past_medical": [], "medications": ["aspirin", "nitroglycerin", "metformin"], "allergies": None, "code_status": None}))
+    report, _, _ = run(text, FakeLLM([reply]))
+    assert report["vital_signs"]["gcs"] == "9"
+    assert report["history"]["medications"] == ["metformin"]
+    assert [i["intervention"] for i in report["ems_interventions"]] == ["Aspirin", "Nitroglycerin", "IV access"]
+    notes = " ".join(report["data_quality"]["assumptions"])
+    assert "GCS breakdown removed" in notes and "Home medications removed" in notes and "Intervention removed: 'Cervical collar Applied'" in notes
+    # spoken breakdown and a spoken collar stay
+    text2 = "GCS is 9, eyes 3, verbal 4, motor 2. C-collar applied, patient on a backboard. Takes aspirin 81 daily."
+    reply2 = json.dumps(report_dict(vital_signs={"gcs": "9 (E3 V4 M2)"}, ems_interventions=[{"intervention": "Cervical collar", "details": "Applied", "response": None}],
+                                    history={"past_medical": [], "medications": ["aspirin 81"], "allergies": None, "code_status": None}))
+    report, _, _ = run(text2, FakeLLM([reply2]))
+    assert report["vital_signs"]["gcs"] == "9 (E3 V4 M2)" and len(report["ems_interventions"]) == 1
+    assert report["history"]["medications"] == ["aspirin 81"]

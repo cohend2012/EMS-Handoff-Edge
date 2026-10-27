@@ -225,6 +225,81 @@ def ground_history_defaults(report: Dict[str, Any], text: str) -> List[str]:
     return notes
 
 
+# Claims the model adds to what was said, found on the generated set's clean text (SYNTH_V1_2026-10-27.md):
+# a GCS breakdown when only the total was spoken, an EMS-given drug filed under home medications, an
+# intervention nobody mentioned. Each rule keeps what the transcript supports and notes what it removed.
+_GCS_BREAKDOWN_CUES = re.compile(r"\b(?:eyes?|verbal|motor|opening|\bE\s?\d|\bV\s?\d|\bM\s?\d)\b", re.I)
+_HOME_MED_CUES = re.compile(r"\b(?:takes|taking|medications?|meds|prescribed|home|daily|history|on)\b", re.I)
+_GENERIC_WORDS = {"applied", "established", "administered", "given", "gave", "placed", "started", "initiated", "obtained",
+                  "performed", "patient", "with", "via", "and", "the", "of", "to", "in", "on", "at", "for", "per", "times",
+                  "dose", "route", "response", "none", "unknown", "not", "mentioned", "stated", "null", "access", "therapy"}
+
+
+def _tokens(text: str) -> List[str]:
+    return [str(_NUMBER_WORDS.get(t, t)) for t in re.split(r"[^\w.]+", text.lower()) if t]
+
+
+def _supported(words: List[str], transcript_tokens: set) -> bool:
+    """Some content word of the claim occurs in the transcript (whole, or by a five-letter stem for long words)."""
+    for w in words:
+        if w in _GENERIC_WORDS or len(w) < 2:
+            continue
+        if w in transcript_tokens:
+            return True
+        if len(w) >= 6 and any(t.startswith(w[:5]) for t in transcript_tokens if len(t) >= 5):
+            return True
+    return False
+
+
+def ground_claims(report: Dict[str, Any], text: str) -> List[str]:
+    """Remove the three claim shapes above when the transcript does not carry them; returns notes."""
+    notes: List[str] = []
+    toks = _tokens(text)
+    tokset = set(toks)
+    # 1. GCS: a breakdown that was never spoken
+    vs = report.get("vital_signs")
+    if isinstance(vs, dict) and vs.get("gcs") not in (None, "", []):
+        g = vs["gcs"]
+        gtext = json.dumps(g) if isinstance(g, (dict, list)) else str(g)
+        nums = [int(n) for n in re.findall(r"\d+", gtext)]
+        if nums and len([n for n in nums[1:] if n <= 6]) >= 3 and not _GCS_BREAKDOWN_CUES.search(text):
+            vs["gcs"] = str(nums[0])
+            notes.append(f"GCS breakdown removed: only the total {nums[0]} was spoken (the model wrote {gtext[:60]!r})")
+    # 2. home medications that are the drugs EMS gave
+    hist = report.get("history")
+    ivs = report.get("ems_interventions") or []
+    given = " ".join(json.dumps(i) if isinstance(i, dict) else str(i) for i in ivs).lower()
+    if isinstance(hist, dict) and isinstance(hist.get("medications"), list) and given:
+        sentences = re.split(r"(?<=[.!?])\s+", text)
+        kept, dropped = [], []
+        for item in hist["medications"]:
+            name = re.sub(r"[^a-z]", " ", str(item).lower()).split()
+            name = [w for w in name if len(w) > 2]
+            drug_words = [w for w in name if w in given or any(w[:5] == gw[:5] for gw in re.findall(r"[a-z]{5,}", given))]
+            if not drug_words:
+                kept.append(item); continue
+            mentions = [sn for sn in sentences if any(w[:5] in sn.lower() for w in drug_words)]
+            if mentions and not any(_HOME_MED_CUES.search(sn) for sn in mentions):
+                dropped.append(item)
+            else:
+                kept.append(item)
+        if dropped:
+            hist["medications"] = kept
+            notes.append(f"Home medications removed: {dropped!r} were given by EMS, not stated as the patient's medications")
+    # 3. interventions with no word in the transcript
+    if isinstance(ivs, list) and ivs:
+        kept = []
+        for item in ivs:
+            claim = " ".join(str(item.get(k) or "") for k in ("intervention", "details")) if isinstance(item, dict) else str(item)
+            words = _tokens(claim)
+            if _supported(words, tokset):
+                kept.append(item)
+            else:
+                notes.append(f"Intervention removed: {claim.strip()!r} has no word in the transcript")
+        report["ems_interventions"] = kept
+    return notes
+
+
 # Alert words a radio fragment can carry. UNCLEAR is for a transcript with none of them.
 _ALERT_WORDS = [
     ("CARDIAC_ARREST", re.compile(r"cardiac arrest|\bcpr\b|pulseless|asystole|v-?fib\b|ventricular fibrillation|\brosc\b", re.I)),
@@ -491,6 +566,7 @@ class ReportPipeline:
             timings.update(usage)      # tokens_in, tokens_out, tok_s: says where a slow model spent its time
         report["data_quality"]["assumptions"].extend(assumption_notes(fix))
         report["data_quality"]["assumptions"].extend(ground_history_defaults(report, fix.text))
+        report["data_quality"]["assumptions"].extend(ground_claims(report, fix.text))
         if report["alert_type"] == "UNCLEAR":
             hit = alert_from_words(fix.text)
             if hit:
