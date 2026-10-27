@@ -170,6 +170,7 @@ def main() -> int:
     ap.add_argument("--provider", choices=["local", "groq"], default="local")
     ap.add_argument("--model", default="medium", help="faster-whisper size for --provider local; a whisper-* name picks the Groq model")
     ap.add_argument("--no-hint", action="store_true")
+    ap.add_argument("--fallback", action="store_true", help="local only: temperature fallback 0/0.2/0.4 with the no-speech gate off (LOCAL_WHISPER_FALLBACK)")
     ap.add_argument("--hotwords", action="store_true", help="local only: pass terms.txt as faster-whisper hotwords (prepended to the prompt)")
     ap.add_argument("--corrector", action="store_true", help="apply the app's transcript corrector to the output")
     ap.add_argument("--label")
@@ -185,7 +186,7 @@ def main() -> int:
     if args.summary:
         write_summary(args.summary, args.summary.name); print((args.summary / "summary.md").read_text()); return 0
 
-    label = args.label or ((args.from_label or (("groq" + ("_" + args.model[8:] if args.model.startswith("whisper-") else "") if args.provider == "groq" else args.model) + ("_nohint" if args.no_hint else "_hint") + ("_hot" if args.hotwords else ""))) + ("_corr" if args.corrector else ""))
+    label = args.label or ((args.from_label or (("groq" + ("_" + args.model[8:] if args.model.startswith("whisper-") else "") if args.provider == "groq" else args.model) + ("_nohint" if args.no_hint else "_hint") + ("_hot" if args.hotwords else "") + ("_fb" if args.fallback else ""))) + ("_corr" if args.corrector else ""))
     out = args.set / "evals" / label
     (out / "transcripts").mkdir(parents=True, exist_ok=True)
     rows_path = out / "rows.tsv"
@@ -207,6 +208,8 @@ def main() -> int:
     terms = [normalize(t) for t in (args.set / "terms.txt").read_text().splitlines() if t.strip()]
     src_dir = (args.set / "evals" / args.from_label / "transcripts") if args.from_label else None
     transcriber = None if src_dir else make_transcriber(args.provider, args.model, not args.no_hint)
+    if transcriber and args.fallback and hasattr(transcriber, "fallback"):
+        transcriber.fallback = True
     if transcriber and args.hotwords:
         transcriber.hotwords = ", ".join(t.strip() for t in (args.set / "terms.txt").read_text().splitlines() if t.strip())
     if transcriber:
@@ -214,7 +217,7 @@ def main() -> int:
     if args.corrector:
         from ems_handoff.transcript_corrector import correct_transcript
     print(f"[{label}] {transcriber.describe() if transcriber else 'transcripts of ' + args.from_label}; hint {'off' if args.no_hint else 'on'}; "
-          f"hotwords {'on' if args.hotwords else 'off'}; corrector {'on' if args.corrector else 'off'}; {len(ids)} scripts x {args.snr}; {len(done)} clips already done", flush=True)
+          f"hotwords {'on' if args.hotwords else 'off'}; fallback {'on' if args.fallback else 'off'}; corrector {'on' if args.corrector else 'off'}; {len(ids)} scripts x {args.snr}; {len(done)} clips already done", flush=True)
     n_new = 0
     last_call = 0.0
     for sid in ids:

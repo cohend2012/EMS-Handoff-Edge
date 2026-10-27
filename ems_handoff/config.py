@@ -92,6 +92,7 @@ class Settings:
     local_whisper_model: str = "large-v3-turbo"
     local_whisper_device: str = "cpu"            # cpu | cuda
     local_whisper_compute: str = "int8"
+    local_whisper_fallback: bool = False         # LOCAL_WHISPER_FALLBACK: retry a collapsed 30 s window at temperature 0.2 then 0.4, no-speech gate off
 
     # --- live listening ----------------------------------------------------
     mic_device: str = ""                         # index, or part of the name; "" = auto (prefers USB)
@@ -195,6 +196,7 @@ def load_settings(env: Optional[Mapping[str, str]] = None) -> Settings:
         local_whisper_model=g("LOCAL_WHISPER_MODEL") or defaults.local_whisper_model,
         local_whisper_device=g("LOCAL_WHISPER_DEVICE") or defaults.local_whisper_device,
         local_whisper_compute=g("LOCAL_WHISPER_COMPUTE") or defaults.local_whisper_compute,
+        local_whisper_fallback=_bool(g("LOCAL_WHISPER_FALLBACK"), defaults.local_whisper_fallback),
         mic_device=(g("HANDOFF_MIC_DEVICE") or "").strip(),
         mic_highpass_hz=_float(g("HANDOFF_MIC_HIGHPASS_HZ"), defaults.mic_highpass_hz),
         caption_engine=_choice(g("HANDOFF_CAPTIONS"), CAPTION_ENGINES, defaults.caption_engine),

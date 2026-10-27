@@ -123,11 +123,13 @@ class LocalTranscriber:
         self.settings = settings
         self.model_size = model_size or settings.local_whisper_model
         self.hint = whisper_hint(vocab=getattr(settings, 'radio_vocab', ''))
+        self.fallback = bool(getattr(settings, "local_whisper_fallback", False))
         self._model = None
         self._lock = threading.Lock()
 
     def describe(self) -> str:
-        return f"local faster-whisper {self.model_size} ({self.settings.local_whisper_device})"
+        return (f"local faster-whisper {self.model_size} ({self.settings.local_whisper_device})"
+                + (", fallback" if self.fallback else ""))
 
     def _get_model(self):
         with self._lock:
@@ -149,9 +151,14 @@ class LocalTranscriber:
             raise TranscriptionError("The recording is too short (under half a second).")
         t0 = time.perf_counter()
         try:
+            # One greedy pass at temperature 0. With fallback on, a window whose decode collapses (average log
+            # probability under -1 or compression ratio over 2.4) is decoded again at 0.2, then 0.4, and the
+            # no-speech gate is off so that window is not thrown away as silence first: on the generated set
+            # (SYNTH_V1_2026-10-27.md) medium lost the middle 28 s of a report that way in 3 of 300 clips.
+            decode = dict(temperature=[0.0, 0.2, 0.4], no_speech_threshold=None) if self.fallback else dict(temperature=0.0)
             segments, _info = self._get_model().transcribe(
                 np.asarray(audio, dtype=np.float32), language="en", beam_size=1,
-                temperature=0.0, condition_on_previous_text=False,
+                condition_on_previous_text=False, **decode,
                 initial_prompt=self.hint or None, hotwords=getattr(self, "hotwords", None) or None, vad_filter=True,
                 vad_parameters={"min_silence_duration_ms": 500})
             text = " ".join(s.text.strip() for s in segments).strip()
