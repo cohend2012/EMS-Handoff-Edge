@@ -48,6 +48,8 @@ def normalize(text: str) -> List[str]:
     t = re.sub(r"\bmillilit(?:er|re)s?\b", "ml", t)
     t = re.sub(r"\bmicrograms?\b", "mcg", t)
     t = re.sub(r"\ba fib\b", "afib", t)              # "A-fib" after the hyphen split, same word as AFib
+    t = re.sub(r"\bsp02\b", "spo2", t)               # a zero for the O
+    t = re.sub(r"\bx(\d)", r"times \1", t)            # "x4" is read "times four"
     t = re.sub(r"[^\w\s']", " ", t)
     words = [w.strip("'") for w in t.split()]
     return [_NUM.get(w, w) for w in words if w]

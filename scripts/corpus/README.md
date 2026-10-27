@@ -26,7 +26,9 @@ Scoring against the gold answers for the four sample cases is `scripts/benchmark
 The generated set pipeline, in order: `gen_scripts.py` (radio reports with gold answers, Phase 0 of
 docs/plans/LYAPUNOV_STT_PLAN.md), `render_set.py` (Piper or pre-rendered clips through `radioize.py` at five SNRs, laid
 out as call-sets), `eval_set.py` (a transcriber over the clips: WER, term error, hallucination, loop and dropped-tail
-rates by SNR), `../benchmark.py --gold <set>/gold` (reports against the gold). `noise_bank.py` cuts the channel floor
-beds from the spectral survey. These and `spectral_survey.py`, `radioize.py`, `clone_voice.py`, `clone_voice_cloud.py`,
+rates by SNR; `--rescore` after a scorer change), `eval_errors.py` (the missed terms and edit spans behind a table),
+`hint_insertions.py` (hint phrases planted in transcripts), `report_set.py` (the report model over scripts or transcripts,
+scored against the gold; `../benchmark.py --gold <set>/gold` does the same for a folder of reports). `noise_bank.py` cuts
+the channel floor beds from the spectral survey. These and `spectral_survey.py`, `radioize.py`, `clone_voice.py`, `clone_voice_cloud.py`,
 `ngram_scores.py` and `../air_check.py` work on generated data under `HANDOFF_DATASETS` (default `~/datasets`), never on the
 corpus paths above. The layout and the rules are in `docs/DATA_LAYOUT.md`.
