@@ -130,6 +130,7 @@ class Vitals:
     rr_note: str = ""                # " and shallow"
     spo2: Optional[int] = None
     o2: Optional[str] = None         # "on room air", "on 4 liters nasal cannula"; None = not stated
+    o2_kind: Optional[str] = None    # ra | nc | nrb | cpap | bvm | blowby
     o2_aliases: List[str] = field(default_factory=list)
     temp: Optional[str] = None       # "102.4"
     bg: Optional[Any] = None         # 186 or "high"
@@ -175,6 +176,7 @@ class Scenario:
     extra_fields: List[Dict[str, Any]] = field(default_factory=list)
     terms: List[str] = field(default_factory=list)
     fragment: bool = False
+    skip_unknown: List[str] = field(default_factory=list)   # paths whose "unknown" demand is waived (the text implies them)
 
 
 def chance(r: random.Random, p: float) -> bool:
@@ -214,6 +216,7 @@ def pick_vitals(r: random.Random, bp=(110, 150, 60, 92), hr=(64, 104), rr=(14, 2
 
 
 def set_o2(r: random.Random, v: Vitals, kind: str) -> None:
+    v.o2_kind = kind
     if kind == "ra":
         v.o2, v.o2_aliases = "on room air", ["room air", "ra"]
     elif kind == "nc":
@@ -240,6 +243,17 @@ def rhythm_for(r: random.Random, hr: int, afib: bool = False) -> str:
     else:
         opts = ["", "", ", normal sinus", ", normal sinus with PVCs", " and irregular"]
     return pick(r, opts)
+
+
+O2_INTERVENTION = {"nc": ["oxygen", "o2", "nasal", "cannula", "liters"], "nrb": ["oxygen", "o2", "non-rebreather", "nrb", "rebreather", "liters"],
+                   "cpap": ["cpap"], "bvm": ["bvm", "bag", "ventilat"], "blowby": ["oxygen", "o2", "blow"]}
+
+
+def o2_intervention(sc: "Scenario", kind: str) -> None:
+    """Oxygen given by any device is something EMS did; the gold expects it under ems_interventions (weight 2)."""
+    if kind in O2_INTERVENTION:
+        sc.interventions.append(Intervention(f"oxygen ({kind})", O2_INTERVENTION[kind], [], 2))
+        sc.terms.append({"nc": "nasal cannula", "nrb": "non-rebreather", "cpap": "CPAP", "bvm": "BVM", "blowby": "blow-by"}[kind])
 
 
 def set_gcs(r: random.Random, v: Vitals, total: int, p_breakdown: float = 0.4) -> None:
@@ -451,6 +465,10 @@ def fam_trauma(r: random.Random) -> Scenario:
     sc.exam.append(pick(r, ["Pupils equal and reactive.", "Breath sounds bilateral but diminished on the right.", "Patient confused but following commands.",
                              "Abdomen soft, non-tender.", "Pelvis stable.", "Moving all extremities."]))
     sc.terms += [i.split(" with ")[0].split(" to ")[0].replace("a ", "").replace("an ", "") for i in inj]
+    if "blood thinners" in mech[0]:
+        sc.extra_fields.append({"path": "history.medications", "kind": "contains", "expect": ["thinner", "anticoag"], "weight": 2,
+                                "search": ["history.medications", "history.past_medical", "mechanism_or_onset", "handoff_summary"], "note": "'on blood thinners' was said"})
+        sc.skip_unknown += ["history.medications", "history.past_medical"]
     if chance(r, 0.35):
         sc.pmh_stated = None; sc.meds_stated = None
         sc.story.append(pick(r, ["No medical history available.", "Patient is a visitor from out of state, no history available, allergy status unknown."]))
@@ -679,6 +697,8 @@ def fam_endocrine(r: random.Random) -> Scenario:
         v.bg = post
         sc = Scenario("endocrine", "ENDOCRINE", ["MEDICAL"], age, "years", sex, pick(r, ["hypoglycemia", "diabetic emergency, low blood sugar"]), ["hypoglyc", "low blood sugar", "glucose", "diabetic"], ["hypoglycemia"],
                       story=[f"Family found the patient {pick(r, ['confused and diaphoretic', 'unresponsive', 'combative'])}, initial blood glucose {pre}."], vitals=v)
+        if "diabetic" in sc.cc_short:
+            sc.skip_unknown.append("history.past_medical")          # "diabetic emergency" names the condition
         given = pick(r, [("D10", "25 grams", "IV", ["25"]), ("D10", "125 mL", "IV", ["125"]), ("glucagon", "1 mg", "IM", ["1"]), ("oral glucose", "15 grams", "PO", ["15"])])
         sc.treat.append(f"We administered {drug(sc, *given)}, repeat glucose is {post} and the patient is now alert and oriented.")
         sc.exam = []
@@ -1048,6 +1068,7 @@ def gold_fields(sc: Scenario) -> List[Dict[str, Any]]:
     if sc.destination:
         add({"path": "hospital_recommendations.suggested_destination", "kind": "enum", "expect": sc.destination, "weight": 3})
     F += sc.extra_fields
+    F = [f for f in F if not (f["kind"] == "unknown" and f["path"] in sc.skip_unknown)]
     return F
 
 
@@ -1092,6 +1113,8 @@ def make_one(seed: int, i: int) -> Tuple[str, str, Dict[str, Any], Scenario]:
             acc += w
             if x <= acc:
                 sc = fn(r); break
+    if not sc.fragment and sc.vitals.o2_kind and sc.vitals.spo2 is not None and not any("oxygen (" in i.text for i in sc.interventions):
+        o2_intervention(sc, sc.vitals.o2_kind)
     text = render(r, sc, unit, hosp)
     gold = {
         "case": sid,
@@ -1164,7 +1187,22 @@ def main(argv=None) -> int:
     ap.add_argument("--out", type=Path, default=paths.datasets() / "synth_v1")
     ap.add_argument("--show", help="print one script (SY017) for this seed instead of writing the set")
     ap.add_argument("--dry", action="store_true", help="generate in memory only and report the counts")
+    ap.add_argument("--regold", action="store_true", help="rewrite gold/ of an existing set from the same seed; refuses if any script text would change")
     args = ap.parse_args(argv)
+    if args.regold:
+        n_changed = 0
+        for i in range(1, args.n + 1):
+            sid, text, gold, sc = make_one(args.seed, i)
+            old_text = (args.out / "scripts" / f"{sid}.txt").read_text()
+            same = lambda t: re.sub(r"\ban? (\d)", r"a \1", t.rstrip("\n"))   # the article fix of 13a7cef is the one known text difference
+            if same(old_text) != same(text):
+                print(f"{sid}: the text would change; not touching this set (make a new one)", file=sys.stderr); return 2
+            old_gold = json.loads((args.out / "gold" / f"{sid}.json").read_text())
+            if old_gold["fields"] != gold["fields"]:
+                n_changed += 1
+            (args.out / "gold" / f"{sid}.json").write_text(json.dumps(gold, indent=1, ensure_ascii=False) + "\n")
+        print(f"[OK] gold rewritten for {args.n} scripts, {n_changed} changed; texts unchanged")
+        return 0
     if args.show:
         i = int(re.sub(r"\D", "", args.show))
         sid, text, gold, sc = make_one(args.seed, i)

@@ -230,6 +230,8 @@ def ground_history_defaults(report: Dict[str, Any], text: str) -> List[str]:
 # intervention nobody mentioned. Each rule keeps what the transcript supports and notes what it removed.
 _GCS_BREAKDOWN_CUES = re.compile(r"\b(?:eyes?|verbal|motor|opening|\bE\s?\d|\bV\s?\d|\bM\s?\d)\b", re.I)
 _HOME_MED_CUES = re.compile(r"\b(?:takes|taking|medications?|meds|prescribed|home|daily|history|on)\b", re.I)
+_REQUEST_CUES = re.compile(r"\b(?:request\w*|activat\w*|alert|notif\w*|calling (?:a|an|the)|call (?:a|an|the)|have .{0,30}(?:ready|standing by|waiting)|"
+                           r"meet us|standing by|be ready|need (?:a|an|the)|physician|orders?)\b", re.I)
 _GENERIC_WORDS = {"applied", "established", "administered", "given", "gave", "placed", "started", "initiated", "obtained",
                   "performed", "patient", "with", "via", "and", "the", "of", "to", "in", "on", "at", "for", "per", "times",
                   "dose", "route", "response", "none", "unknown", "not", "mentioned", "stated", "null", "access", "therapy"}
@@ -286,6 +288,18 @@ def ground_claims(report: Dict[str, Any], text: str) -> List[str]:
         if dropped:
             hist["medications"] = kept
             notes.append(f"Home medications removed: {dropped!r} were given by EMS, not stated as the patient's medications")
+    # 4. a request nobody made: activation_requested is what the crew asked for, not what the ED should do
+    hr = report.get("hospital_recommendations")
+    if isinstance(hr, dict) and hr.get("activation_requested") not in (None, "", []) and not _REQUEST_CUES.search(text):
+        asked = hr["activation_requested"]
+        if not _is_empty(asked) and not any(w in str(asked).lower() for w in ("none", "not ", "no ")):
+            notes.append(f"Activation request cleared: the crew asked for nothing (the model wrote {str(asked)[:60]!r})")
+            hr["activation_requested"] = None
+    # 5. "room air" the crew never said
+    if isinstance(vs, dict) and isinstance(vs.get("spo2"), str) and re.search(r"room air|\bRA\b", vs["spo2"], re.I) \
+            and not re.search(r"room air|\bR\.?A\.?\b", text, re.I):
+        vs["spo2"] = re.sub(r"\s*(?:on|,)?\s*(?:room air|\bRA\b)", "", vs["spo2"], flags=re.I).strip(" ,") or None
+        notes.append("Oxygen delivery removed from SpO2: 'room air' was never said")
     # 3. interventions with no word in the transcript
     if isinstance(ivs, list) and ivs:
         kept = []

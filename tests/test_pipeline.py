@@ -466,3 +466,18 @@ def test_unspoken_gcs_breakdown_ems_drugs_as_home_meds_and_unmentioned_intervent
     report, _, _ = run(text2, FakeLLM([reply2]))
     assert report["vital_signs"]["gcs"] == "9 (E3 V4 M2)" and len(report["ems_interventions"]) == 1
     assert report["history"]["medications"] == ["aspirin 81"]
+
+
+def test_unrequested_activation_and_unspoken_room_air_are_cleared():
+    """SY149, SY187, SY188 and SY085, SY140 on the clean text: "endocrine service" / "trauma team" requested by nobody, and
+    "on room air" added to an SpO2 whose delivery was never stated."""
+    text = "Medic 41 to County General. 30-year-old female, possible DKA. SpO2 97%, blood glucose 612. ETA 10 minutes."
+    reply = json.dumps(report_dict(alert_type="ENDOCRINE", vital_signs={"spo2": "97% on room air", "blood_glucose": "612"},
+                                   hospital_recommendations={"activation_requested": "endocrine service", "suggested_destination": "Critical Care",
+                                                             "resources_to_prepare": [], "time_critical_actions": []}))
+    report, _, _ = run(text, FakeLLM([reply]))
+    assert report["hospital_recommendations"]["activation_requested"] is None
+    assert report["vital_signs"]["spo2"] == "97%"
+    text2 = "Medic 41 to County General. 30-year-old female, possible DKA. SpO2 97% on room air. Requesting a physician for orders. ETA 10 minutes."
+    report, _, _ = run(text2, FakeLLM([reply]))
+    assert report["hospital_recommendations"]["activation_requested"] == "endocrine service" and report["vital_signs"]["spo2"] == "97% on room air"

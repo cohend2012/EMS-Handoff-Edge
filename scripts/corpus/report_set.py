@@ -73,7 +73,7 @@ def main() -> int:
     ap.add_argument("--set", type=Path, default=paths.datasets() / "synth_v1")
     ap.add_argument("--split", choices=["train", "val", "test"])
     ap.add_argument("--ids", nargs="*")
-    src = ap.add_mutually_exclusive_group(required=True)
+    src = ap.add_mutually_exclusive_group()
     src.add_argument("--clean", action="store_true", help="the script texts (voice 'text', snr 'clean')")
     src.add_argument("--from", dest="from_label", help="transcripts of this <set>/evals/<label>")
     ap.add_argument("--voice", default="piper")
@@ -82,7 +82,27 @@ def main() -> int:
     ap.add_argument("--model", default="qwen3:4b-instruct")
     ap.add_argument("--label")
     ap.add_argument("--summary", type=Path, help="only rebuild summary.md for this reports folder")
+    ap.add_argument("--rescore", type=Path, help="rebuild rows.tsv and summary.md of this reports folder from its saved reports against the current gold")
     args = ap.parse_args()
+    if args.rescore:
+        out = args.rescore
+        rows = []
+        for rp in sorted(out.glob("SY*.json")):
+            report = json.loads(rp.read_text()); run_ = report.get("_run", {})
+            sid = run_.get("script") or rp.name[:5]
+            gold = json.loads((args.set / "gold" / f"{sid}.json").read_text())
+            s = benchmark.score(report, gold); truth = alert_truth(gold, report)
+            alert_row = next((b for p_, k, b, d, w in s["rows"] if p_ == "alert_type"), "")
+            rows.append({"id": sid, "family": gold.get("family", ""), "voice": run_.get("voice", ""), "snr": run_.get("snr", ""), "weighted": s["weighted"],
+                         "recall": s["recall"], "precision": s["precision"], "hit": s["hit"], "omission": s["omission"], "wrong": s["wrong"],
+                         "abstained": s["abstained"], "hallucination": s["hallucination"], "alert_ok": int(alert_row == "hit"),
+                         "level_ok": "" if truth.get("level_ok") is None else int(bool(truth["level_ok"])),
+                         "eta_ok": "" if truth.get("eta_ok") is None else int(bool(truth["eta_ok"])),
+                         "alert_got": report.get("alert_type"), "extract_s": s.get("extract_s"), "wall_s": run_.get("wall_s")})
+        (out / "rows.tsv").write_text("\t".join(COLS) + "\n" + "".join("\t".join("" if r[c] is None else str(r[c]) for c in COLS) + "\n" for r in rows))
+        write_summary(out, out.name); print(f"[OK] rescored {len(rows)} reports\n"); print((out / "summary.md").read_text().split("\n## ")[0]); return 0
+    if not (args.clean or args.from_label or args.summary):
+        ap.error("one of --clean, --from, --summary or --rescore is required")
     if args.summary:
         write_summary(args.summary, args.summary.name); print((args.summary / "summary.md").read_text().split("\n## ")[0]); return 0
 
