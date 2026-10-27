@@ -30,7 +30,8 @@ generated data takes its default from it.
 | `spectral/` | the FFT survey of the corpus: files.csv, spectra.csv, frames/, png/ | spectral_survey.py |
 | `scripts_v0/` | the three practice scripts: text, spoken form, WAV per voice and variant (`<script>[_xtts_<ref>][_radio].wav`) | air_check.py --make-wavs, clone_voice*.py, radioize.py |
 | `air_runs/` | over-the-air runs, one folder each, and INDEX.tsv | air_check.py |
-| `synth_v1/` (planned) | the generated gold set: `scripts/`, `gold/`, `audio/<voice>/<snr>/`, `splits.json`, and `callsets/` | gen_scripts.py, render step |
+| `synth_v1/` | the generated gold set, 200 scripts (seed 1): `scripts/<id>.txt` and `.spoken.txt`, `gold/<id>.json` (tests/gold format plus `stated` and `marker`), `index.tsv`, `splits.json` (70/15/15 by script, stratified by family), `terms.txt`, README.md | gen_scripts.py |
+| `synth_v1/audio/<voice>/<snr>/` and `synth_v1/callsets/` (planned) | the rendered clips per voice and SNR, and the same clips laid out as call-sets for replay mode | render step |
 
 ### How the app uses generated data
 

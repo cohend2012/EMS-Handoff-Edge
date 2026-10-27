@@ -65,10 +65,16 @@ def script_text(name: str) -> str:
 
 # How a paramedic says the written abbreviations. Piper's phonemizer otherwise reads "IV" as the Roman
 # numeral and "SpO2" as a word; the first air run heard "Roman 4" and "sbo2" for them.
-SPOKEN = [("SpO2", "S P O 2"), ("IV", "I V"), ("IVs", "I V's"), ("BP", "B P"), ("ETA", "E T A"), ("GCS", "G C S"),
-          ("MVC", "M V C"), ("AC", "A C"), ("DNR", "D N R"), ("POLST", "polst"), ("CHF", "C H F"),
-          ("STEMI", "stemmy"), ("12-lead", "twelve lead"), ("c-spine", "C spine"), ("911", "nine one one"),
-          ("mg", " milligrams"), ("ml", " milliliters"), ("%", " percent"), ("/", " over ")]
+SPOKEN = [("SpO2", "S P O 2"), ("IVs", "I V's"), ("IV", "I V"), ("BP", "B P"), ("ETA", "E T A"), ("GCS", "G C S"),
+          ("MVC", "M V C"), ("AC", "A C"), ("DNR", "D N R"), ("DNI", "D N I"), ("POLST", "polst"), ("CHF", "C H F"),
+          ("STEMI", "stemmy"), ("12-lead", "twelve lead"), ("c-spine", "C spine"), ("C-collar", "C collar"),
+          ("911", "nine one one"), ("COPD", "C O P D"), ("CAD", "C A D"), ("CKD", "C K D"), ("ESRD", "E S R D"),
+          ("DKA", "D K A"), ("CVA", "C V A"), ("TIA", "T I A"), ("LOC", "L O C"), ("TBI", "T B I"), ("GSW", "G S W"),
+          ("UTI", "U T I"), ("NKDA", "N K D A"), ("PVCs", "P V C's"), ("EKG", "E K G"), ("AFib", "A fib"),
+          ("RVR", "R V R"), ("ROSC", "rosk"), ("CPR", "C P R"), ("AED", "A E D"), ("BVM", "B V M"), ("IM", "I M"),
+          ("IO", "I O"), ("O2", "O 2"), ("D10", "D 10"), ("D50", "D 50"), ("LR", "L R"), ("PM", "P M"), ("AM", "A M"),
+          ("mcg", " micrograms"), ("mg", " milligrams"), ("mL", " milliliters"), ("ml", " milliliters"),
+          ("%", " percent"), ("/", " over ")]
 
 
 def spoken(text: str) -> str:

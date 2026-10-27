@@ -23,6 +23,7 @@ Scoring against the gold answers for the four sample cases is `scripts/benchmark
 
 ## Generated data and the air test
 
-`spectral_survey.py`, `radioize.py`, `clone_voice.py`, `clone_voice_cloud.py`, `ngram_scores.py` and
-`../air_check.py` work on generated data under `HANDOFF_DATASETS` (default `~/datasets`), never on the
+`gen_scripts.py` (the generated radio reports with gold answers, Phase 0 of docs/plans/LYAPUNOV_STT_PLAN.md;
+`../benchmark.py --gold <set>/gold` scores reports against them), `spectral_survey.py`, `radioize.py`, `clone_voice.py`,
+`clone_voice_cloud.py`, `ngram_scores.py` and `../air_check.py` work on generated data under `HANDOFF_DATASETS` (default `~/datasets`), never on the
 corpus paths above. The layout and the rules are in `docs/DATA_LAYOUT.md`.

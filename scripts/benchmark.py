@@ -148,10 +148,26 @@ def check(field: Dict[str, Any], report: Dict[str, Any]) -> Tuple[str, str]:
     raise ValueError(f"unknown kind {kind}")
 
 
-def infer_case(report: Dict[str, Any]) -> Optional[str]:
+SAMPLE_MARKERS = (("quick", "medic 21"), ("stemi", "unit 41"), ("trauma", "medic 7"), ("sepsis", "squad 12"))
+
+
+def infer_case(report: Dict[str, Any], golds: Optional[Dict[str, Dict[str, Any]]] = None, filename: str = "") -> Optional[str]:
+    """Which gold a report belongs to: the sample cases by their unit phrase; any other gold set (a generated
+    set, --gold) by the gold's id at the start of the report's file name, else by the gold's own "marker"."""
     t = (_get(report, "_meta.transcript") or "").lower()
-    for key, marker in (("quick", "medic 21"), ("stemi", "unit 41"), ("trauma", "medic 7"), ("sepsis", "squad 12")):
-        if marker in t:
+    if golds is None:
+        for key, marker in SAMPLE_MARKERS:
+            if marker in t:
+                return key
+        return None
+    stem = Path(filename).name.lower()
+    for key in golds:
+        k = key.lower()
+        if stem == f"{k}.json" or stem.startswith(f"{k}.") or stem.startswith(f"{k}_"):
+            return key
+    for key, g in golds.items():
+        m = (g.get("marker") or "").lower()
+        if m and re.search(r"\b" + re.escape(m) + r"\b", t):
             return key
     return None
 
@@ -191,9 +207,11 @@ def main(argv=None) -> int:
     ap.add_argument("reports", nargs="+")
     ap.add_argument("--per-field", action="store_true")
     ap.add_argument("--csv")
+    ap.add_argument("--gold", type=Path, help="a folder of gold files other than tests/gold (a generated set's gold/)")
     args = ap.parse_args(argv)
 
-    golds = {p.stem: json.loads(p.read_text()) for p in GOLD_DIR.glob("*.json")}
+    gold_dir = args.gold or GOLD_DIR
+    golds = {p.stem: json.loads(p.read_text()) for p in gold_dir.glob("*.json")}
     results = []
     for path in args.reports:
         try:
@@ -201,9 +219,9 @@ def main(argv=None) -> int:
         except (OSError, json.JSONDecodeError) as e:
             print(f"{path}: unreadable ({e})")
             continue
-        case = infer_case(report)
+        case = infer_case(report, golds if args.gold else None, path)
         if case not in golds:
-            print(f"{path}: not one of the sample cases; skipped")
+            print(f"{path}: no gold in {gold_dir} matches it; skipped")
             continue
         r = score(report, golds[case])
         r["file"] = Path(path).name
