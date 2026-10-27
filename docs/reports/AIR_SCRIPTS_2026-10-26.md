@@ -65,8 +65,9 @@ from 12 s of the CS008 paramedic (S025_01 at 69 s; `scripts/corpus/clone_voice.p
 - **The cloned voice behaves like the real thing.** XTTS-v2 from 12 s of the CS008 medic reads the STEMI
   script with a 1.1 kHz roll-off (Piper 0.7, the medic 1.5); the radio EQ it needs is nearly flat (0 to +4 dB).
   Straight off the file Groq Whisper scores it 13 % (small misses: "AC" -> "to see", "cath" -> "caf", a
-  trailing "dot all" artifact). Over the air the plain file lost the whole vitals block (43 %), the
-  level-normalised radio version scored 14 %, and both reports were STEMI RED ETA 8. Synthesis costs
+  trailing "dot all" artifact). Over the air the plain file lost the whole vitals block (43 %); the
+  brick-walled, soft-limited radio version (same loudness, no 0 dBFS peaks) scored 14 %, and both reports were
+  STEMI RED ETA 8. Synthesis costs
   about 8 min per script on the Jetson CPU (torch 2.8 pinned: the torchcodec wheel needs the CUDA build).
 - **The Vosk captions are a safety net.** On every run the captions carried words the Whisper transcript
   lost; a transcript much shorter than its captions should fall back to them for the missing stretch.
