@@ -20,3 +20,9 @@ Data lives outside the repo and is never committed: `~/calls` (m4a), `~/calls_wa
 | stage6_label.py | 6 | one scenario label per call-set, low confidence to `~/scenarios/needs_review` |
 
 Scoring against the gold answers for the four sample cases is `scripts/benchmark.py` with `tests/gold/`.
+
+## Generated data and the air test
+
+`spectral_survey.py`, `radioize.py`, `clone_voice.py`, `clone_voice_cloud.py`, `ngram_scores.py` and
+`../air_check.py` work on generated data under `HANDOFF_DATASETS` (default `~/datasets`), never on the
+corpus paths above. The layout and the rules are in `docs/DATA_LAYOUT.md`.

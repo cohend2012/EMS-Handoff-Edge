@@ -3,7 +3,7 @@
 ngram_scores.py — n-gram agreement with the reference, per transcriber, so "ours" can be set against
 off-the-shelf Whisper (Groq turbo, Groq large, local medium, Vosk) on the gold call-sets.
 
-    python scripts/corpus/ngram_scores.py                    # CS001, CS008, CS014 from ~/labels/reference
+    python scripts/corpus/ngram_scores.py                    # CS001, CS008, CS014 from $HANDOFF_LABELS/reference
     python scripts/corpus/ngram_scores.py --summaries ~/recordings/2026-10-26_d1f4373   # add the app's runs
 
 For every burst with a reference, and every candidate transcript (the `<seg>.candidates.json` written by
@@ -27,10 +27,11 @@ from pathlib import Path
 from typing import Dict, List, Tuple
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import paths  # noqa: E402
 from score_callsets import burst_texts_from_session, normalize, wer  # noqa: E402
 
-REF_DIR = Path("~/labels/reference").expanduser()
-CALLSETS = Path("~/callsets").expanduser()
+REF_DIR = paths.labels() / "reference"
+CALLSETS = paths.callsets()
 
 
 def ngrams(words: List[str], n: int) -> Counter:
@@ -83,6 +84,11 @@ def main() -> int:
         refs = {p.name.split(".")[0]: p.read_text().strip() for p in sorted((REF_DIR / cid).glob("*.ref.txt"))}
         if not refs:
             print(f"{cid}: no reference"); continue
+        # the app's session lists bursts in time order (callset_info), not in segment-name order
+        info_file = CALLSETS / cid / "callset_info.json"
+        if info_file.exists():
+            order = [b["segment_id"] for b in json.loads(info_file.read_text()).get("bursts", []) if b["segment_id"] in refs]
+            refs = {seg: refs[seg] for seg in order + [s for s in refs if s not in order]}
         cands: Dict[str, Dict[str, str]] = defaultdict(dict)
         for seg in refs:
             cf = REF_DIR / cid / f"{seg}.candidates.json"

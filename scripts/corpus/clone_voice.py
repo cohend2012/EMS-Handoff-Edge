@@ -2,14 +2,14 @@
 """
 clone_voice.py — read the practice scripts in a paramedic's voice, cloned from a corpus clip (XTTS-v2).
 
-    ~/xtts-venv/bin/python scripts/corpus/clone_voice.py ~/voice_refs/medic_cs008_s025.wav --scripts stemi
-    ~/xtts-venv/bin/python scripts/corpus/clone_voice.py ~/voice_refs/medic_cs008_s025.wav --tag cs008
+    ~/xtts-venv/bin/python scripts/corpus/clone_voice.py $HANDOFF_DATASETS/voices/refs/medic_cs008_s025.wav --scripts stemi
+    ~/xtts-venv/bin/python scripts/corpus/clone_voice.py $HANDOFF_DATASETS/voices/refs/medic_cs008_s025.wav --tag cs008
 
 Inputs
-    ref        a 6-15 s WAV of one speaker (cut from ~/callsets/<CS>/<segment>.wav; see ~/voice_refs/)
+    ref        a 6-15 s WAV of one speaker (cut from ~/callsets/<CS>/<segment>.wav; see $HANDOFF_DATASETS/voices/refs/)
     --scripts  stemi trauma sepsis (default all); the spoken form from scripts/air_check.py is used, so
                "IV" is read as "I V" and "BP 158/92" as "B P 158 over 92"
-    --tag      suffix of the output, ~/air_scripts/<script>_xtts<tag>.wav (default _xtts)
+    --tag      suffix of the output, $HANDOFF_DATASETS/scripts_v0/<script>_xtts<tag>.wav (default _xtts)
     --device   cpu (default) or cuda
 
 The first run downloads the XTTS-v2 model (about 1.9 GB) into ~/.local/share/tts. Runs in ~/xtts-venv
@@ -28,6 +28,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import paths  # noqa: E402
 
 os.environ.setdefault("COQUI_TOS_AGREED", "1")
 
@@ -45,7 +47,7 @@ def main() -> int:
     ap.add_argument("--scripts", nargs="+", default=["stemi", "trauma", "sepsis"])
     ap.add_argument("--tag", default="_xtts")
     ap.add_argument("--device", default="cpu")
-    ap.add_argument("--out", type=Path, default=Path("~/air_scripts").expanduser())
+    ap.add_argument("--out", type=Path, default=paths.scripts_v0())
     args = ap.parse_args()
 
     air = load_air_check()

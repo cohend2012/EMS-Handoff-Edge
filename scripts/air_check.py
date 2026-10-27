@@ -16,12 +16,12 @@ What it does
     4. Scores the transcript and the captions against the script text: word error rate (same
        normalisation as scripts/corpus/score_callsets.py), the reference words that were dropped or
        replaced, and the alert type / level / ETA the report produced.
-    5. Saves everything under ~/reports_air/<script>_<label>_<stamp>/ and appends one line to
-       ~/reports_air/INDEX.tsv, so runs with different mics or speakers can be compared.
+    5. Saves everything under $HANDOFF_DATASETS/air_runs/<script>_<label>_<stamp>/ and appends one line to
+       $HANDOFF_DATASETS/air_runs/INDEX.tsv, so runs with different mics or speakers can be compared.
 
 Inputs
     The script texts are ems_handoff/samples.py (SAMPLE_STEMI, SAMPLE_TRAUMA, SAMPLE_SEPSIS). The WAVs
-    are made once with Piper (see --make-wavs) into ~/air_scripts/<name>.wav; --wav overrides.
+    are made once with Piper (see --make-wavs) into $HANDOFF_DATASETS/scripts_v0/<name>.wav; --wav overrides.
     The app must be running (python -m ems_handoff) and idle; --server points at it.
 
 Threads: one background thread reads the event stream for captions while the main thread drives the run.
@@ -48,14 +48,14 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "scripts" / "corpus"))
 
+import paths  # noqa: E402  (scripts/corpus: HANDOFF_DATASETS, HANDOFF_PIPER, HANDOFF_AIR_SINK)
 from score_callsets import normalize, wer  # noqa: E402  (scripts/corpus)
 
 SCRIPTS = ("stemi", "trauma", "sepsis")
-WAV_DIR = Path("~/air_scripts").expanduser()
-OUT_DIR = Path("~/reports_air").expanduser()
-PIPER = Path("~/piper-venv/bin/piper").expanduser()
-PIPER_VOICE = Path("~/piper-voices/en_US-lessac-medium.onnx").expanduser()
-USB_SINK = "alsa_output.usb-0c76_USB_PnP_Audio_Device-00.analog-stereo"
+WAV_DIR = paths.scripts_v0()
+OUT_DIR = paths.air_runs()
+PIPER = paths.piper()
+PIPER_VOICE = paths.piper_voice()
 
 
 def script_text(name: str) -> str:
@@ -278,10 +278,10 @@ def main() -> int:
     mode.add_argument("--read", action="store_true", help="a person reads the script into the mic")
     mode.add_argument("--make-wavs", action="store_true", help="only (re)make the Piper WAVs")
     ap.add_argument("--server", default="http://127.0.0.1:5050")
-    ap.add_argument("--wav", type=Path, help="play this WAV instead of ~/air_scripts/<script>.wav")
-    ap.add_argument("--variant", default="", help="play ~/air_scripts/<script><variant>.wav, e.g. _radio "
+    ap.add_argument("--wav", type=Path, help="play this WAV instead of $HANDOFF_DATASETS/scripts_v0/<script>.wav")
+    ap.add_argument("--variant", default="", help="play $HANDOFF_DATASETS/scripts_v0/<script><variant>.wav, e.g. _radio "
                                                    "(made by scripts/corpus/radioize.py)")
-    ap.add_argument("--sink", default=os.environ.get("AIR_SINK", USB_SINK), help="PipeWire sink to play into")
+    ap.add_argument("--sink", default=paths.air_sink(), help="PipeWire sink to play into (HANDOFF_AIR_SINK)")
     ap.add_argument("--label", default="usb-dongle", help="which mic / speaker this run used (for the index)")
     ap.add_argument("--lead", type=float, default=1.5, help="seconds of silence before the audio")
     ap.add_argument("--tail", type=float, default=2.0, help="seconds of silence after it, before Done")

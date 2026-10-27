@@ -2,8 +2,8 @@
 """
 spectral_survey.py — what the radio corpus sounds like, frame by frame: speech, tones, static, hum, silence.
 
-    python scripts/corpus/spectral_survey.py ~/calls --out ~/reports_spectral
-    python scripts/corpus/spectral_survey.py ~/calls/mocomdps-4390-1792791667.m4a --out ~/reports_spectral
+    python scripts/corpus/spectral_survey.py ~/calls --out $HANDOFF_DATASETS/spectral
+    python scripts/corpus/spectral_survey.py ~/calls/mocomdps-4390-1792791667.m4a --out $HANDOFF_DATASETS/spectral
 
 Method
     Each file is decoded with ffmpeg to 16 kHz mono. 32 ms Hann frames every 16 ms give a power spectrum
@@ -47,6 +47,9 @@ from pathlib import Path
 from typing import Dict, List, Tuple
 
 import numpy as np
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import paths  # noqa: E402
 
 SR = 16000
 FRAME = 512          # 32 ms
@@ -183,7 +186,7 @@ def plot_file(path: Path, spec: np.ndarray, lab: np.ndarray, pdir: Path) -> None
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[1])
     ap.add_argument("paths", nargs="+", type=Path, help="audio files or folders (wav, m4a, mp3)")
-    ap.add_argument("--out", type=Path, default=Path("~/reports_spectral").expanduser())
+    ap.add_argument("--out", type=Path, default=paths.spectral())
     ap.add_argument("--no-plot", action="store_true")
     args = ap.parse_args()
 

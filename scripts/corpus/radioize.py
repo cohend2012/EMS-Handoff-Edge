@@ -2,8 +2,8 @@
 """
 radioize.py — make a clean (synthetic or studio) voice sound like the radio corpus.
 
-    python scripts/corpus/radioize.py ~/air_scripts/stemi.wav ~/air_scripts/stemi_radio.wav
-    python scripts/corpus/radioize.py in.wav out.wav --spectra ~/reports_spectral/spectra.csv --noise -45
+    python scripts/corpus/radioize.py $HANDOFF_DATASETS/scripts_v0/stemi.wav $HANDOFF_DATASETS/scripts_v0/stemi_radio.wav
+    python scripts/corpus/radioize.py in.wav out.wav --spectra $HANDOFF_DATASETS/spectral/spectra.csv --noise -45
 
 How
     1. The target is the corpus' mean speech spectrum from spectral_survey.py (spectra.csv, "speech"
@@ -12,7 +12,7 @@ How
        equaliser; it is applied in the STFT domain (32 ms Hann frames, 16 ms hop, overlap-add).
        That gives the band limit (nothing above ~4.6 kHz) and the tilt (95 % of energy under 1.5 kHz).
     3. A soft limiter mimics the transmitter's compression, and a noise bed is added: real corpus noise
-       with --noise-file (a ~/noise_bank/*.wav bed of the between-words floor, looped, at --snr dB under
+       with --noise-file (a $HANDOFF_DATASETS/noise/*.wav bed of the between-words floor, looped, at --snr dB under
        the speech), otherwise synthetic noise shaped like the carrier-open "silence" spectrum
        (--noise, dBFS; 0 = none).
     Output: 16 kHz mono WAV.
@@ -30,6 +30,8 @@ from pathlib import Path
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import paths  # noqa: E402
+
 from spectral_survey import FRAME, FREQS, HOP, NBINS, SR, decode, features  # noqa: E402
 
 
@@ -90,7 +92,7 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[1])
     ap.add_argument("src", type=Path)
     ap.add_argument("dst", type=Path)
-    ap.add_argument("--spectra", type=Path, default=Path("~/reports_spectral/spectra.csv").expanduser())
+    ap.add_argument("--spectra", type=Path, default=paths.spectral() / "spectra.csv")
     ap.add_argument("--noise", type=float, default=-48.0, help="synthetic noise bed level in dBFS (0 = none)")
     ap.add_argument("--noise-file", type=Path, help="real noise bed WAV to loop under the speech instead")
     ap.add_argument("--snr", type=float, default=20.0, help="speech-to-noise ratio in dB for --noise-file (corpus ~20)")

@@ -2,21 +2,21 @@
 """
 clone_voice_cloud.py — read the practice scripts in a cloned voice on ElevenLabs, Cartesia or Fish Audio.
 
-    python scripts/corpus/clone_voice_cloud.py elevenlabs --ref ~/voice_refs/me.wav --ref-text ~/voice_refs/me.txt
-    python scripts/corpus/clone_voice_cloud.py cartesia   --ref ~/voice_refs/me.wav
-    python scripts/corpus/clone_voice_cloud.py fish       --ref ~/voice_refs/me.wav --ref-text ~/voice_refs/me.txt
+    python scripts/corpus/clone_voice_cloud.py elevenlabs --ref $HANDOFF_DATASETS/voices/refs/me.wav --ref-text $HANDOFF_DATASETS/voices/refs/me.txt
+    python scripts/corpus/clone_voice_cloud.py cartesia   --ref $HANDOFF_DATASETS/voices/refs/me.wav
+    python scripts/corpus/clone_voice_cloud.py fish       --ref $HANDOFF_DATASETS/voices/refs/me.wav --ref-text $HANDOFF_DATASETS/voices/refs/me.txt
     python scripts/corpus/clone_voice_cloud.py elevenlabs --voice-id <id>        # a stock or designed voice
     python scripts/corpus/clone_voice_cloud.py all --ref ... --scripts stemi     # every service with a key
 
 Keys (in ~/.config/handoff-ai/secrets.env or the environment): ELEVENLABS_API_KEY, CARTESIA_API_KEY,
 FISH_AUDIO_API_KEY. A service without a key is skipped with a note. `--check` only says which keys exist.
 
-The reference clip is a 10-30 s single-speaker cut (a ~/voice_refs/medic_*.wav from the corpus, for internal
+The reference clip is a 10-30 s single-speaker cut (a $HANDOFF_DATASETS/voices/refs/medic_*.wav from the corpus, for internal
 test audio only, or your own reading of a script). Fish wants its exact transcript in --ref-text; ElevenLabs
 and Cartesia do not. The corpus also gives the channel (scripts/corpus/radioize.py) and the noise
-(~/noise_bank).
+($HANDOFF_DATASETS/noise).
 
-Outputs ~/air_scripts/<script>_<service>.wav, 16 kHz mono, in the spoken form of the scripts
+Outputs $HANDOFF_DATASETS/scripts_v0/<script>_<service>.wav, 16 kHz mono, in the spoken form of the scripts
 (scripts/air_check.py `spoken()`), ready for `air_check.py <script> --play --variant _<service>` or for
 radioize.py first. Each service's clone is kept (voice id printed) so later runs can pass --voice-id.
 """
@@ -39,11 +39,12 @@ from typing import Any, Dict, List, Optional
 
 ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import paths  # noqa: E402
 from ems_handoff.config import load_env_files  # noqa: E402
 
 SERVICES = ("elevenlabs", "cartesia", "fish")
 KEYS = {"elevenlabs": "ELEVENLABS_API_KEY", "cartesia": "CARTESIA_API_KEY", "fish": "FISH_AUDIO_API_KEY"}
-OUT = Path("~/air_scripts").expanduser()
 
 
 def load_air_check():
@@ -195,6 +196,7 @@ def main() -> int:
     if not args.voice_id and not args.ref:
         ap.error("give --ref <clip> to clone, or --voice-id")
     air = load_air_check()
+    OUT = paths.scripts_v0()
     OUT.mkdir(parents=True, exist_ok=True)
     ref_text = args.ref_text.read_text().strip() if args.ref_text else ""
     failures = 0
