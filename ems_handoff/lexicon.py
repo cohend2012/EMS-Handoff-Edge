@@ -32,7 +32,7 @@ LEXICON: Dict[str, Dict[str, List[str]]] = {
         "mean arterial pressure": ["MAP"],
         "heart rate": ["HR", "pulse", "pulse rate"],
         "respiratory rate": ["RR", "resp rate", "respirations", "resps", "respiratory"],
-        "oxygen saturation": ["SpO2", "SP02", "O2 sat", "O2 sats", "sat", "sats",
+        "oxygen saturation": ["SpO2", "O2 sat", "SP02", "O2 sats", "sat", "sats",   # SP02 stays an alias for the corrector but out of the hint (aliases[:2])
                               "pulse ox", "pulse oximetry", "oxygen sat"],
         "temperature": ["temp", "T", "tympanic temp", "core temp"],
         "blood glucose": ["BGL", "BG", "blood sugar", "blood glucose level",
