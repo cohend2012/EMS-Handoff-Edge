@@ -171,12 +171,15 @@ def main() -> int:
     ap.add_argument("--hotwords", action="store_true", help="local only: pass terms.txt as faster-whisper hotwords (prepended to the prompt)")
     ap.add_argument("--corrector", action="store_true", help="apply the app's transcript corrector to the output")
     ap.add_argument("--label")
+    ap.add_argument("--min-interval", type=float, default=None, help="seconds between transcriber calls; default 3.2 for groq (20 requests a minute), 0 locally")
     ap.add_argument("--from", dest="from_label", help="do not transcribe: reuse the transcripts of this eval label (for --corrector)")
     ap.add_argument("--summary", type=Path, help="only rebuild summary.md for this eval folder")
     ap.add_argument("--rescore", type=Path, help="recompute every row of this eval folder from its saved transcripts (after a scorer change)")
     args = ap.parse_args()
     if args.rescore:
         return rescore(args.set, args.rescore)
+    if args.min_interval is None:
+        args.min_interval = 3.2 if args.provider == "groq" else 0.0
     if args.summary:
         write_summary(args.summary, args.summary.name); print((args.summary / "summary.md").read_text()); return 0
 
@@ -211,6 +214,7 @@ def main() -> int:
     print(f"[{label}] {transcriber.describe() if transcriber else 'transcripts of ' + args.from_label}; hint {'off' if args.no_hint else 'on'}; "
           f"hotwords {'on' if args.hotwords else 'off'}; corrector {'on' if args.corrector else 'off'}; {len(ids)} scripts x {args.snr}; {len(done)} clips already done", flush=True)
     n_new = 0
+    last_call = 0.0
     for sid in ids:
         ref = (args.set / "scripts" / f"{sid}.txt").read_text()
         family = json.loads((args.set / "gold" / f"{sid}.json").read_text()).get("family", "")
@@ -229,10 +233,18 @@ def main() -> int:
                     print(f"[skip] {src} not there yet", flush=True); continue
                 hyp = src.read_text().strip()
             else:
-                try:
-                    hyp = transcriber.transcribe(x)
-                except Exception as e:  # noqa: BLE001
-                    print(f"[error] {sid} {tag}: {e}", flush=True); continue   # no row: a rerun picks the clip up
+                wait = args.min_interval - (time.time() - last_call)
+                if wait > 0:
+                    time.sleep(wait)
+                hyp = None
+                for attempt in (1, 2):
+                    last_call = time.time()
+                    try:
+                        hyp = transcriber.transcribe(x); break
+                    except Exception as e:  # noqa: BLE001
+                        print(f"[error] {sid} {tag} (try {attempt}): {e}", flush=True); time.sleep(6)
+                if hyp is None:
+                    continue                 # no row: a rerun picks the clip up
             dt_ = time.time() - t0
             if args.corrector and hyp:
                 hyp = correct_transcript(hyp).text
