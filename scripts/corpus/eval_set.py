@@ -104,6 +104,8 @@ def make_transcriber(provider: str, model: str, hint: bool):
     settings = load_settings()
     if provider == "groq":
         t = GroqTranscriber(settings)
+        if model.startswith("whisper-"):
+            t.model = model            # e.g. whisper-large-v3 beside the default turbo
     else:
         t = LocalTranscriber(settings, model_size=model)
     if not hint:
@@ -166,7 +168,7 @@ def main() -> int:
     ap.add_argument("--split", choices=["train", "val", "test"])
     ap.add_argument("--ids", nargs="*")
     ap.add_argument("--provider", choices=["local", "groq"], default="local")
-    ap.add_argument("--model", default="medium", help="faster-whisper size for --provider local")
+    ap.add_argument("--model", default="medium", help="faster-whisper size for --provider local; a whisper-* name picks the Groq model")
     ap.add_argument("--no-hint", action="store_true")
     ap.add_argument("--hotwords", action="store_true", help="local only: pass terms.txt as faster-whisper hotwords (prepended to the prompt)")
     ap.add_argument("--corrector", action="store_true", help="apply the app's transcript corrector to the output")
@@ -183,7 +185,7 @@ def main() -> int:
     if args.summary:
         write_summary(args.summary, args.summary.name); print((args.summary / "summary.md").read_text()); return 0
 
-    label = args.label or ((args.from_label or (("groq" if args.provider == "groq" else args.model) + ("_nohint" if args.no_hint else "_hint") + ("_hot" if args.hotwords else ""))) + ("_corr" if args.corrector else ""))
+    label = args.label or ((args.from_label or (("groq" + ("_" + args.model[8:] if args.model.startswith("whisper-") else "") if args.provider == "groq" else args.model) + ("_nohint" if args.no_hint else "_hint") + ("_hot" if args.hotwords else ""))) + ("_corr" if args.corrector else ""))
     out = args.set / "evals" / label
     (out / "transcripts").mkdir(parents=True, exist_ok=True)
     rows_path = out / "rows.tsv"
