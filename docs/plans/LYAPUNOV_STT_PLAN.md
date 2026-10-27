@@ -44,8 +44,11 @@ reports as the final check. Missing: volume (three scripts is not a dataset) and
 
 **Phase 0, the generated gold set (week 1, needed for everything after).** Status 2026-10-27: scripts, gold, splits
 and the Piper render at five SNRs exist (`~/datasets/synth_v1`, 200 scripts, 1000 clips; gen_scripts.py, render_set.py);
-the first transcriber baselines over the test split are eval_set.py runs, see SYNTH_V1_2026-10-27.md. Cloned voices
-wait for a GPU (XTTS on this CPU is 8 min per script).
+the transcriber baselines over the test split are in SYNTH_V1_2026-10-27.md (WER clean / 5 dB, terms missed at
+clean: local medium 4.8 / 7.0 / 10.0 %, small 6.2 / 9.6 / 17.5 %, Groq turbo 4.3 / 6.4 / 10.0 %, Groq large-v3
+3.9 / 4.9 / 6.5 %, all with the hint; hint off, tiny.en, local large-v3-turbo, corrector and hotword rows follow).
+The deliverable table exists; the break is gentle on Piper audio down to 5 dB and the loss is vocabulary, not
+English. Cloned voices wait for a GPU (XTTS on this CPU is 8 min per script).
 - `scripts/corpus/gen_scripts.py`: template-based radio reports with sampled patient, complaint, vitals,
   interventions, drugs (a 200-item EMS drug and procedure list), units, hospitals, ETA, priority, and
   the corpus' phrasing habits ("how do you copy", "priority two", "be advised"). Each script writes the

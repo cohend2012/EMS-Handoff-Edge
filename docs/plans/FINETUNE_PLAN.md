@@ -92,7 +92,10 @@ barrier rules (coverage measured: which hallucinations they catch and which they
    checks, and later the fine-tuned model) has to beat that bar on the real call-sets, not only on the
    generated set; a change that does not is not shipped. On the three gold call-sets today, the hint
    alone takes Groq turbo from 20 % to 14 % WER and 0.72 to 0.75 average n-gram F
-   (NGRAM_2026-10-26.md).
+   (NGRAM_2026-10-26.md). On the generated set's test split (SYNTH_V1_2026-10-27.md) the bare models stand at
+   5.3 % WER / 9.0 % terms missed (Groq turbo, clean) and 4.6 / 7.5 (Groq large-v3); hint plus corrector takes
+   turbo to 4.2 / 8.5, and the hint alone takes large-v3 to 3.9 / 6.5. The local medium bar (hint off) is the
+   `medium_nohint` row of that report.
 
 ## 5. Stop rules and what counts as proof
 
