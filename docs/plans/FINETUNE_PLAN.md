@@ -99,8 +99,10 @@ barrier rules (coverage measured: which hallucinations they catch and which they
 
 ## 5. Stop rules and what counts as proof
 
-- 3a is kept only if term error at 10 dB falls by at least 25 % relative over hotword boosting with no
-  loss at clean; otherwise the hint plus boosting is the production answer and the finding is recorded.
+- 3a is kept only if term error at 10 dB falls by at least 25 % relative over the hint plus corrector with no
+  loss at clean; otherwise the hint plus corrector is the production answer and the finding is recorded.
+  (Hotword boosting with the term list was the intended bar; measured 2026-10-27, it is destructive on
+  medium, 32 % WER at clean against 5 %, see SYNTH_V1_2026-10-27.md, so it is not the comparison.)
 - 3b is kept only if the field score rises on the real call-sets as well as the synthetic test split;
   a gain on synthetic only means the generator is being learned, not the task.
 - The architecture is "proven" to the extent H1 to H6 hold with intervals that exclude zero. A
