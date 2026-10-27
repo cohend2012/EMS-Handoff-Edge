@@ -152,7 +152,7 @@ class LocalTranscriber:
             segments, _info = self._get_model().transcribe(
                 np.asarray(audio, dtype=np.float32), language="en", beam_size=1,
                 temperature=0.0, condition_on_previous_text=False,
-                initial_prompt=self.hint, vad_filter=True,
+                initial_prompt=self.hint or None, hotwords=getattr(self, "hotwords", None) or None, vad_filter=True,
                 vad_parameters={"min_silence_duration_ms": 500})
             text = " ".join(s.text.strip() for s in segments).strip()
         except Exception as e:  # noqa: BLE001
