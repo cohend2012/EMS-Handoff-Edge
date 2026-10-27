@@ -33,6 +33,7 @@ import argparse
 import datetime as dt
 import difflib
 import json
+import shutil
 import os
 import subprocess
 import sys
@@ -54,6 +55,7 @@ from score_callsets import normalize, wer  # noqa: E402  (scripts/corpus)
 SCRIPTS = ("stemi", "trauma", "sepsis")
 WAV_DIR = paths.scripts_v0()
 OUT_DIR = paths.air_runs()
+REPO = Path(__file__).resolve().parent.parent
 PIPER = paths.piper()
 PIPER_VOICE = paths.piper_voice()
 
@@ -258,6 +260,9 @@ def run_one(name: str, app: App, play: bool, wav: Optional[Path], sink: str, lab
     (out / "captions.txt").write_text(cap_text + "\n")
     (out / "report.json").write_text(json.dumps(report, indent=1))
     (out / "result.json").write_text(json.dumps(result, indent=1))
+    capture = REPO / "output" / "recording.wav"          # the server's last take; kept so the air audio can be surveyed later
+    if capture.exists() and time.time() - capture.stat().st_mtime < 3600:
+        shutil.copy2(capture, out / "capture.wav")
     OUT_DIR.joinpath("INDEX.tsv").open("a").write(
         "\t".join(str(x) for x in (stamp, name, label, played_s, report_wait_s, w_t[0], w_c[0],
                                    result["report"]["alert_type"], result["report"]["alert_level"],
