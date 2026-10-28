@@ -41,3 +41,24 @@
 | 10 | 30 | 82.5 % (165/200) | 90.0 % (180/200) | 98.5 % | 7.6 % | 5.3 % | -2.2 | [-3.4, -0.9] |
 | 5 | 30 | 84.0 % (168/200) | 86.5 % (173/200) | 75.8 % | 10.8 % | 7.0 % | -3.7 | [-8.5, -0.4] |
 | all | | 81.6 % | 88.7 % | 100.0 % | | | | |
+
+### Report stage: `medium_hint_rd_corr__qwen3-4b-instruct` against `medium_nohint__qwen3-4b-instruct`
+
+| SNR | reports | recall A | recall B | P(B > A) | precision A | precision B | P(B > A) | weighted A | weighted B | mean diff | 95 % interval |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| inf | 30 | 94.9 % | 93.0 % | 12.5 % | 96.8 % | 96.0 % | 27.6 % | 95.7 | 93.7 | -2.0 | [-3.3, -0.7] |
+| 5 | 30 | 93.3 % | 93.0 % | 44.5 % | 96.5 % | 96.0 % | 35.9 % | 94.1 | 93.7 | -0.4 | [-1.6, +0.7] |
+
+### Report stage: `groq_hint_corr__openai/gpt-oss-120b` against `medium_hint_rd_corr__qwen3-4b-instruct`
+
+| SNR | reports | recall A | recall B | P(B > A) | precision A | precision B | P(B > A) | weighted A | weighted B | mean diff | 95 % interval |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| inf | 30 | 93.0 % | 95.7 % | 95.0 % | 96.0 % | 98.3 % | 97.1 % | 93.7 | 96.8 | +3.0 | [+0.7, +5.5] |
+| 5 | 29 | 93.0 % | 93.7 % | 66.4 % | 95.9 % | 97.9 % | 94.6 % | 93.7 | 95.1 | +1.4 | [-1.3, +4.2] |
+
+### Report stage: `medium_hint_rd_corr__qwen3-4b-instruct` against `medium_hint_rd_corr__qwen3-4b-instruct_norules`
+
+| SNR | reports | recall A | recall B | P(B > A) | precision A | precision B | P(B > A) | weighted A | weighted B | mean diff | 95 % interval |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| inf | 30 | 90.3 % | 93.0 % | 92.0 % | 89.2 % | 96.0 % | 100.0 % | 88.0 | 93.7 | +5.8 | [+4.0, +7.6] |
+| 5 | 30 | 90.3 % | 93.0 % | 92.0 % | 90.1 % | 96.0 % | 100.0 % | 88.3 | 93.7 | +5.4 | [+3.7, +7.1] |

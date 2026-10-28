@@ -122,16 +122,19 @@ across calls at this sample size.
 ## 4. Report stage, generated set (30 scripts at clean and at 5 dB)
 
 The same transcripts through the app's report pipeline, scored against the gold JSON. Local = qwen3:4b-instruct
-on the Jetson (Ollama); cloud = openai/gpt-oss-120b on Groq.
+(Q4_K_M, Ollama 0.33.0) on the GPU of the named Jetson: vox-ai (the development Orin Nano) or cohendynamics (the
+second Orin Nano Super, same model blob, used so report runs could proceed while vox-ai's CPU ran whisper); cloud =
+openai/gpt-oss-120b on Groq. All transcripts came from the vox-ai CPU (local rows) or Groq (cloud rows). Report runs
+are compared at the one-point level only within one device.
 
 | transcript in | report model | stack | reports | weighted clean | weighted 5 dB | recall clean / 5 dB | precision clean / 5 dB | halluc. per report | alert type right | level right | ETA right | extract s |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|
-| local medium, base | local qwen3:4b-instruct | rules on | 60 | 95.7 | 94.1 | 94.6 / 93.6 % | 96.4 / 96.2 % | 0.10 / 0.13 | 90 % | 100 % | 83 / 78 % | 50 |
-| local medium, our stack | local qwen3:4b-instruct | rules on (ours, local) | 60 | 93.7 | 93.7 | 93.1 / 93.6 % | 95.7 / 95.9 % | 0.17 / 0.20 | 90 % | 100 % | 78 / 83 % | 51 |
-| local medium, our stack | local qwen3:4b-instruct | rules off | 60 | NORULES_ROW |
-| local medium, base | local qwen3:4b-instruct | rules on, second run of the same input | 60 | REPEAT_ROW |
-| cloud turbo, our stack | cloud gpt-oss-120b | rules on (ours, cloud) | 60 | 96.8 | 95.1 | 96.4 / 93.2 % | 98.6 / 97.0 % | 0.03 / 0.07 | 100 / 97 % | 100 % | 91 / 87 % | 3 |
-| script text (no audio) | local qwen3:4b-instruct | rules on | 30 | 96.4 | | 98.4 % | 96.3 % | 0.43 | 93 % | 100 % | 100 % | 55 |
+| local medium, base | local qwen3:4b-instruct, cohendynamics GPU | rules on | 60 | 95.7 | 94.1 | 94.6 / 93.6 % | 96.4 / 96.2 % | 0.10 / 0.13 | 90 % | 100 % | 83 / 78 % | 50 |
+| local medium, our stack | local qwen3:4b-instruct, cohendynamics GPU | rules on (ours, local) | 60 | 93.7 | 93.7 | 93.1 / 93.6 % | 95.7 / 95.9 % | 0.17 / 0.20 | 90 % | 100 % | 78 / 83 % | 51 |
+| local medium, our stack | local qwen3:4b-instruct, cohendynamics GPU | rules off | 60 | 88.0 | 88.3 | 90.7 / 91.2 % | 87.4 / 88.4 % | 0.73 / 0.70 | 90 % | 67 % | 78 / 83 % | 51 |
+| local medium, base | local qwen3:4b-instruct, cohendynamics GPU | rules on, second run of the same input | 60 | REPEAT_ROW |
+| cloud turbo, our stack | cloud gpt-oss-120b, Groq | rules on (ours, cloud) | 60 | 96.8 | 95.1 | 96.4 / 93.2 % | 98.6 / 97.0 % | 0.03 / 0.07 | 100 / 97 % | 100 % | 91 / 87 % | 3 |
+| script text (no audio) | local qwen3:4b-instruct, vox-ai GPU | rules on | 30 | 96.4 | | 98.4 % | 96.3 % | 0.43 | 93 % | 100 % | 100 % | 55 |
 
 Paired, per clip (`posterior.py --reports`): the local report over our transcripts against over the base transcripts is
 -2.0 weighted points at clean [-3.4, -0.7] and -0.4 at 5 dB [-1.6, +0.7]; the cloud system against the local system
@@ -175,7 +178,21 @@ recall the local stack is ahead of the cloud turbo stack (the cloud is ahead on 
 "88.0 to 92.0 %, P = 94.76 %" has the same shape as the first row and no provenance; the row above is the number
 with one.
 
-REPORT_POSTERIOR
+Report stage, paired on clips (`posterior.py --reports`):
+
+| comparison (B against A) | recall A / B | P(B > A) | precision A / B | P(B > A) | weighted A / B | mean diff, 95 % interval |
+|---|---|---|---|---|---|---|
+| rules on against rules off, clean (same transcripts, same device) | 90.3 / 93.0 % | 92.2 % | 89.2 / 96.0 % | 100.0 % | 88.0 / 93.7 | +5.8 [+4.1, +7.5] |
+| rules on against rules off, 5 dB | 90.3 / 93.0 % | 91.9 % | 90.1 / 96.0 % | 100.0 % | 88.3 / 93.7 | +5.4 [+3.8, +7.1] |
+| our transcripts against base transcripts, local writer, clean | 94.9 / 93.0 % | 12.4 % | 96.8 / 96.0 % | 27.7 % | 95.7 / 93.7 | -2.0 [-3.4, -0.7] |
+| our transcripts against base transcripts, local writer, 5 dB | 93.3 / 93.0 % | 44.6 % | 96.5 / 96.0 % | 35.9 % | 94.1 / 93.7 | -0.4 [-1.6, +0.7] |
+| cloud system against local system, clean | 93.0 / 95.7 % | 95.0 % | 96.0 / 98.3 % | 97.0 % | 93.7 / 96.8 | +3.0 [+0.6, +5.6] |
+| cloud system against local system, 5 dB | 93.0 / 93.7 % | 66.3 % | 95.9 / 97.9 % | 94.6 % | 93.7 / 95.1 | +1.4 [-1.4, +4.2] |
+
+The grounding rules are the largest single effect in the report stage: 5.4 to 5.8 weighted points with intervals
+far from zero, precision from 89 to 96 % (P = 1.000 both rows), hallucinations from 0.7 to 0.2 per report, and
+the alert level from 67 % right to 100 % (the stated-priority rule). That is the "barrier rules" claim of the
+architecture, measured.
 
 ## 5. The fully local path with the network cut
 
