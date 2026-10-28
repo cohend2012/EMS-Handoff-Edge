@@ -81,6 +81,8 @@ def main() -> int:
     ap.add_argument("--provider", default="ollama")
     ap.add_argument("--model", default="qwen3:4b-instruct")
     ap.add_argument("--label")
+    ap.add_argument("--no-rules", action="store_true", help="grounding rules after the model off (HANDOFF_REPORT_RULES=0); label suffix _norules")
+    ap.add_argument("--min-interval", type=float, default=0.0, help="seconds between report starts (cloud rate limits)")
     ap.add_argument("--summary", type=Path, help="only rebuild summary.md for this reports folder")
     ap.add_argument("--rescore", type=Path, help="rebuild rows.tsv and summary.md of this reports folder from its saved reports against the current gold")
     args = ap.parse_args()
@@ -113,13 +115,17 @@ def main() -> int:
     import dataclasses
     from ems_handoff.llm import LLMClient
     from ems_handoff.pipeline import ReportPipeline
-    from ems_handoff.server import default_engines
+    from ems_handoff.lexicon_rag import LexiconStore
+    from ems_handoff.textbook_rag import TextbookRAG
     settings = dataclasses.replace(load_settings(), provider=args.provider)
-    engines = default_engines(settings)
+    # the same engines server.default_engines builds, without importing the audio stack (a text-only tool
+    # runs on a box with no sound libraries)
+    lexicon = LexiconStore() if settings.use_lexicon else None
+    textbook = TextbookRAG(store_dir=str(settings.textbook_dir)) if settings.use_textbook_rag else None
     pipeline = ReportPipeline(LLMClient(settings), stop_phrase=settings.stop_phrase,
-                              lexicon_store=engines.lexicon_store, textbook_rag=engines.textbook_rag)
+                              lexicon_store=lexicon, textbook_rag=textbook, rules=not args.no_rules)
 
-    label = args.label or ("clean" if args.clean else args.from_label) + "__" + args.model.replace(":", "-")
+    label = args.label or ("clean" if args.clean else args.from_label) + "__" + args.model.replace(":", "-") + ("_norules" if args.no_rules else "")
     out = args.set / "reports" / label
     out.mkdir(parents=True, exist_ok=True)
     rows_path = out / "rows.tsv"
@@ -147,6 +153,8 @@ def main() -> int:
                 if not src_path.exists():
                     print(f"[skip] {src_path} missing", flush=True); continue
                 text = src_path.read_text().strip()
+            if args.min_interval and n_new:
+                time.sleep(max(0.0, args.min_interval - (time.time() - t0)))
             t0 = time.time()
             try:
                 report = pipeline.run(text, source="synth")

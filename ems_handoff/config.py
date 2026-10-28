@@ -89,7 +89,7 @@ class Settings:
     # --- final transcript (runs once, after DONE) -------------------------
     transcriber: str = "auto"                    # auto | groq | local
     groq_whisper_model: str = "whisper-large-v3-turbo"
-    local_whisper_model: str = "large-v3-turbo"
+    local_whisper_model: str = "medium"                # large-v3-turbo until 2026-10-28: 12.8 % WER at clean on the generated set against medium's 4.8 % at the same speed (SYSTEM_VS_BASE_2026-10-28.md)
     local_whisper_device: str = "cpu"            # cpu | cuda
     local_whisper_compute: str = "int8"
     local_whisper_redecode: bool = True          # LOCAL_WHISPER_REDECODE_GAPS (0 turns it off): a long stretch of speech the first pass left without words is decoded again on its own

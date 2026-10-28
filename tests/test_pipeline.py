@@ -481,3 +481,18 @@ def test_unrequested_activation_and_unspoken_room_air_are_cleared():
     text2 = "Medic 41 to County General. 30-year-old female, possible DKA. SpO2 97% on room air. Requesting a physician for orders. ETA 10 minutes."
     report, _, _ = run(text2, FakeLLM([reply]))
     assert report["hospital_recommendations"]["activation_requested"] == "endocrine service" and report["vital_signs"]["spo2"] == "97% on room air"
+
+
+def test_grounding_rules_can_be_switched_off_for_ablation(monkeypatch):
+    # the model claims an ETA the transcript never states
+    text = "Medic 21 inbound with a 67 year old male, chest pain, ST elevation. Confirm report ready."
+    reply = json.dumps(report_dict(eta_minutes=99))
+    report, _, pipe = run(text, llm=FakeLLM([reply]))
+    assert pipe.rules and report["eta_minutes"] is None          # the ETA guard cleared it
+    report, _, pipe = run(text, llm=FakeLLM([reply]), rules=False)
+    assert not pipe.rules and report["eta_minutes"] == 99
+    assert any("Grounding rules off" in a for a in report["data_quality"]["assumptions"])
+    monkeypatch.setenv("HANDOFF_REPORT_RULES", "0")
+    assert run(text, llm=FakeLLM([reply]))[2].rules is False
+    monkeypatch.setenv("HANDOFF_REPORT_RULES", "1")
+    assert run(text, llm=FakeLLM([reply]))[2].rules is True

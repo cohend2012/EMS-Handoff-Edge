@@ -34,6 +34,7 @@ generated data takes its default from it.
 | `synth_v1/audio/<voice>/clean/`, `.../snr{inf,20,15,10,5}/` | the voice reading each script (16 kHz), and the clip through the radio channel with the feed-4390 floor at that SNR | render_set.py |
 | `synth_v1/callsets/<id>_<voice>_<snr>/` | one-burst call-sets (callset_info.json, a link to the clip, the script text) for replay mode with `HANDOFF_CALLSETS=~/datasets/synth_v1/callsets` | render_set.py |
 | `synth_v1/evals/<label>/` | transcriber runs over the set: rows.tsv per clip, transcripts/, summary.md by SNR and family | eval_set.py |
+| `~/labels/reference/<CS>/<seg>.stack.json` | the real call-sets with a reference through the transcriber stacks (base model alone against hint + re-decode + corrector, local and cloud); tables by `--md` | real_stack.py |
 | `synth_v1/logs/` | render and evaluation logs and the runner scripts for unattended runs | by hand |
 
 ### How the app uses generated data

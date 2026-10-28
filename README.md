@@ -108,11 +108,12 @@ Copy `.env.example` to `.env`. Everything has a sensible default except the API 
 | `GROQ_API_KEY` | — | Groq key. Set it once with `bash scripts/set_groq_key.sh`; it lives in `~/.config/handoff-ai/secrets.env`, shared by every copy of the app. Never commit it. |
 | `OLLAMA_MODEL` | unset | Local model. **Unset:** the app wants `qwen3:8b` and, when that does not fit in free memory, uses the largest pulled smaller model that does (`qwen3:4b-instruct`, `qwen3:1.7b`, ...) and says so. **Set:** that exact model is used, never a substitute; if it is not pulled, or a reply comes from another model, the report fails with a message that says so. Set it for a batch that must run on one model. |
 | `HANDOFF_TRANSCRIBER` | `auto` | Final transcript: `groq`, `local`, or `auto` (Groq if a key is set) |
-| `LOCAL_WHISPER_MODEL` | `large-v3-turbo` | Offline transcript model (`small.en` is ~4× faster on CPU) |
+| `LOCAL_WHISPER_MODEL` | `medium` | Offline transcript model. `medium` since 2026-10-28: on the generated radio set it scores 4.8 % WER at clean where `large-v3-turbo` scores 12.8 % at the same CPU speed (skipped windows and a counting loop); `small` is 2.5× faster at 6.2 % |
 | `LOCAL_WHISPER_REDECODE_GAPS` | `1` | After the first local pass, a long loud stretch that got no words is decoded again on its own (Whisper now and then collapses a 30 s window; `0` turns it off) |
 | `LOCAL_WHISPER_FALLBACK` | `0` | Whisper's temperature fallback (0, 0.2, 0.4) with the no-speech gate off; measured and not worth it, kept for experiments |
 | `LOCAL_WHISPER_REDECODE_GAPS` | `1` | After the first local pass, a long loud stretch that got no words is decoded again on its own (Whisper now and then collapses a 30 s window; `0` turns it off) |
 | `LOCAL_WHISPER_FALLBACK` | `0` | Whisper's temperature fallback (0, 0.2, 0.4) with the no-speech gate off; measured and not worth it, kept for experiments |
+| `HANDOFF_REPORT_RULES` | `1` | The grounding rules after the model (history defaults, claim check, alert word, stated priority, ETA guard); `0` turns them off for ablation runs only (`report_set.py --no-rules`) |
 | `HANDOFF_MIC_DEVICE` | auto (USB) | Device number or part of its name (`PnP`). Names survive reboots; numbers may not. |
 | `HANDOFF_CAPTIONS` | `auto` | `vosk`, `whisper`, or `off` |
 | `HANDOFF_STOP_PHRASE` | `confirm report ready` | Hands-free finish phrase |

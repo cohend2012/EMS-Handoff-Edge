@@ -143,3 +143,37 @@ def test_local_transcriber_redecodes_a_long_wordless_gap():
 def test_local_whisper_redecode_defaults_on_and_env_turns_it_off():
     assert load_settings({}).local_whisper_redecode is True
     assert load_settings({"LOCAL_WHISPER_REDECODE_GAPS": "0"}).local_whisper_redecode is False
+
+
+def test_local_transcriber_discards_a_re_decode_that_loops():
+    import dataclasses
+    import numpy as np
+    from ems_handoff.config import load_settings
+    from ems_handoff.transcribe import LocalTranscriber, SAMPLE_RATE
+
+    class Seg:
+        def __init__(self, start, end, text):
+            self.start, self.end, self.text = start, end, text
+
+    span_reply = {"text": "ETA ten minutes. " * 25}       # what large-v3-turbo gave for SY074's collapsed span
+
+    class FakeModel:
+        def transcribe(self, audio, **kw):
+            if len(audio) > 50 * SAMPLE_RATE:
+                return iter([Seg(0.0, 10.0, "vitals are"), Seg(40.0, 45.0, "thank you")]), None
+            return iter([Seg(0.0, 29.0, span_reply["text"])]), None
+
+    rng = np.random.default_rng(0)
+    audio = (0.1 * rng.standard_normal(60 * SAMPLE_RATE)).astype(np.float32)
+    t = LocalTranscriber(dataclasses.replace(load_settings(), local_whisper_redecode=True), model_size="tiny.en")
+    t._model = FakeModel()
+    assert t.transcribe(audio) == "vitals are thank you"                 # the loop is not spliced in
+    assert len(t.last_notes) == 1 and "discarded" in t.last_notes[0] and "repeated sentence" in t.last_notes[0]
+    # an impossible word rate is refused too, loop or not
+    span_reply["text"] = " ".join(f"word{i}" for i in range(200))      # 200 words for 30 s
+    t.last_notes = []
+    assert t.transcribe(audio) == "vitals are thank you" and "200 words in 30 s" in t.last_notes[0]
+    # a plausible re-decode still goes in
+    span_reply["text"] = "pressure 80 over 55 sugar 285 sepsis alert"
+    t.last_notes = []
+    assert t.transcribe(audio) == "vitals are pressure 80 over 55 sugar 285 sepsis alert thank you"

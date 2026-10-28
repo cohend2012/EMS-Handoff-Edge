@@ -37,6 +37,7 @@ from __future__ import annotations
 
 import copy
 import json
+import os
 import logging
 import re
 import time
@@ -522,13 +523,23 @@ def parse_guidance(text: str) -> Optional[List[dict]]:
     return items or None
 
 
+
+def rules_enabled() -> bool:
+    """HANDOFF_REPORT_RULES=0 turns the post-model grounding rules off (ablation runs only)."""
+    return os.environ.get("HANDOFF_REPORT_RULES", "1").strip().lower() not in ("0", "false", "no", "off")
+
+
 class ReportPipeline:
     def __init__(self, llm: LLMClient, stop_phrase: str = "",
                  lexicon_store: Any = None, textbook_rag: Any = None,
-                 on_stage: Optional[Callable[[str], None]] = None, attribution: bool = False):
+                 on_stage: Optional[Callable[[str], None]] = None, attribution: bool = False,
+                 rules: Optional[bool] = None):
         self.llm = llm
         self.stop_phrase = stop_phrase
         self.attribution = attribution     # ask for burst sources (incident sessions); off on the live path
+        # the grounding rules after the model (history defaults, claim check, alert word, stated priority,
+        # sex from pronouns, ETA guard); off only for the ablation runs, HANDOFF_REPORT_RULES=0
+        self.rules = rules_enabled() if rules is None else bool(rules)
         self.lexicon_store = lexicon_store
         self.textbook_rag = textbook_rag
         self.on_stage = on_stage or (lambda _msg: None)
@@ -579,28 +590,10 @@ class ReportPipeline:
         if usage:
             timings.update(usage)      # tokens_in, tokens_out, tok_s: says where a slow model spent its time
         report["data_quality"]["assumptions"].extend(assumption_notes(fix))
-        report["data_quality"]["assumptions"].extend(ground_history_defaults(report, fix.text))
-        report["data_quality"]["assumptions"].extend(ground_claims(report, fix.text))
-        if report["alert_type"] == "UNCLEAR":
-            hit = alert_from_words(fix.text)
-            if hit:
-                report["alert_type"], word = hit
-                report["data_quality"]["assumptions"].append(
-                    f"Alert type {hit[0]} from the word '{word}' in the transcript; the model answered UNCLEAR")
-        apply_stated_priority(report, fix.text)      # a stated priority sets the level, whatever the model chose
-        if report["patient"].get("sex") is None:
-            # the prompt asks the model to read pronouns; a small model often does not
-            guess = infer_sex(fix.text)
-            if guess:
-                report["patient"]["sex"], note = guess
-                report["data_quality"]["assumptions"].append(note)
-
-        eta = report.get("eta_minutes")
-        if eta is not None and not eta_supported(fix.text, eta):
-            # a number that is not a time (the "12" of "12-lead", a dose, an age) is not an ETA
-            logger.info("ETA %r is not stated as a time in the transcript; cleared", eta)
-            report["eta_minutes"] = None
-            report["data_quality"]["missing_info"].append(f"ETA (the model's {eta} is not stated as a time)")
+        if self.rules:
+            self._apply_rules(report, fix.text)
+        else:
+            report["data_quality"]["assumptions"].append("Grounding rules off (HANDOFF_REPORT_RULES=0): the model's answer stands as given")
 
         # 4. optional textbook guidance (never fails the report)
         guidance = self._guidance(report, timings)
@@ -611,6 +604,32 @@ class ReportPipeline:
                                      corrections=[{"from": c.original, "to": c.replacement} for c in fix.corrections],
                                      flagged=[{"word": f.token, "maybe": f.best_guess} for f in fix.flagged])
         return report
+
+    def _apply_rules(self, report: Dict[str, Any], text: str) -> None:
+        """The grounding rules after the model: what the transcript does not say is cleared or noted."""
+        fix_text = text
+        report["data_quality"]["assumptions"].extend(ground_history_defaults(report, fix_text))
+        report["data_quality"]["assumptions"].extend(ground_claims(report, fix_text))
+        if report["alert_type"] == "UNCLEAR":
+            hit = alert_from_words(fix_text)
+            if hit:
+                report["alert_type"], word = hit
+                report["data_quality"]["assumptions"].append(
+                    f"Alert type {hit[0]} from the word '{word}' in the transcript; the model answered UNCLEAR")
+        apply_stated_priority(report, fix_text)      # a stated priority sets the level, whatever the model chose
+        if report["patient"].get("sex") is None:
+            # the prompt asks the model to read pronouns; a small model often does not
+            guess = infer_sex(fix_text)
+            if guess:
+                report["patient"]["sex"], note = guess
+                report["data_quality"]["assumptions"].append(note)
+
+        eta = report.get("eta_minutes")
+        if eta is not None and not eta_supported(fix_text, eta):
+            # a number that is not a time (the "12" of "12-lead", a dose, an age) is not an ETA
+            logger.info("ETA %r is not stated as a time in the transcript; cleared", eta)
+            report["eta_minutes"] = None
+            report["data_quality"]["missing_info"].append(f"ETA (the model's {eta} is not stated as a time)")
 
     def _empty_report(self, raw: str, source: str, timings: Dict[str, float]) -> Dict[str, Any]:
         """Zero words came through: a complete report that says so. The model is not called."""

@@ -179,6 +179,7 @@ class LocalTranscriber:
 
     GAP_SECONDS = 6.0          # a stretch of audio this long with no words from the first pass
     GAP_RMS_RATIO = 0.5        # ...and at least half the level of the stretches that did get words
+    MAX_WORDS_PER_SECOND = 5.0 # a span decoded alone that comes back faster than anyone talks is a loop
 
     def _redecode_gaps(self, x: np.ndarray, segments: list, decode: dict) -> list:
         """Whisper's decoder now and then collapses a whole 30 s window to one word or nothing, and the
@@ -205,13 +206,23 @@ class LocalTranscriber:
                 gaps.append((s.start, s.end))
         if not gaps:
             return segments
+        from .transcript_checks import collapse_repeats   # here, not at the top: transcript_checks imports this module
         out = list(segments)
         for a, b in gaps:
             span = x[int(a * SAMPLE_RATE):int(b * SAMPLE_RATE)]
             redone = [s for s in self._decode(span, decode) if s.text.strip()]
             words = sum(len(s.text.split()) for s in redone)
-            self.last_notes.append(f"re-decoded {a:.1f}-{b:.1f} s on its own: {words} words where the first pass had "
-                                   f"{sum(len(s.text.split()) for s in segments if a <= s.start and s.end <= b)}")
+            first = sum(len(s.text.split()) for s in segments if a <= s.start and s.end <= b)
+            _collapsed, loop_note = collapse_repeats(" ".join(s.text.strip() for s in redone))
+            if loop_note or words > self.MAX_WORDS_PER_SECOND * max(b - a, 1.0):
+                # The span decoded alone can loop instead of collapsing: large-v3-turbo on the generated set gave
+                # "ETA ten minutes" 25 times (SY074) and "the end of the day" 37 times (SY051), 250 words for 28 s
+                # (SYSTEM_VS_BASE_2026-10-28.md). A loop is not a recovery: the first pass stays, the attempt is noted.
+                self.last_notes.append(f"re-decode of {a:.1f}-{b:.1f} s discarded ({loop_note or f'{words} words in {b - a:.0f} s'}); "
+                                       f"the first pass keeps its {first} words")
+                logger.info("Local transcription: %s", self.last_notes[-1])
+                continue
+            self.last_notes.append(f"re-decoded {a:.1f}-{b:.1f} s on its own: {words} words where the first pass had {first}")
             logger.info("Local transcription: %s", self.last_notes[-1])
             out = [s for s in out if not (a <= s.start and s.end <= b)]
             for s in redone:

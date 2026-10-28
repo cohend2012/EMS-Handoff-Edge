@@ -10,7 +10,7 @@ Downloads
     Vosk small English model (~40 MB) -> models/vosk-model-small-en-us-0.15/
         from https://alphacephei.com/vosk/models
     faster-whisper models -> the Hugging Face cache (~/.cache/huggingface/hub)
-        LOCAL_WHISPER_MODEL (default large-v3-turbo, about 1.6 GB): offline final transcript
+        LOCAL_WHISPER_MODEL (default medium, about 1.5 GB): offline final transcript
         CAPTION_WHISPER_MODEL (default tiny.en, about 75 MB): caption fallback
 
 Safe to re-run: anything already present is skipped.
