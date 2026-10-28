@@ -92,7 +92,7 @@ class Settings:
     local_whisper_model: str = "large-v3-turbo"
     local_whisper_device: str = "cpu"            # cpu | cuda
     local_whisper_compute: str = "int8"
-    local_whisper_redecode: bool = False         # LOCAL_WHISPER_REDECODE_GAPS: a long stretch of speech the first pass left without words is decoded again on its own
+    local_whisper_redecode: bool = True          # LOCAL_WHISPER_REDECODE_GAPS (0 turns it off): a long stretch of speech the first pass left without words is decoded again on its own
     local_whisper_fallback: bool = False         # LOCAL_WHISPER_FALLBACK: retry a collapsed 30 s window at temperature 0.2 then 0.4, no-speech gate off
 
     # --- live listening ----------------------------------------------------

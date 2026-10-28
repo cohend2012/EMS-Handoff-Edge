@@ -138,3 +138,8 @@ def test_local_transcriber_redecodes_a_long_wordless_gap():
     audio[10 * SAMPLE_RATE:40 * SAMPLE_RATE] *= 0.01
     calls.clear(); t.last_notes = []
     assert t.transcribe(audio) == "vitals are any questions" and calls == [60.0]
+
+
+def test_local_whisper_redecode_defaults_on_and_env_turns_it_off():
+    assert load_settings({}).local_whisper_redecode is True
+    assert load_settings({"LOCAL_WHISPER_REDECODE_GAPS": "0"}).local_whisper_redecode is False

@@ -171,7 +171,7 @@ def main() -> int:
     ap.add_argument("--model", default="medium", help="faster-whisper size for --provider local; a whisper-* name picks the Groq model")
     ap.add_argument("--no-hint", action="store_true")
     ap.add_argument("--fallback", action="store_true", help="local only: temperature fallback 0/0.2/0.4 with the no-speech gate off (LOCAL_WHISPER_FALLBACK)")
-    ap.add_argument("--redecode", action="store_true", help="local only: decode a long wordless stretch again on its own (LOCAL_WHISPER_REDECODE_GAPS)")
+    ap.add_argument("--redecode", action="store_true", help="local only: decode a long wordless stretch again on its own (the app default since 2026-10-27; evals leave it off unless asked)")
     ap.add_argument("--hotwords", action="store_true", help="local only: pass terms.txt as faster-whisper hotwords (prepended to the prompt)")
     ap.add_argument("--corrector", action="store_true", help="apply the app's transcript corrector to the output")
     ap.add_argument("--label")
@@ -211,8 +211,8 @@ def main() -> int:
     transcriber = None if src_dir else make_transcriber(args.provider, args.model, not args.no_hint)
     if transcriber and args.fallback and hasattr(transcriber, "fallback"):
         transcriber.fallback = True
-    if transcriber and args.redecode and hasattr(transcriber, "redecode"):
-        transcriber.redecode = True
+    if transcriber and hasattr(transcriber, "redecode"):
+        transcriber.redecode = bool(args.redecode)       # evals are plain unless asked, whatever the app default
     if transcriber and args.hotwords:
         transcriber.hotwords = ", ".join(t.strip() for t in (args.set / "terms.txt").read_text().splitlines() if t.strip())
     if transcriber:

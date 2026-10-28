@@ -109,6 +109,8 @@ Copy `.env.example` to `.env`. Everything has a sensible default except the API 
 | `OLLAMA_MODEL` | unset | Local model. **Unset:** the app wants `qwen3:8b` and, when that does not fit in free memory, uses the largest pulled smaller model that does (`qwen3:4b-instruct`, `qwen3:1.7b`, ...) and says so. **Set:** that exact model is used, never a substitute; if it is not pulled, or a reply comes from another model, the report fails with a message that says so. Set it for a batch that must run on one model. |
 | `HANDOFF_TRANSCRIBER` | `auto` | Final transcript: `groq`, `local`, or `auto` (Groq if a key is set) |
 | `LOCAL_WHISPER_MODEL` | `large-v3-turbo` | Offline transcript model (`small.en` is ~4× faster on CPU) |
+| `LOCAL_WHISPER_REDECODE_GAPS` | `1` | After the first local pass, a long loud stretch that got no words is decoded again on its own (Whisper now and then collapses a 30 s window; `0` turns it off) |
+| `LOCAL_WHISPER_FALLBACK` | `0` | Whisper's temperature fallback (0, 0.2, 0.4) with the no-speech gate off; measured and not worth it, kept for experiments |
 | `HANDOFF_MIC_DEVICE` | auto (USB) | Device number or part of its name (`PnP`). Names survive reboots; numbers may not. |
 | `HANDOFF_CAPTIONS` | `auto` | `vosk`, `whisper`, or `off` |
 | `HANDOFF_STOP_PHRASE` | `confirm report ready` | Hands-free finish phrase |
