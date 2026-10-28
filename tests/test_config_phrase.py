@@ -89,7 +89,7 @@ def test_local_transcriber_fallback_decode_options(monkeypatch):
     from ems_handoff.transcribe import LocalTranscriber
 
     class Seg:
-        text = "hello"
+        start, end, text = 0.0, 1.0, "hello"
 
     calls = []
 

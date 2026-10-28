@@ -111,6 +111,8 @@ Copy `.env.example` to `.env`. Everything has a sensible default except the API 
 | `LOCAL_WHISPER_MODEL` | `large-v3-turbo` | Offline transcript model (`small.en` is ~4× faster on CPU) |
 | `LOCAL_WHISPER_REDECODE_GAPS` | `1` | After the first local pass, a long loud stretch that got no words is decoded again on its own (Whisper now and then collapses a 30 s window; `0` turns it off) |
 | `LOCAL_WHISPER_FALLBACK` | `0` | Whisper's temperature fallback (0, 0.2, 0.4) with the no-speech gate off; measured and not worth it, kept for experiments |
+| `LOCAL_WHISPER_REDECODE_GAPS` | `1` | After the first local pass, a long loud stretch that got no words is decoded again on its own (Whisper now and then collapses a 30 s window; `0` turns it off) |
+| `LOCAL_WHISPER_FALLBACK` | `0` | Whisper's temperature fallback (0, 0.2, 0.4) with the no-speech gate off; measured and not worth it, kept for experiments |
 | `HANDOFF_MIC_DEVICE` | auto (USB) | Device number or part of its name (`PnP`). Names survive reboots; numbers may not. |
 | `HANDOFF_CAPTIONS` | `auto` | `vosk`, `whisper`, or `off` |
 | `HANDOFF_STOP_PHRASE` | `confirm report ready` | Hands-free finish phrase |
