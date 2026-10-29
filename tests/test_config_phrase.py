@@ -205,3 +205,40 @@ def test_local_transcriber_discards_a_re_decode_that_loops():
     span_reply["text"] = "pressure 80 over 55 sugar 285 sepsis alert"
     t.last_notes = []
     assert t.transcribe(audio) == "vitals are pressure 80 over 55 sugar 285 sepsis alert thank you"
+
+
+def test_local_transcriber_redecodes_a_sparse_or_repeating_long_segment():
+    import dataclasses
+    import numpy as np
+    from ems_handoff.transcribe import LocalTranscriber, SAMPLE_RATE
+
+    class Seg:
+        def __init__(self, start, end, text):
+            self.start, self.end, self.text = start, end, text
+
+    first = {"text": "We'll see you next time."}                 # 5 words for 30 s: a collapsed window
+    span = {"text": "GCS is 9. Two large-bore IVs. ETA 8 minutes."}
+
+    class FakeModel:
+        def transcribe(self, audio, **kw):
+            if len(audio) > 50 * SAMPLE_RATE:
+                return iter([Seg(0.0, 30.0, " ".join(f"w{i}" for i in range(60))), Seg(30.0, 60.0, first["text"])]), None
+            return iter([Seg(0.0, 29.0, span["text"])]), None
+
+    rng = np.random.default_rng(0)
+    audio = (0.1 * rng.standard_normal(60 * SAMPLE_RATE)).astype(np.float32)
+    t = LocalTranscriber(dataclasses.replace(load_settings(), local_whisper_redecode=True), model_size="tiny.en")
+    t._model = FakeModel()
+    assert t.transcribe(audio).endswith("w59 GCS is 9. Two large-bore IVs. ETA 8 minutes.")
+    assert "30.0-60.0" in t.last_notes[0] and "9 words where the first pass had 5" in t.last_notes[0]
+    # a repeating window (120 words for 30 s) is decoded again and replaced only by something shorter
+    first["text"] = " ".join("13." for _ in range(120))
+    t.last_notes = []
+    assert t.transcribe(audio).endswith("w59 GCS is 9. Two large-bore IVs. ETA 8 minutes.")
+    span["text"] = " ".join("12." for _ in range(130))
+    t.last_notes = []
+    assert t.transcribe(audio).endswith("w59 " + first["text"]) and "discarded" in t.last_notes[0]
+    # a normal window (60 words for 30 s) is left alone
+    first["text"] = " ".join(f"v{i}" for i in range(60))
+    t.last_notes = []
+    assert t.transcribe(audio).endswith("w59 " + first["text"]) and not t.last_notes

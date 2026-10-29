@@ -182,6 +182,8 @@ class LocalTranscriber:
     GAP_SECONDS = 6.0          # a stretch of audio this long with no words from the first pass
     GAP_RMS_RATIO = 0.5        # ...and at least half the level of the stretches that did get words
     MAX_WORDS_PER_SECOND = 5.0 # a span decoded alone that comes back faster than anyone talks is a loop
+    SPARSE_WORDS_PER_SECOND = 0.5  # a long segment with fewer words a second than this is a collapsed window
+    DENSE_WORDS_PER_SECOND = 3.2   # ...and one with more is repeating itself (radio reports run 2 to 2.5)
 
     def _redecode_gaps(self, x: np.ndarray, segments: list, decode: dict) -> list:
         """Whisper's decoder now and then collapses a whole 30 s window to one word or nothing, and the
@@ -206,10 +208,19 @@ class LocalTranscriber:
         for (a_end), (b_start) in zip([c[1] for c in covered[:-1]], [c[0] for c in covered[1:]]):
             if b_start - a_end >= self.GAP_SECONDS and rms(a_end, b_start) >= self.GAP_RMS_RATIO * speech_rms:
                 gaps.append((a_end, b_start))
-        # a collapsed window kept by a disabled no-speech gate shows up as a long segment with a word or two
+        # A collapsed window shows up as one long segment with a few words ("Thank you." or "We'll see you next
+        # time." for 30 s: large-v3-turbo on SY055, SY074, SY184), and a repeating window as one long segment with
+        # too many ("blood pressure 93 over 48, rate of 127, ..." three times, or "13." sixty times: SY078, SY188).
+        # Both are decoded again; the repeating one is spliced in only if it comes back shorter.
+        dense = set()
         for s in worded:
-            if (s.end - s.start) >= self.GAP_SECONDS * 2 and len(s.text.split()) <= 2:
-                gaps.append((s.start, s.end))
+            dur = s.end - s.start
+            if dur >= self.GAP_SECONDS * 2:
+                rate = len(s.text.split()) / dur
+                if rate < self.SPARSE_WORDS_PER_SECOND:
+                    gaps.append((s.start, s.end))
+                elif rate > self.DENSE_WORDS_PER_SECOND:
+                    gaps.append((s.start, s.end)); dense.add((s.start, s.end))
         if not gaps:
             return segments
         from .transcript_checks import collapse_repeats   # here, not at the top: transcript_checks imports this module
@@ -226,6 +237,10 @@ class LocalTranscriber:
                 # (SYSTEM_VS_BASE_2026-10-28.md). A loop is not a recovery: the first pass stays, the attempt is noted.
                 self.last_notes.append(f"re-decode of {a:.1f}-{b:.1f} s discarded ({loop_note or f'{words} words in {b - a:.0f} s'}); "
                                        f"the first pass keeps its {first} words")
+                logger.info("Local transcription: %s", self.last_notes[-1])
+                continue
+            if (a, b) in dense and words >= first:
+                self.last_notes.append(f"re-decode of {a:.1f}-{b:.1f} s discarded ({words} words, no shorter than the first pass's {first})")
                 logger.info("Local transcription: %s", self.last_notes[-1])
                 continue
             self.last_notes.append(f"re-decoded {a:.1f}-{b:.1f} s on its own: {words} words where the first pass had {first}")

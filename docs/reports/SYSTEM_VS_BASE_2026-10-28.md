@@ -54,6 +54,7 @@ From SYNTH_V1_2026-10-27.md, one scorer over every row. Local = faster-whisper i
 | local distil-large-v3.5 (10-29) | hint | 8.8 % | 12.6 % | 15.5 % | 21.0 % | 0.859 | 0.806 | 0.71x |
 | local large-v3-turbo, int8, greedy, VAD filter off (10-29) | hint | 12.8 % | 10.7 % | 21.5 % | 16.0 % | 0.881 | 0.849 | 0.75x |
 | local medium, int8, beam 5 instead of greedy (10-29) | hint | 7.1 % | 6.9 % | 13.0 % | 14.0 % | 0.908 | 0.885 | 1.2x |
+| local large-v3-turbo, int8, greedy + gap re-decode with beam 5 on the span (10-29) | hint | 10.8 % | 10.8 % | 18.0 % | 16.0 % | 0.889 | 0.840 | 0.77x |
 | local large-v3-turbo (the app default until today) | hint | 12.8 % | 10.8 % | 21.5 % | 16.0 % | 0.881 | 0.840 | 0.8x |
 | local large-v3-turbo | hint + gap re-decode, before the loop guard | 13.4 % | 10.8 % | 21.5 % | 16.0 % | 0.875 | 0.840 | 0.8x |
 | local large-v3-turbo | hint + gap re-decode, with the loop guard (shipped) | 12.6 % | 10.8 % | 21.5 % | 16.0 % | 0.881 | 0.840 | 0.8x |
@@ -85,9 +86,18 @@ detects (a segment over 12 s with two words or fewer), and the turbo "hint + gap
 rescue them because the span decoded alone, greedily, looped and the loop guard discarded it. The medium SY078
 collapse is the other shape the re-decode detects: a 30 s wordless gap at speech level. So the fix is not a
 beam on the whole clip but a beam on the re-decoded span: `LOCAL_WHISPER_REDECODE_BEAM` (default 5) added
-10-29, the gap re-decode now decodes the span with beam 5 while the clip stays greedy. The rows
-`large-v3-turbo_hint_rd5` and `medium_hint_rd5` (running) measure it; the expectation from the per-clip
-decodes is turbo near its beam 5 row at greedy speed and medium at or under its same-hint 7.1 %.
+10-29, the gap re-decode now decodes the span with beam 5 while the clip stays greedy. The first
+measurement (`large-v3-turbo_hint_rd5`) gives turbo 10.8 / 10.8 %: it rescued SY074 (46 to 6 %) and nothing
+else. The two misses are instructive. SY055 and SY184 collapsed again, but this time to five and eight words for
+30 s ("We'll see you next time."), above the detector's two-word limit; the same clips gave two words in the
+10-29 diagnostic run, so the int8 CPU decode is not repeatable word for word and a count threshold is fragile.
+SY078 and SY188 are the opposite shape: a 30 s window that repeats itself ("blood pressure 93 over 48, rate of
+127 ..." three times, 108 words; "13." sixty times, 122 words), which no gap rule sees. Both are word-rate
+anomalies on a long segment, so the trigger is now a rate band on any segment of 12 s or more: under 0.5 words
+a second is a collapsed window, over 3.2 is a repeating one (the reports run 2.0 to 2.5), and a repeating span's
+re-decode is spliced in only if it comes back shorter. The rows `large-v3-turbo_hint_rd5b` and
+`medium_hint_rd5b` (queued) measure that; `medium_hint_rd5` (running) measures the beam 5 span decode alone on
+medium, whose one failure is a wordless gap the old rule already catches.
 
 \* The medium re-decode rows were run with the day's revised hint, which by itself moved the clean row from 4.8 to
 7.1 % (two clips collapsed the other way; SYNTH_V1_2026-10-27.md); against that same-hint run the re-decode is a
