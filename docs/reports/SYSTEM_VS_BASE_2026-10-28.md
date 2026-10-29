@@ -55,6 +55,7 @@ From SYNTH_V1_2026-10-27.md, one scorer over every row. Local = faster-whisper i
 | local large-v3-turbo, int8, greedy, VAD filter off (10-29) | hint | 12.8 % | 10.7 % | 21.5 % | 16.0 % | 0.881 | 0.849 | 0.75x |
 | local medium, int8, beam 5 instead of greedy (10-29) | hint | 7.1 % | 6.9 % | 13.0 % | 14.0 % | 0.908 | 0.885 | 1.2x |
 | local large-v3-turbo, int8, greedy + gap re-decode with beam 5 on the span (10-29) | hint | 10.8 % | 10.8 % | 18.0 % | 16.0 % | 0.889 | 0.840 | 0.77x |
+| local medium, int8, greedy + gap re-decode with beam 5 on the span (10-29) | hint | 5.9 % | 7.0 % | 10.5 % | 13.5 % | 0.912 | 0.876 | 0.85x |
 | local large-v3-turbo (the app default until today) | hint | 12.8 % | 10.8 % | 21.5 % | 16.0 % | 0.881 | 0.840 | 0.8x |
 | local large-v3-turbo | hint + gap re-decode, before the loop guard | 13.4 % | 10.8 % | 21.5 % | 16.0 % | 0.875 | 0.840 | 0.8x |
 | local large-v3-turbo | hint + gap re-decode, with the loop guard (shipped) | 12.6 % | 10.8 % | 21.5 % | 16.0 % | 0.881 | 0.840 | 0.8x |
@@ -96,8 +97,13 @@ SY078 and SY188 are the opposite shape: a 30 s window that repeats itself ("bloo
 anomalies on a long segment, so the trigger is now a rate band on any segment of 12 s or more: under 0.5 words
 a second is a collapsed window, over 3.2 is a repeating one (the reports run 2.0 to 2.5), and a repeating span's
 re-decode is spliced in only if it comes back shorter. The rows `large-v3-turbo_hint_rd5b` and
-`medium_hint_rd5b` (queued) measure that; `medium_hint_rd5` (running) measures the beam 5 span decode alone on
-medium, whose one failure is a wordless gap the old rule already catches.
+`medium_hint_rd5b` (queued) measure that; `medium_hint_rd5` measures the beam 5 span decode alone on medium: 5.9 / 7.0 %, the same as the
+greedy-span re-decode of 10-27 (`medium_hint_rd`) clip for clip, at the same time per clip (36 s). Its one
+failure, the 28 to 58 s gap of SY078, re-decodes to the same 109 words either way (45 to 21 % WER): the span
+decoded alone still drops its first 12 s ("temp of" runs straight into "lactate is 2.8", losing the glucose,
+GCS and lung sounds), so on medium the beam changes nothing and the remaining loss is the span's start, not
+its decode. A re-decode that starts a few seconds before the gap, inside the last worded segment, and drops the
+overlap is the next thing to try there.
 
 \* The medium re-decode rows were run with the day's revised hint, which by itself moved the clean row from 4.8 to
 7.1 % (two clips collapsed the other way; SYNTH_V1_2026-10-27.md); against that same-hint run the re-decode is a
