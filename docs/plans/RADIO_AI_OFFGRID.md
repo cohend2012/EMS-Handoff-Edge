@@ -59,3 +59,72 @@ need no code. R4 is the one that changes the product: it removes the website fro
 
 Transmitting on public-safety systems; carrying model weights or updates over radio (a 4B model at
 1200 bit/s would take years); encryption on amateur bands.
+
+## 6. Follow-up questions (2026-10-29): Airspy, encryption, compute in the radios, splitting the model, jamming
+
+**Airspy.** An Airspy (R2 or Mini) is a receive-only SDR with 10 MHz of bandwidth, enough to watch a whole
+700/800 MHz P25 site at once. With `trunk-recorder` on the Jetson it records every call on the talkgroups we
+already use (mocomdps 4390, 4395) live, which replaces the OpenMHz download step (experiment R4). It is the
+right first purchase. It never transmits.
+
+**Encryption and compression.** Where encryption is legal decides the carrier:
+
+| carrier | encryption | data | note |
+|---|---|---|---|
+| GMRS / FRS / MURS (Part 95) | not allowed (no obscured or coded messages) | GMRS: short text only; MURS: data allowed | voice to humans only |
+| amateur (Part 97) | not allowed | allowed | needs a licence per operator |
+| public safety P25 (Part 90) | AES-256 is standard | yes | only with the agency's licence and keys |
+| 915 MHz ISM, LoRa / Meshtastic (Part 15) | allowed; Meshtastic encrypts by default (AES) | yes, 0.3 to 27 kbit/s | our encrypted data link |
+| Wi-Fi / Ethernet between our own boxes | allowed | fast | how the two Jetsons already talk |
+
+So the encrypted, compressed channel is LoRa. The handoff report as JSON is 1 to 2 KB and gzips to 300
+to 600 bytes: one or two LoRa packets, a few seconds. Voice can be compressed with Codec2 (700 to 3200
+bit/s, the open codec behind FreeDV) and sent encrypted over LoRa at the slowest spreading factors, but
+only on ISM; encrypted digital voice on GMRS is illegal.
+
+**Is there compute in the radios?** Not enough to matter:
+
+| device | processor and memory | neural net it can hold |
+|---|---|---|
+| consumer handheld (Baofeng class) | small MCU, kilobytes | none |
+| Meshtastic node (ESP32 or nRF52, up to 8 MB PSRAM) | about 1 MHz-class tasks | about 0.1 to 1 M parameters int8: a wake word or a VAD, no language model |
+| public-safety radio (APX class) | ARM, tens of MB, closed firmware | nothing we can load |
+| Raspberry Pi 5, 8 GB | 4 cores | about 3 B parameters int4, 2 to 5 tokens/s |
+| Jetson Orin Nano 8 GB (ours) | GPU, 8 GB shared | 4 B comfortably, 8 B at the edge (measured 10-29) |
+| Jetson Orin NX 16 GB | GPU, 16 GB | 8 to 14 B |
+| AGX Orin 64 GB | GPU, 64 GB | 70 B int4 |
+| phone, 8 to 12 GB | NPU | 3 to 4 B |
+
+The radio is a modem. The compute sits next to it, and the "radio node" is a Jetson plus an Airspy, a
+LoRa node, a handheld and a battery.
+
+**Can the net be split across the radio network and weights fetched when needed?** No, and the arithmetic
+says why. A transformer passes its hidden state between layers for every token: for the 4B model that is
+2560 values, about 5 KB per token per device boundary. Over Ethernet (100 Mbit/s and up) that is nothing,
+which is why llama.cpp's RPC mode can pipeline a model across our two Jetsons on the wire. Over LoRa at
+20 kbit/s it is 2 s per token per hop: a 300-token report across two nodes takes 10 minutes and across
+four nodes 30. Fetching weights on demand is worse: the 4B model is 2.5 GB, 20 Gbit, which at 20 kbit/s is
+11 days for one forward pass. So each node must hold the whole model it uses. What the mesh carries is
+the small products: transcripts, reports, patient context, model-free state. The two-Jetson split we have
+(whisper on one box, the writer on the other) is this pattern on a fast link.
+
+**How many parameters can a node have without cloud or cellular?** As many as its memory holds: 4 B on
+the Orin Nano, 8 to 14 B on an NX, 70 B on an AGX. The choice is per node, not per network. For this
+product the evidence so far says 4 B with the grounding rules is within 1 to 3 weighted points of the
+120 B cloud writer, and the 8 B buys half a point at three times the time on an 8 GB board.
+
+**Keeping the AI alive via radio, properly.** A mesh of whole models with shared state: every node has the
+same models; the LoRa mesh replicates transcripts and reports (store-and-forward); any node can finish a
+report another started; a node that dies loses nothing. That is resilience, which is what "alive" can
+mean here, and it is measurable: pull a node's battery mid-call and time how long until another node
+delivers the same report.
+
+**Jamming and frequency hopping.** LoRa's chirp spread spectrum already resists narrowband interference,
+and frequency hopping is legal in the 915 MHz ISM band (Part 15.247 was written for it). Meshtastic does
+not hop today, so hopping means our own firmware or a different ISM radio. GMRS and FRS are fixed
+channels on type-accepted radios, so no hopping there. Public-safety P25 does not hop either; agencies
+rely on trunking, encryption and many sites. Our best anti-jam measures are diversity (voice on one band,
+data on another, store-and-forward on both) and the mesh's many paths; hopping is a later layer.
+
+**Next purchases, in order:** Airspy Mini or R2 (receive the EMS system live), two Meshtastic LoRa nodes
+(the encrypted data mesh), two FRS handhelds (the real-FM tests in section 3). About 300 dollars.
