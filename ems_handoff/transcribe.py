@@ -171,10 +171,12 @@ class LocalTranscriber:
         return text
 
     def _decode(self, x: np.ndarray, decode: dict):
+        beam = int(getattr(self.settings, "local_whisper_beam", 1) or 1)
+        vad = bool(getattr(self.settings, "local_whisper_vad", True))
         segments, _info = self._get_model().transcribe(
-            x, language="en", beam_size=1, condition_on_previous_text=False, **decode,
-            initial_prompt=self.hint or None, hotwords=getattr(self, "hotwords", None) or None, vad_filter=True,
-            vad_parameters={"min_silence_duration_ms": 500})
+            x, language="en", beam_size=beam, condition_on_previous_text=False, **decode,
+            initial_prompt=self.hint or None, hotwords=getattr(self, "hotwords", None) or None, vad_filter=vad,
+            vad_parameters={"min_silence_duration_ms": 500} if vad else None)
         return segments
 
     GAP_SECONDS = 6.0          # a stretch of audio this long with no words from the first pass
