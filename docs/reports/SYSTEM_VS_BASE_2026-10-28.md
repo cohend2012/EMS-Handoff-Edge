@@ -50,6 +50,8 @@ From SYNTH_V1_2026-10-27.md, one scorer over every row. Local = faster-whisper i
 | local small | hint | 6.2 % | 9.6 % | 17.5 % | 17.0 % | 0.885 | 0.841 | 0.33x |
 | local distil-large-v3 (10-29) | hint | 9.4 % | 10.5 % | 17.5 % | 20.0 % | 0.850 | 0.834 | 0.72x |
 | local large-v3-turbo, float32 instead of int8 (10-29) | hint | 9.2 % | 11.0 % | 15.5 % | 16.0 % | 0.885 | 0.839 | 1.65x |
+| local large-v3-turbo, int8, beam 5 instead of greedy (10-29) | hint | 6.2 % | 8.1 % | 13.0 % | 15.0 % | 0.908 | 0.859 | 0.81x |
+| local distil-large-v3.5 (10-29) | hint | 8.8 % | 12.6 % | 15.5 % | 21.0 % | 0.859 | 0.806 | 0.71x |
 | local large-v3-turbo (the app default until today) | hint | 12.8 % | 10.8 % | 21.5 % | 16.0 % | 0.881 | 0.840 | 0.8x |
 | local large-v3-turbo | hint + gap re-decode, before the loop guard | 13.4 % | 10.8 % | 21.5 % | 16.0 % | 0.875 | 0.840 | 0.8x |
 | local large-v3-turbo | hint + gap re-decode, with the loop guard (shipped) | 12.6 % | 10.8 % | 21.5 % | 16.0 % | 0.881 | 0.840 | 0.8x |
@@ -59,8 +61,14 @@ Candidate rows added on 2026-10-29 (`HORSEPOWER_GOALS.md` lever C): distil-large
 worse than medium (median clip WER 9.8 % at clean, no tail drops or loops) and only 15 % faster on the CPU
 (30 s against 35 s per 42 s clip), so it is out. Turbo in float32 rescues two of the four tail-drop clips
 (SY074 46 to 8 %, SY078 40 to 5 %) but not the other two (SY055 44 %, SY188 68 %) and runs 2.3 times slower
-(69 s per clip), so quantization is part of the turbo failure, not all of it. The beam 5 and VAD-off rows
-and distil-large-v3.5 follow in this table as they finish.
+(69 s per clip), so quantization is part of the turbo failure, not all of it. Beam search (beam 5, still int8)
+fixes every one of the tail-drop clips (SY055 44 to 6 %, SY074 46 to 7 %, SY078 40 to 6 %, SY184 40 to 7 % at clean;
+SY188 68 to 12 % at 5 dB) at the same speed as greedy (34 s against 33 s per clip), so the turbo failure was greedy
+decoding on a quantized model, not the model: turbo with beam 5 scores 6.2 / 8.1 %, median clip WER 5.4 % at
+clean, no tail drops. That is still behind medium with the hint (4.8 / 7.0 %), and the two differ by 1.4 and 1.1
+points on 30 clips each, inside the noise of this set, so beam 5 makes turbo usable, not better. distil-large-v3.5
+(8.8 / 12.6 %, 0.71x) is out like distil-large-v3. The turbo VAD-off and medium beam 5 rows follow as they finish;
+medium beam 5 is the one that decides whether the beam gain carries to the shipped model.
 
 \* The medium re-decode rows were run with the day's revised hint, which by itself moved the clean row from 4.8 to
 7.1 % (two clips collapsed the other way; SYNTH_V1_2026-10-27.md); against that same-hint run the re-decode is a
