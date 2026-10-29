@@ -52,6 +52,7 @@ From SYNTH_V1_2026-10-27.md, one scorer over every row. Local = faster-whisper i
 | local large-v3-turbo, float32 instead of int8 (10-29) | hint | 9.2 % | 11.0 % | 15.5 % | 16.0 % | 0.885 | 0.839 | 1.65x |
 | local large-v3-turbo, int8, beam 5 instead of greedy (10-29) | hint | 6.2 % | 8.1 % | 13.0 % | 15.0 % | 0.908 | 0.859 | 0.81x |
 | local distil-large-v3.5 (10-29) | hint | 8.8 % | 12.6 % | 15.5 % | 21.0 % | 0.859 | 0.806 | 0.71x |
+| local large-v3-turbo, int8, greedy, VAD filter off (10-29) | hint | 12.8 % | 10.7 % | 21.5 % | 16.0 % | 0.881 | 0.849 | 0.75x |
 | local large-v3-turbo (the app default until today) | hint | 12.8 % | 10.8 % | 21.5 % | 16.0 % | 0.881 | 0.840 | 0.8x |
 | local large-v3-turbo | hint + gap re-decode, before the loop guard | 13.4 % | 10.8 % | 21.5 % | 16.0 % | 0.875 | 0.840 | 0.8x |
 | local large-v3-turbo | hint + gap re-decode, with the loop guard (shipped) | 12.6 % | 10.8 % | 21.5 % | 16.0 % | 0.881 | 0.840 | 0.8x |
@@ -67,8 +68,9 @@ SY188 68 to 12 % at 5 dB) at the same speed as greedy (34 s against 33 s per cli
 decoding on a quantized model, not the model: turbo with beam 5 scores 6.2 / 8.1 %, median clip WER 5.4 % at
 clean, no tail drops. That is still behind medium with the hint (4.8 / 7.0 %), and the two differ by 1.4 and 1.1
 points on 30 clips each, inside the noise of this set, so beam 5 makes turbo usable, not better. distil-large-v3.5
-(8.8 / 12.6 %, 0.71x) is out like distil-large-v3. The turbo VAD-off and medium beam 5 rows follow as they finish;
-medium beam 5 is the one that decides whether the beam gain carries to the shipped model.
+(8.8 / 12.6 %, 0.71x) is out like distil-large-v3. Turning the VAD filter off changes nothing
+(12.8 / 10.7 %, the same four tail drops), so the filter is not the cause either. The medium beam 5 row follows
+as it finishes; it decides whether the beam gain carries to the shipped model.
 
 \* The medium re-decode rows were run with the day's revised hint, which by itself moved the clean row from 4.8 to
 7.1 % (two clips collapsed the other way; SYNTH_V1_2026-10-27.md); against that same-hint run the re-decode is a
