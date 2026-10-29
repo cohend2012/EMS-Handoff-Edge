@@ -49,6 +49,8 @@ unless marked cloud.
 | 10-28 | Report stage with the grounding rules off (cohendynamics GPU) | 60 | 50 min | 88.0 / 88.3 against 93.7 / 93.7 with rules on; precision 89 against 96 %; hallucinations 0.7 against 0.2 per report; level right 67 against 100 %; +5.8 [+4.1, +7.5] and +5.4 [+3.8, +7.1] for the rules | SYSTEM_VS_BASE section 4 |
 | 10-28 | Repeat of the bare-transcript report run, same device, same input (cohendynamics GPU) | 60 | 50 min | 60 of 60 weighted scores identical, 51 of 60 report JSONs byte-identical outside metadata: the writer is deterministic on one device, so the 2-point clean gap is caused by transcript formatting, not noise | SYSTEM_VS_BASE section 4 |
 | 10-28 | medium_hint all-SNR report completion (vox-ai GPU; one report, SY099 at 10 dB, failed on malformed model JSON and was re-run on 10-29) | 81 | 70 min | the local report stage's noise curve, 150 of 150: weighted 94.7 / 94.7 / 92.9 / 94.2 / 93.9 at clean / 20 / 15 / 10 / 5 dB while the transcript WER goes 4.8 to 13.5 %; level right at every SNR; hallucinations 0.13 to 0.23 per report | SYSTEM_VS_BASE section 4 |
+| 10-29 | Report stage, cloud writer over the bare cloud transcripts (Groq, paced 25 s) | 60 | 25 min | 95.2 / 94.4 weighted against 96.8 / 95.1 over our cloud stack; paired +1.5 [-0.5, +3.9] at clean, +0.5 [-1.6, +2.8] at 5 dB |
+| 10-29 | Report stage, cloud writer with the rules off | 13 of 60 | 25 min, then HTTP 429 | 93.6 / 90.2 on the 13; the Groq daily token cap stopped the run, it resumes when the cap resets |
 
 Regression on every commit: 239 tests under `.venv/bin/python -m pytest` (2 min), including the pipeline on the four
 gold samples with a fake model, the re-decode and its loop guard, the rules switch, and the transcript checks.
@@ -80,7 +82,7 @@ faster at 2 more points of WER), and the one big accuracy lever was choosing med
 | real corpus, 73 reports: claims not supported by the transcript | 98 (post-fix, before the rules) | 32 | 0 invented allergies or code status, before and after |
 | real corpus: invented allergies / code status | 50 / 23 | 0 / 0 | 0 / 0 |
 | four gold samples, weighted | 83.5 (baseline commit) | 91.3 | 98.0 on CS008 |
-| generated set, 60 reports, weighted clean / 5 dB | 88.0 / 88.3 (rules off, same transcripts, same device) | 93.7 to 95.7 / 93.7 to 94.1 | 96.8 / 95.1 |
+| generated set, 60 reports, weighted clean / 5 dB | 88.0 / 88.3 (rules off, same transcripts, same device) | 93.7 to 95.7 / 93.7 to 94.1 | 96.8 / 95.1 (95.2 / 94.4 over the bare cloud transcript) |
 | hallucinations per report, generated set | 0.73 / 0.70 | 0.10 to 0.20 | 0.03 to 0.07 |
 | time per report | 50 s | 50 s | 3 s |
 | repeatability | five replays of CS008 gave the identical report (10-25); a second run of 60 reports on the same device and input reproduced all 60 scores (10-28). The 11-clip difference between bare and stacked transcripts at clean is therefore caused by the transcripts' punctuation and case, to which the 4B writer is sensitive | | |

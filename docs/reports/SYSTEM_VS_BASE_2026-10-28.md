@@ -8,9 +8,9 @@ the Jetson's folders. The interns' tree (last commit 2026-09-09) holds no datase
 no evaluation harness; its only comparison prints a local and a cloud transcript side by side with wall time.
 Everything below was measured after 2026-10-18, with one scorer, on clips and calls that exist on disk.
 
-Every local row is in. The two cloud rows still owed (the cloud writer over the base cloud transcripts, and the cloud
-writer with the rules off) are running on 2026-10-29 after the Groq daily cap reset; section 8 lists them. Logs:
-`~/datasets/synth_v1/logs/`.
+Every local row is in. The cloud writer over the base cloud transcripts (60 of 60) landed on 2026-10-29; the cloud
+rules-off row reached 13 of 60 before the Groq daily token cap stopped it and resumes when the cap resets (its
+partial numbers are marked as such). Logs: `~/datasets/synth_v1/logs/`.
 
 ## 1. How we score
 
@@ -135,7 +135,9 @@ are compared at the one-point level only within one device.
 | local medium, our stack | local qwen3:4b-instruct, cohendynamics GPU | rules on (ours, local) | 60 | 93.7 | 93.7 | 93.1 / 93.6 % | 95.7 / 95.9 % | 0.17 / 0.20 | 90 % | 100 % | 78 / 83 % | 51 |
 | local medium, our stack | local qwen3:4b-instruct, cohendynamics GPU | rules off | 60 | 88.0 | 88.3 | 90.7 / 91.2 % | 87.4 / 88.4 % | 0.73 / 0.70 | 90 % | 67 % | 78 / 83 % | 51 |
 | local medium, base | local qwen3:4b-instruct, cohendynamics GPU | rules on, second run of the same input | 60 | 95.7 | 94.1 | 94.6 / 93.6 % | 96.4 / 96.2 % | 0.10 / 0.13 | 90 % | 100 % | 83 / 78 % | 50 |
+| cloud turbo, base | cloud gpt-oss-120b, Groq | rules on | 60 | 95.2 | 94.4 | 94.5 / 92.6 % | 97.4 / 95.3 % | 0.13 / 0.20 | 100 / 97 % | 100 % | 65 / 74 % | 3 |
 | cloud turbo, our stack | cloud gpt-oss-120b, Groq | rules on (ours, cloud) | 60 | 96.8 | 95.1 | 96.4 / 93.2 % | 98.6 / 97.0 % | 0.03 / 0.07 | 100 / 97 % | 100 % | 91 / 87 % | 3 |
+| cloud turbo, our stack | cloud gpt-oss-120b, Groq | rules off, partial: 13 of 60 before the daily cap | 13 | 93.6 | 90.2 | 93.3 / 90.5 % | 95.5 / 93.9 % | 0.14 / 0.33 | 100 % | 80 % | 100 % | 3 |
 | script text (no audio) | local qwen3:4b-instruct, vox-ai GPU | rules on | 30 | 96.4 | | 98.4 % | 96.3 % | 0.43 | 93 % | 100 % | 100 % | 55 |
 
 Paired, per clip (`posterior.py --reports`): the local report over our transcripts against over the base transcripts is
@@ -222,6 +224,8 @@ Report stage, paired on clips (`posterior.py --reports`):
 | rules on against rules off, 5 dB | 90.3 / 93.0 % | 91.9 % | 90.1 / 96.0 % | 100.0 % | 88.3 / 93.7 | +5.4 [+3.8, +7.1] |
 | our transcripts against base transcripts, local writer, clean | 94.9 / 93.0 % | 12.4 % | 96.8 / 96.0 % | 27.7 % | 95.7 / 93.7 | -2.0 [-3.4, -0.7] |
 | our transcripts against base transcripts, local writer, 5 dB | 93.3 / 93.0 % | 44.6 % | 96.5 / 96.0 % | 35.9 % | 94.1 / 93.7 | -0.4 [-1.6, +0.7] |
+| our transcripts against base transcripts, cloud writer, clean | 94.7 / 95.7 % | 73.9 % | 97.8 / 98.3 % | 69.2 % | 95.2 / 96.8 | +1.5 [-0.5, +3.9] |
+| our transcripts against base transcripts, cloud writer, 5 dB (29 pairs) | 94.5 / 93.7 % | 33.2 % | 96.9 / 97.9 % | 80.0 % | 94.6 / 95.1 | +0.5 [-1.6, +2.8] |
 | cloud system against local system, clean | 93.0 / 95.7 % | 95.0 % | 96.0 / 98.3 % | 97.0 % | 93.7 / 96.8 | +3.0 [+0.6, +5.6] |
 | cloud system against local system, 5 dB | 93.0 / 93.7 % | 66.3 % | 95.9 / 97.9 % | 94.6 % | 93.7 / 95.1 | +1.4 [-1.4, +4.2] |
 
@@ -276,8 +280,7 @@ Time to first token was never measured; the app does not stream the report.
 
 ## 8. Still owed
 
-- Cloud report stage over the base cloud transcript (`groq_nohint`) and the cloud rules-off row: running on
-  2026-10-29 (`logs/matrix_2026-10-29_cloud_base.log`); the Groq 200k tokens-per-day cap may push the second
-  run to the following day.
+- Cloud rules-off row: 13 of 60 reports before the Groq 200k tokens-per-day cap (`logs/matrix_2026-10-29_cloud_base.log`);
+  `report_set.py` resumes it when the cap resets. The cloud base row is in (60 of 60, 10-29).
 - Term list for the real references, so MTER exists on real audio.
 - Paired bootstrap intervals over clips for every before-and-after difference (FINETUNE_PLAN.md section 4).
