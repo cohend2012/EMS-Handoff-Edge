@@ -49,6 +49,7 @@ From SYNTH_V1_2026-10-27.md, one scorer over every row. Local = faster-whisper i
 | local medium | hint + gap re-decode + corrector (ours, local) * | 5.8 % | 6.9 % | 9.5 % | 13.0 % | 0.913 | 0.876 | 0.85x |
 | local small | hint | 6.2 % | 9.6 % | 17.5 % | 17.0 % | 0.885 | 0.841 | 0.33x |
 | local distil-large-v3 (10-29) | hint | 9.4 % | 10.5 % | 17.5 % | 20.0 % | 0.850 | 0.834 | 0.72x |
+| local large-v3-turbo, float32 instead of int8 (10-29) | hint | 9.2 % | 11.0 % | 15.5 % | 16.0 % | 0.885 | 0.839 | 1.65x |
 | local large-v3-turbo (the app default until today) | hint | 12.8 % | 10.8 % | 21.5 % | 16.0 % | 0.881 | 0.840 | 0.8x |
 | local large-v3-turbo | hint + gap re-decode, before the loop guard | 13.4 % | 10.8 % | 21.5 % | 16.0 % | 0.875 | 0.840 | 0.8x |
 | local large-v3-turbo | hint + gap re-decode, with the loop guard (shipped) | 12.6 % | 10.8 % | 21.5 % | 16.0 % | 0.881 | 0.840 | 0.8x |
@@ -56,8 +57,10 @@ From SYNTH_V1_2026-10-27.md, one scorer over every row. Local = faster-whisper i
 
 Candidate rows added on 2026-10-29 (`HORSEPOWER_GOALS.md` lever C): distil-large-v3 with the hint is uniformly
 worse than medium (median clip WER 9.8 % at clean, no tail drops or loops) and only 15 % faster on the CPU
-(30 s against 35 s per 42 s clip), so it is out. The turbo decode rows (float32, beam 5, VAD off) and
-distil-large-v3.5 follow in this table as they finish.
+(30 s against 35 s per 42 s clip), so it is out. Turbo in float32 rescues two of the four tail-drop clips
+(SY074 46 to 8 %, SY078 40 to 5 %) but not the other two (SY055 44 %, SY188 68 %) and runs 2.3 times slower
+(69 s per clip), so quantization is part of the turbo failure, not all of it. The beam 5 and VAD-off rows
+and distil-large-v3.5 follow in this table as they finish.
 
 \* The medium re-decode rows were run with the day's revised hint, which by itself moved the clean row from 4.8 to
 7.1 % (two clips collapsed the other way; SYNTH_V1_2026-10-27.md); against that same-hint run the re-decode is a
