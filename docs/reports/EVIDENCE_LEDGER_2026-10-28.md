@@ -40,14 +40,15 @@ unless marked cloud.
 | 10-27 | Generated set built and rendered | 200 scripts, 1000 clips | 2 h | the set | SYNTH_V1_2026-10-27.md |
 | 10-27 | Report model on the clean script text | 30 reports | 27 min | 96.4 weighted, 98.4 recall, 0.43 hallucinations per report (the prompt's own ceiling) | SYNTH_V1 |
 | 10-27 | 16 transcriber runs over the 150-clip test split: medium (hint on, off, corrector, fallback, re-decode, hotwords), small, tiny.en, large-v3-turbo (plain, fallback), cloud turbo and large-v3 (hint on, off, corrector) | 150 clips each, 6285 s of audio | local 0.8x to 0.85x real time (about 85 to 90 min per run; small 34 min, tiny 11 min); cloud 7 to 9 min paced | the full table in SYSTEM_VS_BASE section 2; window collapse found; hotwords break medium; fallback is the wrong lever; re-decode fixes the one medium collapse | SYNTH_V1 |
-| 10-27 | Report model over the medium transcripts, all SNRs | 69 of 150 reports (completing) | 48 s per report | 95.1 to 95.9 weighted at every SNR | reports/medium_hint |
+| 10-27 | Report model over the medium transcripts, all SNRs (first 69; the rest on 10-28, next row) | 69 of 150 reports | 48 s per report | 95.1 to 95.9 weighted at every SNR on the partial set | reports/medium_hint |
 | 10-28 | Offline run: CS008 fully local with every outbound call blocked, and the cloud control | 1 call x 2 | 3 min | local: 143 s, WER 18.4 %, weighted 88.0, no hallucination; cloud control fails to connect | reports_replay/CS008_offline |
 | 10-28 | Re-decode on large-v3-turbo, then the four touched clips under the loop guard | 150 + 20 clips | 90 + 12 min | 13.4 % unguarded, 12.6 % guarded, against 12.8 % plain; two spans looped | SYSTEM_VS_BASE |
 | 10-28 | The stacks on the real calls: base and ours, local and cloud, plus cloud large-v3 | 9 bursts x 5 | cloud 3 min, local 2 min | cloud base 27.6, local base 25.7, local ours 22.7, cloud ours 21.7, cloud large-v3 ours 16.2 % | REAL_STACK_2026-10-28.md |
 | 10-28 | Report stage on the generated set: cloud writer over our cloud transcripts | 60 reports | 25 min paced (cloud) | 96.8 clean, 95.1 at 5 dB | reports/groq_hint_corr |
 | 10-28 | Report stage, local writer over the base local transcripts and over our local transcripts (second Jetson) | 60 + 60 | 50 s per report | 95.7 / 94.1 and 93.7 / 93.7; the clean difference traced to report-model variation on near-identical input and one real collapse | SYSTEM_VS_BASE section 4 |
 | 10-28 | Report stage with the grounding rules off (cohendynamics GPU) | 60 | 50 min | 88.0 / 88.3 against 93.7 / 93.7 with rules on; precision 89 against 96 %; hallucinations 0.7 against 0.2 per report; level right 67 against 100 %; +5.8 [+4.1, +7.5] and +5.4 [+3.8, +7.1] for the rules | SYSTEM_VS_BASE section 4 |
-| 10-28 | Repeat of the bare-transcript report run (cohendynamics GPU); medium_hint all-SNR completion (vox-ai GPU) | 60 + 81 | running | the writer's own run-to-run variation; the noise curve | SYSTEM_VS_BASE section 4 |
+| 10-28 | Repeat of the bare-transcript report run, same device, same input (cohendynamics GPU) | 60 | 50 min | 60 of 60 weighted scores identical, 51 of 60 report JSONs byte-identical outside metadata: the writer is deterministic on one device, so the 2-point clean gap is caused by transcript formatting, not noise | SYSTEM_VS_BASE section 4 |
+| 10-28 | medium_hint all-SNR report completion (vox-ai GPU; one report, SY099 at 10 dB, failed on malformed model JSON and was re-run on 10-29) | 81 | 70 min | the local report stage's noise curve, 150 of 150: weighted 94.7 / 94.7 / 92.9 / 94.2 / 93.9 at clean / 20 / 15 / 10 / 5 dB while the transcript WER goes 4.8 to 13.5 %; level right at every SNR; hallucinations 0.13 to 0.23 per report | SYSTEM_VS_BASE section 4 |
 
 Regression on every commit: 239 tests under `.venv/bin/python -m pytest` (2 min), including the pipeline on the four
 gold samples with a fake model, the re-decode and its loop guard, the rules switch, and the transcript checks.
@@ -82,7 +83,7 @@ faster at 2 more points of WER), and the one big accuracy lever was choosing med
 | generated set, 60 reports, weighted clean / 5 dB | 88.0 / 88.3 (rules off, same transcripts, same device) | 93.7 to 95.7 / 93.7 to 94.1 | 96.8 / 95.1 |
 | hallucinations per report, generated set | 0.73 / 0.70 | 0.10 to 0.20 | 0.03 to 0.07 |
 | time per report | 50 s | 50 s | 3 s |
-| repeatability | five replays of CS008 gave the identical report (10-25); today two near-identical transcripts gave different reports on 11 of 30 clips at clean, which the queued repeat run measures | | |
+| repeatability | five replays of CS008 gave the identical report (10-25); a second run of 60 reports on the same device and input reproduced all 60 scores (10-28). The 11-clip difference between bare and stacked transcripts at clean is therefore caused by the transcripts' punctuation and case, to which the 4B writer is sensitive | | |
 
 ## 5. How long things take (for planning)
 

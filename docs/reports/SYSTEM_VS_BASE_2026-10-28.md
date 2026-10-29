@@ -8,7 +8,9 @@ the Jetson's folders. The interns' tree (last commit 2026-09-09) holds no datase
 no evaluation harness; its only comparison prints a local and a cloud transcript side by side with wall time.
 Everything below was measured after 2026-10-18, with one scorer, on clips and calls that exist on disk.
 
-**Status: runs in progress, tables marked PENDING fill in as they finish.** Logs: `~/datasets/synth_v1/logs/`.
+Every local row is in. The two cloud rows still owed (the cloud writer over the base cloud transcripts, and the cloud
+writer with the rules off) are running on 2026-10-29 after the Groq daily cap reset; section 8 lists them. Logs:
+`~/datasets/synth_v1/logs/`.
 
 ## 1. How we score
 
@@ -132,7 +134,7 @@ are compared at the one-point level only within one device.
 | local medium, base | local qwen3:4b-instruct, cohendynamics GPU | rules on | 60 | 95.7 | 94.1 | 94.6 / 93.6 % | 96.4 / 96.2 % | 0.10 / 0.13 | 90 % | 100 % | 83 / 78 % | 50 |
 | local medium, our stack | local qwen3:4b-instruct, cohendynamics GPU | rules on (ours, local) | 60 | 93.7 | 93.7 | 93.1 / 93.6 % | 95.7 / 95.9 % | 0.17 / 0.20 | 90 % | 100 % | 78 / 83 % | 51 |
 | local medium, our stack | local qwen3:4b-instruct, cohendynamics GPU | rules off | 60 | 88.0 | 88.3 | 90.7 / 91.2 % | 87.4 / 88.4 % | 0.73 / 0.70 | 90 % | 67 % | 78 / 83 % | 51 |
-| local medium, base | local qwen3:4b-instruct, cohendynamics GPU | rules on, second run of the same input | 60 | REPEAT_ROW |
+| local medium, base | local qwen3:4b-instruct, cohendynamics GPU | rules on, second run of the same input | 60 | 95.7 | 94.1 | 94.6 / 93.6 % | 96.4 / 96.2 % | 0.10 / 0.13 | 90 % | 100 % | 83 / 78 % | 50 |
 | cloud turbo, our stack | cloud gpt-oss-120b, Groq | rules on (ours, cloud) | 60 | 96.8 | 95.1 | 96.4 / 93.2 % | 98.6 / 97.0 % | 0.03 / 0.07 | 100 / 97 % | 100 % | 91 / 87 % | 3 |
 | script text (no audio) | local qwen3:4b-instruct, vox-ai GPU | rules on | 30 | 96.4 | | 98.4 % | 96.3 % | 0.43 | 93 % | 100 % | 100 % | 55 |
 
@@ -148,11 +150,45 @@ is real: SY078 collapses under the revised hint and the re-decode recovers it on
 "LAMS"); from the punctuated one the model wrote "Applied cervical collar", reasoning in its own notes that "clear"
 meant c-collar, and the claim check let it through because the check nulls allergies, code status and ETA but does
 not yet drop an intervention the transcript never names. That is a rule gap to close (an intervention is a claim
-too), recorded here rather than fixed mid-matrix so the rows stay comparable. The rest looks like the report
-model's own run-to-run variation on near-identical input, which no run so far has measured; a second run of the
-base-transcript reports is queued to put a number on it (REPEAT_ROW above). Until it is in, the honest
-reading of the report stage on the generated set is: local 94 to 96, cloud 95 to 97, differences of a point or two
-inside the noise, hallucinations at or under 0.2 per report either way, and the level never wrong.
+too), recorded here rather than fixed mid-matrix so the rows stay comparable.
+
+The repeat run settles what the rest of the gap is. The bare-transcript reports were run a second time on the same
+device with the same input: all 60 weighted scores were identical to the first run, and 51 of 60 report JSONs were
+byte-identical outside their metadata (the other nine differ in free-text wording that the scorer does not read).
+The writer is deterministic on one device at temperature 0. So the 2.0-point drop at clean is not run-to-run noise;
+it is caused by the transcripts themselves. The stack's transcripts are punctuated and cased (the hint and the
+corrector produce "62-year-old", "LAMS", sentence breaks) where the bare model's are flatter, and on eleven clips
+that surface form led the 4B model to a different and, on average, slightly worse extraction, SY014's invented
+collar among them. On 5 dB audio the effect is within the interval. This is a sensitivity of the report model to
+transcript formatting, worth a normalisation step before extraction, and it is the honest cost of the local stack on
+clean audio: better words, a touch worse report, until the extraction stage is made indifferent to punctuation.
+
+With that known, the reading of the report stage on the generated set is: local 94 to 96, cloud 95 to 97, the cloud
+ahead by 3 points at clean with an interval that excludes zero and by 1.4 at 5 dB with one that does not;
+hallucinations at or under 0.2 per report with the rules on, 0.7 with them off; and the level never wrong with the
+rules on. Operational note: Ollama's model server stopped and was restarted by the client's retry loop 28 times in
+the log of 240 reports on cohendynamics and 5 times in 81 on vox-ai; no report was lost, but the restarts are part
+of the 50 s per report and an item for the deployment list.
+
+The local report stage across the noise curve, over the hint-only medium transcripts (`medium_hint`, the stack
+without the corrector and re-decode), 150 reports on the vox-ai GPU, 69 on 10-27 and 81 on 10-28 and 10-29 (one
+report, SY099 at 10 dB, failed on malformed model JSON and was re-run; it then scored 90.9. The pipeline retries
+a stopped model server but not a malformed reply, a gap for the deployment list):
+
+| SNR | transcript WER | reports | weighted | recall | precision | halluc. per report | alert type | level | ETA | extract s |
+|---|---|---|---|---|---|---|---|---|---|---|
+| clean | 4.8 % | 30 | 94.7 | 94.4 % | 95.7 % | 0.20 | 90 % | 100 % | 78 % | 52 |
+| 20 dB | | 30 | 94.7 | 93.9 % | 96.1 % | 0.13 | 90 % | 100 % | 78 % | 50 |
+| 15 dB | 7.0 % | 30 | 92.9 | 92.2 % | 94.7 % | 0.17 | 87 % | 100 % | 74 % | 49 |
+| 10 dB | 10.0 % | 30 | 94.2 | 93.8 % | 95.7 % | 0.23 | 90 % | 100 % | 78 % | 50 |
+| 5 dB | 13.5 % | 30 | 93.9 | 94.1 % | 95.4 % | 0.23 | 90 % | 100 % | 83 % | 51 |
+
+The WER nearly triples from clean to 5 dB and the weighted report score moves by under a point between the two ends
+(94.7 to 93.9); the lowest point is 15 dB at 92.9, 1.8 under clean, with no paired interval computed for it. The
+level is right at every SNR and hallucinations stay at or under 0.23 per report. The report stage is, on this set,
+nearly indifferent to the transcriber's noise response in the range tested: the terms the writer needs survive
+the channel at 5 dB, and the errors that remain fall mostly on words the scorer does not weight. The transcript WER
+column repeats section 2's hint row (clean, 15, 10, 5 dB; no 20 dB column there).
 
 Real corpus, from ROUND2.md (73 reports, same transcripts, local 4B): the grounding rules took unsupported claims
 from 98 to 32, invented allergies and code status from 50 and 23 to 0 and 0, crashes from 4 to 0; on the four
@@ -214,7 +250,7 @@ still uses Groq for the transcript and for caption repair when a key is set.
 | stage | local | cloud |
 |---|---|---|
 | transcript, speed as transcribe time over audio time | medium 0.85x, small 0.33x, large-v3-turbo 0.8x, tiny.en 0.1x (CPU int8) | paced at 20 clips a minute; about 1 to 2 s per burst |
-| report, extract time per clip | 48 s mean over 69 synthetic reports; 52.7 s mean over the real corpus baseline | about 3 s |
+| report, extract time per clip | 50 s mean over 150 synthetic reports (vox-ai GPU), 50 to 51 s over 240 on cohendynamics; 52.7 s mean over the real corpus baseline | about 3 s |
 | memory | llama-server 3.7 GB resident with qwen3:4b; faster-whisper large-v3-turbo 1.35 GB; medium about 1.3 GB; the two must not run at once on this box | |
 
 Time to first token was never measured; the app does not stream the report.
@@ -240,7 +276,8 @@ Time to first token was never measured; the app does not stream the report.
 
 ## 8. Still owed
 
-- Cloud report stage over the base cloud transcript (`groq_nohint`) and the cloud rules-off row: after the Groq
-  200k tokens-per-day cap resets.
+- Cloud report stage over the base cloud transcript (`groq_nohint`) and the cloud rules-off row: running on
+  2026-10-29 (`logs/matrix_2026-10-29_cloud_base.log`); the Groq 200k tokens-per-day cap may push the second
+  run to the following day.
 - Term list for the real references, so MTER exists on real audio.
 - Paired bootstrap intervals over clips for every before-and-after difference (FINETUNE_PLAN.md section 4).
