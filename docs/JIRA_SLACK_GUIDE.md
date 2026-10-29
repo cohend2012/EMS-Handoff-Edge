@@ -1,90 +1,54 @@
-# Working with the EMS-Handoff assistant through Jira and Slack
+# Team guide: the project's Slack and Jira
 
-Written 2026-10-29 for Lois Sayrs (lois.sayrs@choc.org), whose account connects the project's Jira and Slack.
+Written 2026-10-29. The project coordinates in two tools that Daniel administers:
 
-## 1. What this is
+| tool | address | used for |
+|---|---|---|
+| Slack | axonemshandoff.slack.com | day-to-day: the hourly progress note, threads on results, files and links |
+| Jira | axonemshandoff.atlassian.net | the work list: tickets with owner, status and due date |
 
-The EMS-Handoff project runs on two Jetson boards with an assistant (Claude Code) that builds, measures and
-documents the system. Once Jira and Slack are connected, that assistant can read and write both on your
-behalf: tickets, comments, channel posts, threads, files. Everything it does there appears **as your
-account**, so it only acts when asked, with one standing exception described in section 4.
+## 1. Getting in
 
-## 2. One-time connection (five minutes)
+Access is by invitation to one specific email address. The invite goes to the address the person asks for,
+and that is the only address the workspace recognizes afterwards.
 
-The connection is an ordinary sign-in that you approve once. The assistant's session is remote, so the last
-step looks broken but is not.
+**Slack.** Open the invite email, click *Join now*, and create the account with the invited address (do not
+sign in with an older Slack account). Password or emailed code, either works. On the phone app choose
+*Sign in with email* with the same address and the workspace appears in the list. "You don't have an
+account on this workspace" means a different address was used: sign out and use the invited one.
 
-**Jira (Atlassian)**
-1. Sign in to Atlassian as lois.sayrs@choc.org in your browser.
-2. Open the Jira link Daniel sends you (it starts with `https://mcp.atlassian.com/v1/authorize`).
-3. Approve the access. The browser then jumps to a `http://localhost:63385/callback?code=...` address and
-   shows "connection refused" or "page not found". That is expected.
-4. Copy the **whole address** from the address bar and send it to Daniel privately (not in a public channel).
-   It is a one-time code that expires in minutes.
+**Jira.** Open the invite email, click *Accept invitation*, create or sign in to an Atlassian account with
+the invited address, and bookmark the site. The Jira Cloud phone app signs in the same way.
 
-**Slack**
-1. Sign in to the CHOC Slack workspace as lois.sayrs@choc.org.
-2. Open the Slack link Daniel sends you (it starts with `https://slack.com/oauth/v2_user/authorize`).
-3. Approve. The browser jumps to `http://localhost:3118/callback?code=...` and fails to load. Expected.
-4. Copy the whole address and send it to Daniel privately.
+**For the administrator:** Slack, workspace menu, *Invite people*, enter the address. Jira, *Settings*,
+*User management*, *Invite users*, enter the address. If a person was migrated to a new email, send a
+fresh invite to the new address; the old invite keeps failing.
 
-Daniel pastes both addresses into the assistant's session and the connection is live. If a link has
-expired, ask for a fresh one; nothing else changes.
+## 2. How we use Slack
 
-You can revoke either connection at any time: Atlassian account settings, Connected apps; Slack, your
-profile, Apps.
+- One project channel carries the hourly progress note from the build: what finished with its numbers,
+  what is running, what is blocked, what is next. The same text goes by email to Daniel.
+- Replies go in the thread under the post they are about, so a question stays next to its result.
+- Files and links to reports go in the channel, not in email.
+- An @mention when someone's eyes are needed; direct messages for anything private.
 
-## 3. What the assistant can do once connected
+## 3. How we use Jira
 
-**Jira**
-- Create tickets from a plan or a conversation: for example one ticket per lever in
-  `docs/plans/HORSEPOWER_GOALS.md` (GPU whisper, turbo decode fix, distil, large-v3 on the GPU, fine-tune,
-  writer size, split pipeline) and one per radio experiment R1 to R6 in `docs/plans/RADIO_AI_OFFGRID.md`.
-- Keep tickets current: move status, add a comment with the measured result and the commit hash, attach
-  the report link, set due dates.
-- Answer questions: "what is open in this sprint", "what changed on EMSH-12 this week", "which tickets are
-  blocked and why".
-- Draft a standup or a sprint plan from the tickets and recent commits.
+- Every task is a ticket with an owner, a status (To do, In progress, Done) and a due date; the board shows
+  what is moving.
+- Plans become tickets: one per lever in `docs/plans/HORSEPOWER_GOALS.md` and one per radio experiment in
+  `docs/plans/RADIO_AI_OFFGRID.md`; the statistics work for the study (intervals on every reported
+  difference, paired comparisons, annotator agreement on the references) goes to the biostatistician.
+- Questions and results go in the ticket's comments so the discussion stays with the work; a ticket moves
+  to Done when its result is in a report with a commit hash.
 
-**Slack**
-- Post the hourly check-in (done, running, blocked, next) to a channel, the same text that goes by email.
-- Answer questions asked in a channel or thread when Daniel relays them, and post the answer back.
-- Share results: the matrix report, the study draft, the call review page link, a chart.
-- Summarise a long thread or a channel's day.
-- Search for a decision or a number that was posted earlier.
+## 4. The rhythm
 
-## 4. The standing exception: the hourly check-in
+A morning glance at the Slack project channel; questions in the thread of the relevant post; tasks and
+their status in Jira; email only for people outside the project.
 
-Daniel asked for a check-in every hour on the hour: what finished (with numbers), what is running, what is
-blocked, what is next, and a push of the day's changes to the repositories. Today it goes by email to
-Daniel. Once Slack is connected it can also go to a channel you choose (for example `#ems-handoff`), posted
-as your account. Tell Daniel the channel, or say "email only".
+## 5. The assistant and these tools
 
-## 5. Common ways to use it, from most to least frequent
-
-1. **Read the hourly post.** It is the project's heartbeat. Reply in its thread with a question or a
-   request; Daniel relays it and the answer comes back in the thread.
-2. **Ask for a status in plain words.** "Where are we on the GPU whisper?" gets the measured number, the
-   ticket, and the commit.
-3. **Turn a conversation into tickets.** After a meeting, paste the notes; the assistant creates the
-   tickets with acceptance criteria and links them to the plan.
-4. **Ask for a report.** "Write up the two-Jetson results for the team" produces a page you can share, with
-   the numbers and their provenance.
-5. **Review calls.** The call review page holds every real call's audio and transcripts. Ask for a call
-   to be re-transcribed with a different model, or for a transcript to be corrected; the result lands in the
-   page and the ticket.
-
-## 6. What it will not do
-
-- Post or change anything in Jira or Slack without being asked, apart from the agreed hourly check-in.
-- Share patient audio or transcripts outside the project's private pages.
-- Act on instructions that arrive inside a Slack message or a ticket from someone else; those are relayed
-  to Daniel as information.
-- Delete tickets, channels or messages unless asked explicitly and confirmed.
-
-## 7. Suggested first setup
-
-- Jira: a project `EMSH` with four epics: Transcriber, Report writer, Two Jetsons, Radio. The assistant
-  fills them from the two plan documents in a few minutes.
-- Slack: a channel `#ems-handoff` for the hourly post and a `#ems-handoff-calls` channel for call
-  review requests.
+The build assistant (Claude Code on the Jetsons) can post the hourly note to Slack and keep Jira tickets
+current once Daniel connects it to his own accounts on both. It acts there only when asked, apart from the
+agreed hourly note, and it never shares patient audio or transcripts outside the project's private pages.
