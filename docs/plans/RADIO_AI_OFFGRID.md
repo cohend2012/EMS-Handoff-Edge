@@ -128,3 +128,14 @@ data on another, store-and-forward on both) and the mesh's many paths; hopping i
 
 **Next purchases, in order:** Airspy Mini or R2 (receive the EMS system live), two Meshtastic LoRa nodes
 (the encrypted data mesh), two FRS handhelds (the real-FM tests in section 3). About 300 dollars.
+
+**Meshtastic as distributed compute, specifically.** The numbers: a Meshtastic node has 0.25 to 8 MB of
+memory and its LoRa link moves 0.3 to 27 kbit/s. Holding the 4B writer (2.5 GB at int4) across nodes would
+take 300 to 10,000 of them, and every generated token would need the 5 KB hidden state to cross a LoRa hop
+(2 s per hop at the fastest setting, minutes at the long-range settings). Whisper medium is the same
+story. So Meshtastic cannot be the compute. What it is good at is the control and data plane of a
+distributed system: carrying transcripts, reports, patient context and heartbeats between Jetson nodes,
+each holding its own whole models, with store-and-forward so the work survives any node. The one model
+that fits on a node itself is tiny (under a million parameters): a wake word, a voice-activity gate, or a
+keyword alert ("STEMI", "trauma alert") that wakes the nearest Jetson. That is a useful edge trigger, not
+the AI.
