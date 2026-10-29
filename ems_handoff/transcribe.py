@@ -170,8 +170,8 @@ class LocalTranscriber:
                     len(audio) / SAMPLE_RATE, time.perf_counter() - t0)
         return text
 
-    def _decode(self, x: np.ndarray, decode: dict):
-        beam = int(getattr(self.settings, "local_whisper_beam", 1) or 1)
+    def _decode(self, x: np.ndarray, decode: dict, beam: Optional[int] = None):
+        beam = int(beam or getattr(self.settings, "local_whisper_beam", 1) or 1)
         vad = bool(getattr(self.settings, "local_whisper_vad", True))
         segments, _info = self._get_model().transcribe(
             x, language="en", beam_size=beam, condition_on_previous_text=False, **decode,
@@ -189,7 +189,11 @@ class LocalTranscriber:
         the middle of the report gone (medium on the generated set, 3 clips in 300, see
         SYNTH_V1_2026-10-27.md). The collapse is a property of the window, not the audio: the same span
         decoded on its own comes out whole. So any gap between worded segments that is long and as loud as
-        the speech around it is decoded again alone and spliced in. Leading and trailing silence is left."""
+        the speech around it is decoded again alone and spliced in. Leading and trailing silence is left.
+        The span is decoded with a beam (LOCAL_WHISPER_REDECODE_BEAM, 5): decoded greedily on its own it can
+        loop instead (large-v3-turbo gave "ETA ten minutes" 25 times for SY074), and the loop guard below then
+        has to discard it, which left the four collapsed turbo windows on the generated set unrescued; with
+        beam 5 the same spans come back whole (SYSTEM_VS_BASE_2026-10-28.md, 10-29 rows)."""
         worded = [s for s in segments if s.text.strip() and (s.end - s.start) > 0]
         if len(worded) < 1:
             return segments
@@ -212,7 +216,7 @@ class LocalTranscriber:
         out = list(segments)
         for a, b in gaps:
             span = x[int(a * SAMPLE_RATE):int(b * SAMPLE_RATE)]
-            redone = [s for s in self._decode(span, decode) if s.text.strip()]
+            redone = [s for s in self._decode(span, decode, beam=getattr(self.settings, "local_whisper_redecode_beam", 5)) if s.text.strip()]
             words = sum(len(s.text.split()) for s in redone)
             first = sum(len(s.text.split()) for s in segments if a <= s.start and s.end <= b)
             _collapsed, loop_note = collapse_repeats(" ".join(s.text.strip() for s in redone))

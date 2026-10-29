@@ -96,6 +96,7 @@ class Settings:
     local_whisper_fallback: bool = False         # LOCAL_WHISPER_FALLBACK: retry a collapsed 30 s window at temperature 0.2 then 0.4, no-speech gate off
     local_whisper_beam: int = 1                  # LOCAL_WHISPER_BEAM: beam width (1 = greedy; the cloud decodes with 5)
     local_whisper_vad: bool = True               # LOCAL_WHISPER_VAD (0 turns it off): Silero VAD drops silent stretches before the decode
+    local_whisper_redecode_beam: int = 5         # LOCAL_WHISPER_REDECODE_BEAM: beam width for the gap re-decode (greedy loops on a collapsed span; beam 5 does not)
 
     # --- live listening ----------------------------------------------------
     mic_device: str = ""                         # index, or part of the name; "" = auto (prefers USB)
@@ -203,6 +204,7 @@ def load_settings(env: Optional[Mapping[str, str]] = None) -> Settings:
         local_whisper_redecode=_bool(g("LOCAL_WHISPER_REDECODE_GAPS"), defaults.local_whisper_redecode),
         local_whisper_beam=_int(g("LOCAL_WHISPER_BEAM"), defaults.local_whisper_beam),
         local_whisper_vad=_bool(g("LOCAL_WHISPER_VAD"), defaults.local_whisper_vad),
+        local_whisper_redecode_beam=_int(g("LOCAL_WHISPER_REDECODE_BEAM"), defaults.local_whisper_redecode_beam),
         mic_device=(g("HANDOFF_MIC_DEVICE") or "").strip(),
         mic_highpass_hz=_float(g("HANDOFF_MIC_HIGHPASS_HZ"), defaults.mic_highpass_hz),
         caption_engine=_choice(g("HANDOFF_CAPTIONS"), CAPTION_ENGINES, defaults.caption_engine),

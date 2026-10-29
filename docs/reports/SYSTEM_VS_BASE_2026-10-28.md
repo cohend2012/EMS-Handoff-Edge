@@ -70,15 +70,24 @@ decoding on a quantized model, not the model: turbo with beam 5 scores 6.2 / 8.1
 clean, no tail drops. That is still behind medium with the hint (4.8 / 7.0 %), and the two differ by 1.4 and 1.1
 points on 30 clips each, inside the noise of this set, so beam 5 makes turbo usable, not better. distil-large-v3.5
 (8.8 / 12.6 %, 0.71x) is out like distil-large-v3. Turning the VAD filter off changes nothing
-(12.8 / 10.7 %, the same four tail drops), so the filter is not the cause either. Medium with beam 5 does not carry
-the gain: 7.1 / 6.9 % against 4.8 / 7.0 % greedy, 1.4 times slower (50 s against 35 s per clip). Paired per clip it
-is slightly better on most (11 better, 8 worse, 11 tied at clean; 12, 8, 10 at 5 dB), but one clip collapses the
-other way: SY078, 3.6 % greedy, 51 % with beam 5, with 54 % of its tail missing, the same failure shape as the
-turbo greedy clips. So the tail drop is a decode-path failure that any one setting can trigger on some clip, not
-a property of turbo or of greedy. Decision: medium stays greedy as the default. The next experiment is a tail
-guard in the local decoder: decode greedy, and when the transcript ends more than a few seconds before the
-audio does, re-decode the tail with beam 5 (lever B in `HORSEPOWER_GOALS.md`); on this set it would fix all
-five turbo drops and leave SY078 alone.
+(12.8 / 10.7 %, the same four tail drops), so the filter is not the cause either. Medium with beam 5 scores 7.1 / 6.9 %
+at 1.4 times the time (50 s against 35 s per clip). The 4.8 % greedy row above is the 10-27 run with the old
+hint; with today's hint greedy medium scores 7.1 % clean (the 10-27 fallback run, where the fallback changed
+nothing), and it loses the 28 to 58 s window of SY078 exactly as beam 5 does (both 68 words of 139, decoded
+again on 10-29 to check). So beam 5 on medium is a wash against the same-hint greedy row, and the SY078
+collapse is the hint's doing, not the beam's. Decision: medium stays greedy as the default.
+
+What the failing clips look like, decoded again on 10-29 with the segment times printed: on SY055, SY074 and
+SY184 greedy turbo returns the first 30 s window whole (62 to 64 words) and the second window as one segment
+spanning 30 to 60 s with two words ("Thank you.", "The End"); with beam 5 the second window comes back as
+four or five segments and 46 to 49 words. That is the collapsed-window shape the gap re-decode already
+detects (a segment over 12 s with two words or fewer), and the turbo "hint + gap re-decode" rows above did not
+rescue them because the span decoded alone, greedily, looped and the loop guard discarded it. The medium SY078
+collapse is the other shape the re-decode detects: a 30 s wordless gap at speech level. So the fix is not a
+beam on the whole clip but a beam on the re-decoded span: `LOCAL_WHISPER_REDECODE_BEAM` (default 5) added
+10-29, the gap re-decode now decodes the span with beam 5 while the clip stays greedy. The rows
+`large-v3-turbo_hint_rd5` and `medium_hint_rd5` (running) measure it; the expectation from the per-clip
+decodes is turbo near its beam 5 row at greedy speed and medium at or under its same-hint 7.1 %.
 
 \* The medium re-decode rows were run with the day's revised hint, which by itself moved the clean row from 4.8 to
 7.1 % (two clips collapsed the other way; SYNTH_V1_2026-10-27.md); against that same-hint run the re-decode is a

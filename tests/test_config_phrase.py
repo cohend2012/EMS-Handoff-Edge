@@ -145,6 +145,34 @@ def test_local_whisper_redecode_defaults_on_and_env_turns_it_off():
     assert load_settings({"LOCAL_WHISPER_REDECODE_GAPS": "0"}).local_whisper_redecode is False
 
 
+def test_local_whisper_redecode_uses_beam_5_on_the_span_and_greedy_on_the_clip():
+    import dataclasses
+    import numpy as np
+    from ems_handoff.transcribe import LocalTranscriber, SAMPLE_RATE
+
+    class Seg:
+        def __init__(self, start, end, text):
+            self.start, self.end, self.text = start, end, text
+
+    beams = []
+
+    class FakeModel:
+        def transcribe(self, audio, **kw):
+            beams.append((round(len(audio) / SAMPLE_RATE), kw["beam_size"]))
+            if len(audio) > 50 * SAMPLE_RATE:
+                return iter([Seg(0.0, 10.0, "vitals are"), Seg(40.0, 45.0, "any questions")]), None
+            return iter([Seg(0.0, 29.0, "pressure 80 over 55")]), None
+
+    assert load_settings({}).local_whisper_redecode_beam == 5
+    assert load_settings({"LOCAL_WHISPER_REDECODE_BEAM": "3"}).local_whisper_redecode_beam == 3
+    rng = np.random.default_rng(0)
+    audio = (0.1 * rng.standard_normal(60 * SAMPLE_RATE)).astype(np.float32)
+    t = LocalTranscriber(dataclasses.replace(load_settings(), local_whisper_redecode=True), model_size="tiny.en")
+    t._model = FakeModel()
+    assert t.transcribe(audio) == "vitals are pressure 80 over 55 any questions"
+    assert beams == [(60, 1), (30, 5)]
+
+
 def test_local_transcriber_discards_a_re_decode_that_loops():
     import dataclasses
     import numpy as np
