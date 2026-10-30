@@ -319,7 +319,8 @@ class IncidentSession:
     closed: bool = False            # New patient was pressed, or a later session started
     due_at: Optional[float] = None  # quiet-period deadline, None when nothing is waiting
     events: List[str] = field(default_factory=list)   # operator actions, logged with the burst they applied to
-    closing: Optional[str] = None   # why the call is closing ("closing cue in burst 3", "New patient pressed"), else None
+    closing: Optional[str] = None   # why the call is closing ("closing cue in burst 3", "New patient pressed", "quiet for 90 s"), else None
+    close_due_at: Optional[float] = None   # the close-after-quiet deadline: a call that ends without a cue still gets its closing pass
     ask: Optional[str] = None       # the one line the receiver may act on when the call closes with a required slot empty
     asked: bool = False             # the ask rule has run at least once for this closing
 
@@ -373,9 +374,15 @@ class IncidentManager:
     def __init__(self, extract: Callable[[str, Dict[str, Any]], Dict[str, Any]],
                  quiet_s: float = QUIET_OFFLINE_S, new_session_gap_s: float = NEW_SESSION_GAP_S,
                  clock: Callable[[], float] = time.time,
-                 emit: Callable[[dict], None] = lambda e: None, start_worker: bool = True):
+                 emit: Callable[[dict], None] = lambda e: None, start_worker: bool = True,
+                 close_quiet_s: Optional[float] = None):
         self._extract = extract
         self.quiet_s = quiet_s
+        # 14 of the 22 real calls end without a closing cue (10-30 replay). With close_quiet_s set, a call that has been
+        # quiet this long after its last report is treated as closing: one more extraction with closing=True, so the hybrid
+        # writer's full pass and the ask rule happen for those calls too. None (the full writer) leaves it off: the pass
+        # would only repeat the same report.
+        self.close_quiet_s = close_quiet_s
         self.new_session_gap_s = new_session_gap_s
         self.clock = clock
         self._emit = emit
@@ -408,6 +415,7 @@ class IncidentManager:
             burst = Burst(number=len(session.bursts) + 1, text=(text or "").strip(), time=at,
                           duration_s=duration_s, feed=feed, source_id=source_id)
             session.bursts.append(burst)
+            session.close_due_at = None          # the call went on: the close-after-quiet deadline is re-armed after the next report
             if is_closing_cue(burst.text):
                 session.due_at = None
                 session.closing = f"closing cue in burst {burst.number}"
@@ -426,6 +434,12 @@ class IncidentManager:
                 if s.due_at is not None and now >= s.due_at:
                     s.due_at = None
                     self._trigger(s, f"quiet for {self.quiet_s:.0f} s after burst {len(s.bursts)}")
+                if s.close_due_at is not None and now >= s.close_due_at and not s.updating and s.due_at is None:
+                    s.close_due_at = None
+                    if not s.closing and not s.closed:
+                        s.closing = f"quiet for {self.close_quiet_s:.0f} s after burst {len(s.bursts)}"
+                        s.events.append(f"closing by silence after burst {len(s.bursts)}")
+                        self._trigger(s, s.closing, force=True)
 
     # -- operator buttons -------------------------------------------------------
     def new_patient(self) -> Optional[IncidentSession]:
@@ -473,9 +487,10 @@ class IncidentManager:
         logger.info("Session %s started (%s)", session.id, why)
         return session
 
-    def _trigger(self, session: IncidentSession, why: str) -> None:
-        """Queue one extraction covering everything received; coalesce while one runs."""
-        if len(session.bursts) <= session.queued_through:
+    def _trigger(self, session: IncidentSession, why: str, force: bool = False) -> None:
+        """Queue one extraction covering everything received; coalesce while one runs. `force` re-runs over the same
+        bursts (the closing pass of the hybrid writer)."""
+        if len(session.bursts) <= session.queued_through and not force:
             return                      # nothing new since the job already queued/running
         if session.updating:
             session.pending = True      # the running job finishes first; one more run follows
@@ -536,6 +551,8 @@ class IncidentManager:
             logger.info("Session %s: report covers %d of %d bursts; %s", session.id, covers, len(session.bursts), line)
             self._publish(session, "report", change_line=line)
             self._ask(session)
+            if self.close_quiet_s and not session.closing and not session.closed and len(session.bursts) == covers:
+                session.close_due_at = max(b.end for b in session.bursts) + self.close_quiet_s
             self._after_job(session)
 
     def _ask(self, session: IncidentSession) -> None:

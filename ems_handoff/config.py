@@ -90,6 +90,7 @@ class Settings:
     transcriber: str = "auto"                    # auto | groq | local | remote (whisper on another box, HANDOFF_WHISPER_URL)
     remote_whisper_url: str = ""                 # e.g. http://100.77.24.78:8765 : scripts/whisper_server.py on the GPU Jetson
     writer_mode: str = "full"                    # full | facts | hybrid (HANDOFF_WRITER_MODE): hybrid = facts-only while the call is open, the full writer at the closing cue
+    close_quiet_s: float = 90.0                  # HANDOFF_CLOSE_QUIET_S: a call quiet this long after its last report is treated as closing (hybrid / facts modes)
     groq_whisper_model: str = "whisper-large-v3-turbo"
     local_whisper_model: str = "medium"                # large-v3-turbo until 2026-10-28: 12.8 % WER at clean on the generated set against medium's 4.8 % at the same speed (SYSTEM_VS_BASE_2026-10-28.md)
     local_whisper_device: str = "cpu"            # cpu | cuda
@@ -200,6 +201,7 @@ def load_settings(env: Optional[Mapping[str, str]] = None) -> Settings:
         transcriber=_choice(g("HANDOFF_TRANSCRIBER"), TRANSCRIBERS, defaults.transcriber),
         remote_whisper_url=(g("HANDOFF_WHISPER_URL") or defaults.remote_whisper_url).strip().rstrip("/"),
         writer_mode=_choice(g("HANDOFF_WRITER_MODE"), ("full", "facts", "hybrid"), defaults.writer_mode),
+        close_quiet_s=_float(g("HANDOFF_CLOSE_QUIET_S"), defaults.close_quiet_s),
         groq_whisper_model=g("GROQ_WHISPER_MODEL") or defaults.groq_whisper_model,
         local_whisper_model=g("LOCAL_WHISPER_MODEL") or defaults.local_whisper_model,
         local_whisper_device=g("LOCAL_WHISPER_DEVICE") or defaults.local_whisper_device,

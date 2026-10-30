@@ -506,7 +506,8 @@ class ReplayRun(ReplayHost):
         self.started = time.time()
         self.transcriptions: List[dict] = []                 # one per burst: who transcribed it, how long
         quiet = s.replay_quiet_offline_s if provider == "ollama" else s.replay_quiet_online_s
-        self.manager = IncidentManager(self._extract, quiet_s=quiet, clock=time.time, emit=ctl.broker.publish)
+        close_quiet = getattr(s, "close_quiet_s", None) if getattr(s, "writer_mode", "full") != "full" else None
+        self.manager = IncidentManager(self._extract, quiet_s=quiet, clock=time.time, emit=ctl.broker.publish, close_quiet_s=close_quiet)
         self.sink = ctl.engines.make_sink(s)
         self.driver = ReplayDriver(callset, host=self, sink=self.sink, speed=speed, emit=self._emit,
                                    work_dir=s.output_dir / "replay", sink_lead_s=s.replay_sink_lead_ms / 1000.0,

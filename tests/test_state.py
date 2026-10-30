@@ -198,3 +198,42 @@ def test_no_ask_when_the_closing_report_has_everything_or_the_call_is_still_open
     m2.poll(now=2000.0)                                            # quiet period, not a closing cue
     m2.run_pending(timeout=5)
     assert m2.sessions[0].reports and m2.sessions[0].ask is None and m2.sessions[0].closing is None
+
+
+def test_a_call_that_ends_in_silence_still_gets_its_closing_pass_and_ask():
+    from ems_handoff.incident import IncidentManager
+    seen = []
+    def extract(text, meta):
+        seen.append(dict(meta)); return dict(_report(eta_minutes=None))
+    now = {"t": 1000.0}
+    m = IncidentManager(extract, quiet_s=25.0, clock=lambda: now["t"], start_worker=False, close_quiet_s=90.0)
+    m.add_burst("Medic 3, 34 male, rollover, BP 88 over 50", at=1000.0, duration_s=20.0)
+    now["t"] = 1046.0; m.poll(); m.run_pending(timeout=5)                   # the quiet-period report: the call is open
+    assert len(seen) == 1 and seen[0]["closing"] is False and m.sessions[0].ask is None
+    assert m.sessions[0].close_due_at == 1020.0 + 90.0
+    now["t"] = 1100.0; m.poll(); m.run_pending(timeout=5)                   # not yet
+    assert len(seen) == 1
+    now["t"] = 1111.0; m.poll(); m.run_pending(timeout=5)                   # 90 s of silence after the last burst: closing
+    assert len(seen) == 2 and seen[1]["closing"] is True
+    s = m.sessions[0]
+    assert s.closing.startswith("quiet for 90 s") and s.ask == "Not stated for TRAUMA: ETA" and s.close_due_at is None
+    assert any(e.startswith("closing by silence") for e in s.events)
+    now["t"] = 1300.0; m.poll(); m.run_pending(timeout=5)                   # nothing more fires
+    assert len(seen) == 2
+
+
+def test_a_new_burst_cancels_the_close_after_quiet_deadline():
+    from ems_handoff.incident import IncidentManager
+    seen = []
+    now = {"t": 1000.0}
+    m = IncidentManager(lambda text, meta: (seen.append(dict(meta)) or dict(_report())), quiet_s=25.0, clock=lambda: now["t"], start_worker=False, close_quiet_s=90.0)
+    m.add_burst("first burst", at=1000.0, duration_s=20.0)
+    now["t"] = 1046.0; m.poll(); m.run_pending(timeout=5)
+    assert m.sessions[0].close_due_at is not None
+    m.add_burst("second burst", at=1080.0, duration_s=10.0)
+    assert m.sessions[0].close_due_at is None                                   # the call went on
+    now["t"] = 1116.0; m.poll(); m.run_pending(timeout=5)                   # quiet report for the second burst
+    assert len(seen) == 2 and seen[1]["closing"] is False and m.sessions[0].close_due_at == 1090.0 + 90.0
+    m2 = IncidentManager(lambda text, meta: dict(_report()), quiet_s=25.0, clock=lambda: 1000.0, start_worker=False)   # the default: off
+    m2.add_burst("x", at=1000.0, duration_s=5.0); m2.poll(now=1031.0); m2.run_pending(timeout=5)
+    assert m2.sessions[0].close_due_at is None

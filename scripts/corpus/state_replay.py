@@ -37,12 +37,12 @@ class Clock:
         return self.now
 
 
-def replay_callset(cs_dir: Path, extract, quiet_s: float) -> dict:
+def replay_callset(cs_dir: Path, extract, quiet_s: float, close_quiet_s=None) -> dict:
     info = json.loads((cs_dir / "callset_info.json").read_text())
     bursts = info.get("bursts") or [{"segment_id": s, "epoch": None, "duration_sec": 0.0} for s in info["segments"]]
     clock = Clock()
     events: list = []
-    man = IncidentManager(extract, quiet_s=quiet_s, clock=clock, emit=events.append, start_worker=False)
+    man = IncidentManager(extract, quiet_s=quiet_s, clock=clock, emit=events.append, start_worker=False, close_quiet_s=close_quiet_s)
     t0 = bursts[0].get("epoch") or 0.0
     fed = []
     for i, b in enumerate(bursts, 1):
@@ -61,6 +61,10 @@ def replay_callset(cs_dir: Path, extract, quiet_s: float) -> dict:
     clock.now = (clock.now or 0.0) + max(b.get("duration_sec") or 0.0 for b in bursts) + quiet_s + 1.0
     man.poll()
     man.run_pending(timeout=1800)
+    if close_quiet_s:                              # the call is over: the close-after-quiet pass
+        clock.now += close_quiet_s + 1.0
+        man.poll()
+        man.run_pending(timeout=1800)
     out = {"callset": cs_dir.name, "bursts": fed, "sessions": []}
     for s in man.sessions:
         snap = s.snapshot()
@@ -124,7 +128,7 @@ def main(argv=None) -> int:
             print(f"[{d.name}] done already", flush=True)
             continue
         t0 = time.perf_counter()
-        res = replay_callset(d, extract, args.quiet)
+        res = replay_callset(d, extract, args.quiet, close_quiet_s=(settings.close_quiet_s if settings.writer_mode != "full" else None))
         res["seconds"] = round(time.perf_counter() - t0, 1)
         dst.write_text(json.dumps(res, indent=1, default=str))
         results.append(res)
