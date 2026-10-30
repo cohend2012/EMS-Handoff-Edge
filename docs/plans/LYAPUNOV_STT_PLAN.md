@@ -71,7 +71,15 @@ per script).
 - Deliverable: a table of WER and MTER against SNR per model. This alone answers "where does the
   transcriber break", and it is the dataset the Tuesday enhancer experiment also needs.
 
-**Phase 1, trajectories (week 2).**
+**Phase 1, trajectories (week 2).** Status 2026-10-30: started. `scripts/corpus/trajectories.py` dumps, per emitted
+token, the last decoder hidden state, log-probability, entropy and cross-attention peak / entropy / windowed mass, and
+labels every token correct / substituted / inserted / loop from the alignment against the script (deleted reference
+spans saved beside them). It runs on the GPU Jetson in a PyTorch container (pull in progress; faster-whisper exposes
+no states, which is why the week's decode work happened without this). First run: the 140 unused training scripts at
+clean and 5 dB with whisper-small and no prompt; the validation split stays sealed for the detector test in Phase 2.
+What changed since this plan was written: the collapsed, repeating and looping windows it was meant to detect are now
+caught and re-decoded by rules on the generated set (WER 4.6 % on the GPU), so the gauge's remaining value is on real
+audio (21.7 %) and as a per-token confidence for the patient-state layer's belief weights; the Phase 2 stop rule stands.
 - Run Hugging Face whisper-small on the test clips with hooks that dump, per emitted token, the decoder's
   last hidden state, log-probability, entropy, and the cross-attention mass over time; per 20 ms frame,
   the encoder output.
