@@ -97,7 +97,7 @@ def metrics(ref: str, hyp: str, terms: List[List[str]]) -> Dict[str, object]:
             "halluc": round(halluc, 3), "loop": loop, "tail_missing": round(tail_missing, 3), "ngram_f": round(ng.get("avg_f", ng.get("f_avg", 0.0)), 3)}
 
 
-def make_transcriber(provider: str, model: str, hint: bool):
+def make_transcriber(provider: str, model: str, hint: bool, hint_text: str | None = None):
     from ems_handoff.config import load_env_files, load_settings
     from ems_handoff.transcribe import GroqTranscriber, LocalTranscriber
     load_env_files()                     # the Groq key lives in ~/.config/handoff-ai/secrets.env
@@ -110,6 +110,8 @@ def make_transcriber(provider: str, model: str, hint: bool):
         t = LocalTranscriber(settings, model_size=model)
     if not hint:
         t.hint = ""
+    elif hint_text is not None:
+        t.hint = hint_text               # a hint variant for an ablation (--hint-file)
     return t
 
 
@@ -170,6 +172,7 @@ def main() -> int:
     ap.add_argument("--provider", choices=["local", "groq"], default="local")
     ap.add_argument("--model", default="medium", help="faster-whisper size for --provider local; a whisper-* name picks the Groq model")
     ap.add_argument("--no-hint", action="store_true")
+    ap.add_argument("--hint-file", type=Path, help="use this file's text as the Whisper hint instead of the app's (hint ablation)")
     ap.add_argument("--fallback", action="store_true", help="local only: temperature fallback 0/0.2/0.4 with the no-speech gate off (LOCAL_WHISPER_FALLBACK)")
     ap.add_argument("--redecode", action="store_true", help="local only: decode a long wordless stretch again on its own (the app default since 2026-10-27; evals leave it off unless asked)")
     ap.add_argument("--hotwords", action="store_true", help="local only: pass terms.txt as faster-whisper hotwords (prepended to the prompt)")
@@ -208,7 +211,8 @@ def main() -> int:
         ids = [i for i in ids if i in set(args.ids)]
     terms = [normalize(t) for t in (args.set / "terms.txt").read_text().splitlines() if t.strip()]
     src_dir = (args.set / "evals" / args.from_label / "transcripts") if args.from_label else None
-    transcriber = None if src_dir else make_transcriber(args.provider, args.model, not args.no_hint)
+    hint_text = args.hint_file.read_text().strip() if args.hint_file else None
+    transcriber = None if src_dir else make_transcriber(args.provider, args.model, not args.no_hint, hint_text)
     if transcriber and args.fallback and hasattr(transcriber, "fallback"):
         transcriber.fallback = True
     if transcriber and hasattr(transcriber, "redecode"):
