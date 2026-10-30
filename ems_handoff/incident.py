@@ -344,7 +344,22 @@ class IncidentSession:
             "reports": len(self.reports),
             "error": self.last_error,
             "closed": self.closed,
+            "state": self.state(),
         }
+
+    def state(self) -> Dict[str, Any]:
+        """The patient state (ems_handoff.state) built from this session's report history."""
+        from .state import build_state
+        history = []
+        for report in self.reports:
+            covers = int(((report.get("_meta") or {}).get("session") or {}).get("covers") or 0)
+            at = self.bursts[covers - 1].end if 0 < covers <= len(self.bursts) else None
+            history.append((f"burst {covers}" if covers else f"report {len(history) + 1}", at, report))
+        try:
+            return build_state(history).to_dict()
+        except Exception as e:  # noqa: BLE001 - the state is a view; a bad report must not take the screen down
+            logger.exception("Session %s: state failed", self.id)
+            return {"error": f"{type(e).__name__}: {e}"}
 
 
 class IncidentManager:
