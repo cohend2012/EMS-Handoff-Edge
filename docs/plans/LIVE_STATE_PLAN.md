@@ -121,9 +121,9 @@ gets one day as a control, so the paper can say the hand-written machine was com
 
 | step | work | proof | where |
 |---|---|---|---|
-| 1 | split pipeline live: whisper on the cohendynamics GPU, writer on vox-ai; time to report on CS008 and the 22 calls | seconds from last burst to report, against 143 s | both boxes |
+| 1 | split pipeline live: whisper on the cohendynamics GPU, writer on vox-ai; time to report on CS008 and the 22 calls | seconds from last burst to report, against 143 s. 10-30: built (`HANDOFF_TRANSCRIBER=remote`, `scripts/whisper_server.py` in the container, commit a5af70f); CS008 transcript 14.7 s over the wire against 66 s on the CPU; end-to-end timing next | both boxes |
 | 2 | slot state in `incident.py`: typed record, per-slot source span, delta writer prompt, render from state | 60 synthetic reports + 51 real bursts: weighted, hallucinations, s per burst, against the whole-rewrite writer | vox-ai GPU |
-| 3 | state badge and slot board on screen; required-slot table; `asking` state and the closing-cue check | asks per call and ask precision on the 22 calls; a short review with a medic co-author | vox-ai |
+| 3 | state badge and slot board on screen; required-slot table; `asking` state and the closing-cue check | asks per call and ask precision on the 22 calls; a short review with a medic co-author. 10-30: the state line and the ask rule are in (commits 820e6b3, 8d06a8d); the cumulative replay that counts asks is running | vox-ai |
 | 4 | dynamic hint by family after burst 1; per-slot retrieval and family examples | MTER per clip and weighted score on the same sets | GPU container, vox-ai |
 | 5 | LangGraph spike, same behaviour, one day | lines, tests, latency per burst, memory | vox-ai |
 | 6 | 8B / 120B offline targets, 4B LoRA (STATEFUL_PIPELINE.md) | test split, 4B base against tuned | cohendynamics |
