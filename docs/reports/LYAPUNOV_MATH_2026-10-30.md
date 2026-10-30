@@ -189,3 +189,28 @@ per-segment rules skip it. Now E(pass(S)) = 0 by construction, since every flagg
 rule creates a new gap, and `tests/test_redecode_energy.py` checks both branches on the real code: exactly one decode
 per flagged span, zero decodes on the second pass, identical output. This is the one provable statement in this line, it
 is about our algorithm rather than the model, and it was false until the test was written.
+
+## 10. The trusted scorer on the same clips (15:00): the dump's collapses are decode artefacts
+
+faster-whisper small, no hint, greedy, VAD on (the production decode) over the same 140 training scripts: 7.5 / 10.3 %
+WER at clean / 5 dB, 8.9 % mean on the 246 long clips, 3 clips above 0.30. The PyTorch dump of the same model: 17.3 %
+mean, 43 clips above 0.30, 42 of them not shared with faster-whisper. The eight worst dump clips read 0.65 to 0.83 WER
+against 0.07 to 0.30 for faster-whisper. So the early stops that produced the "collapsed" clips are a property of the
+plain Hugging Face `generate` call (no voice-activity segmentation, no temperature fallback, early end-of-text), not of
+whisper-small under the decode we ship, and the dataset guard's third invariant (0.173 against 0.089) rejected the dump
+for the right reason.
+
+Consequences, stated plainly:
+
+- Section 8's idea 3 (0.942 for detecting a collapsed clip) detected Hugging Face early stops, which the product decode
+  does not produce at that rate. It is not evidence about the product's failure mode. Whether a segment's average
+  log-probability flags the three real collapses, and the test split's known ones, is the question that remains, and
+  faster-whisper reports that quantity directly.
+- Section 8's idea 1 (a classifier on the hidden state at 0.915) stands as a statement about hidden states under that
+  decode, with labels that are correct tokens against the script. Its error distribution is not the production one; it
+  is re-run on a dump that passes the guard before it is quoted further.
+- Two paths are running: (A) the Hugging Face decode with Whisper's own fallback (temperature ladder, compression-ratio,
+  log-probability and no-speech thresholds) on the eight worst clips, to see whether that path can match the trusted
+  numbers; (B) the production decoder itself with word timestamps on, which gives a probability per word and, per
+  segment, the average log-probability, no-speech probability and compression ratio: the per-word detector the app can
+  use today, measured on the same scripts with the same labels (`scripts/corpus/word_confidence.py`).

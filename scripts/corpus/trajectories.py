@@ -108,6 +108,8 @@ def main(argv=None) -> int:
     ap.add_argument("--out", type=Path, required=True)
     ap.add_argument("--limit", type=int, default=0, help="first N scripts of the split")
     ap.add_argument("--hint", action="store_true", help="prepend the app's whisper hint as the prompt (default: no prompt, so the trajectories are the model's own)")
+    ap.add_argument("--fallback", action="store_true", help="Whisper's temperature fallback with the compression-ratio, log-probability and no-speech thresholds (closer to faster-whisper's decode)")
+    ap.add_argument("--ids", nargs="*", help="only these script ids")
     args = ap.parse_args(argv)
 
     import torch  # noqa: WPS433 - the container has it, the dev box does not
@@ -128,9 +130,13 @@ def main(argv=None) -> int:
     ids = sorted(splits[args.split])
     if args.limit:
         ids = ids[:args.limit]
+    if args.ids:
+        ids = [i for i in ids if i in set(args.ids)]
     args.out.mkdir(parents=True, exist_ok=True)
     rows = []
     t_all = time.perf_counter()
+    extra = dict(temperature=(0.0, 0.2, 0.4, 0.6, 0.8, 1.0), compression_ratio_threshold=1.35, logprob_threshold=-1.0,
+                 no_speech_threshold=0.6, return_timestamps=True) if args.fallback else {}
     for sid in ids:
         ref_text = (args.set / "scripts" / f"{sid}.txt").read_text().strip()
         for snr in args.snr:
@@ -152,7 +158,7 @@ def main(argv=None) -> int:
                 with torch.no_grad():
                     gen = model.generate(feats, return_dict_in_generate=True, output_scores=True, output_hidden_states=True,
                                          output_attentions=True, max_new_tokens=440, language="en", task="transcribe",
-                                         prompt_ids=prompt_ids)
+                                         prompt_ids=prompt_ids, **extra)
                 seq = gen.sequences[0].tolist()
                 steps = len(gen.scores)
                 toks = seq[-steps:]                           # the tokens the steps produced, in order
