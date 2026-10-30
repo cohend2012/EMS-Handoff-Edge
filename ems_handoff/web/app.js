@@ -470,7 +470,7 @@
         $("rpDashboard").scrollTop = 0;
       }
     }
-    renderState(s.state, s.of);
+    renderState(s.state, s.of, s.ask);
     const line = s.change_lines[s.change_lines.length - 1];
     if (line && line !== ui.replay.lastChange) {
       const el = $("rpChange");
@@ -485,10 +485,11 @@
   }
   // The patient state (ems_handoff/state.py): flags with their published rule and source burst, what the
   // declared alert type still lacks, conflicts between bursts, and vital-sign threshold crossings.
-  function renderState(st, bursts) {
+  function renderState(st, bursts, ask) {
     const el = $("rpState");
     if (!st || st.error || !bursts) { el.hidden = true; return; }
     const rows = [];
+    if (ask) rows.push(`<div class="st-ask">ASK · ${esc(ask)}</div>`);
     for (const f of st.flags || []) rows.push(`<div class="st-flag">⚑ ${esc(f.text)} (${esc(f.source)}) <span class="rule">${esc(f.rule)}</span></div>`);
     for (const s of st.series || []) for (const c of s.crossings || []) rows.push(`<div class="st-cross">↕ ${esc(c)}</div>`);
     if ((st.missing || []).length) rows.push(`<div class="st-missing">? ${esc(st.alert_type || "call")}: not stated: ${esc(st.missing.join(", "))}</div>`);

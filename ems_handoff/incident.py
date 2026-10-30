@@ -319,6 +319,9 @@ class IncidentSession:
     closed: bool = False            # New patient was pressed, or a later session started
     due_at: Optional[float] = None  # quiet-period deadline, None when nothing is waiting
     events: List[str] = field(default_factory=list)   # operator actions, logged with the burst they applied to
+    closing: Optional[str] = None   # why the call is closing ("closing cue in burst 3", "New patient pressed"), else None
+    ask: Optional[str] = None       # the one line the receiver may act on when the call closes with a required slot empty
+    asked: bool = False             # the ask rule has run at least once for this closing
 
     @property
     def last_burst(self) -> Optional[Burst]:
@@ -345,6 +348,8 @@ class IncidentSession:
             "error": self.last_error,
             "closed": self.closed,
             "state": self.state(),
+            "closing": self.closing,
+            "ask": self.ask,
         }
 
     def state(self) -> Dict[str, Any]:
@@ -405,7 +410,8 @@ class IncidentManager:
             session.bursts.append(burst)
             if is_closing_cue(burst.text):
                 session.due_at = None
-                self._trigger(session, f"closing cue in burst {burst.number}")
+                session.closing = f"closing cue in burst {burst.number}"
+                self._trigger(session, session.closing)
             else:   # quiet starts when the channel went quiet: the latest end, not this burst's
                 session.due_at = max(b.end for b in session.bursts) + self.quiet_s
             logger.info("Session %s: burst %d (%d words) at %.1f", session.id, burst.number, burst.words, at)
@@ -429,6 +435,7 @@ class IncidentManager:
             if session is None:
                 return None
             session.closed = True
+            session.closing = "New patient pressed"
             session.events.append(f"New patient pressed after burst {len(session.bursts)}")
             if session.due_at is not None:
                 session.due_at = None
@@ -528,7 +535,27 @@ class IncidentManager:
             session.updating = False
             logger.info("Session %s: report covers %d of %d bursts; %s", session.id, covers, len(session.bursts), line)
             self._publish(session, "report", change_line=line)
+            self._ask(session)
             self._after_job(session)
+
+    def _ask(self, session: IncidentSession) -> None:
+        """The ask rule: when the call is closing and a slot the alert type requires is still empty, one line.
+
+        The system never transmits; the line is for the receiver, who may ask on the radio or let it go. No line
+        while the call is open (the crew may still say it), none for optional slots, one line at a time.
+        """
+        if not session.closing:
+            return
+        st = session.state()
+        missing = st.get("missing") or []
+        alert = st.get("alert_type") or ""
+        ask = f"Not stated for {alert or 'this call'}: {', '.join(missing)}" if missing else None
+        if ask != session.ask or not session.asked:
+            session.ask = ask
+            session.asked = True
+            session.events.append(f"ask after burst {len(session.bursts)} ({session.closing}): {ask or 'nothing missing'}")
+            logger.info("Session %s: %s", session.id, ask or "closing with nothing missing")
+            self._publish(session, "ask", ask=ask)
 
     def _after_job(self, session: IncidentSession) -> None:
         if session.pending or len(session.bursts) > session.queued_through:

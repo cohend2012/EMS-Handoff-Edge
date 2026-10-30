@@ -160,3 +160,41 @@ def test_the_checklist_runs_over_the_merged_slots_so_a_short_later_burst_does_no
     reply = {"alert_type": "UNCLEAR", "eta_minutes": None, "patient": {}, "vital_signs": {}, "assessment_findings": {}, "history": {}}
     st = S.build_state([("burst 1", None, full), ("burst 2", None, reply)])
     assert st.alert_type == "STEMI" and st.missing == []
+
+
+def test_the_ask_rule_fires_only_when_the_call_closes_with_a_required_slot_empty():
+    from ems_handoff.incident import IncidentManager
+    stroke = _report(alert_type="STROKE", chief_complaint="left-sided weakness", mechanism_or_onset=None,
+                     vital_signs={"blood_pressure": "168/94", "heart_rate": 88, "respiratory_rate": 18, "spo2": "97%", "blood_glucose": 112, "gcs": 15},
+                     assessment_findings={"level_of_consciousness": "Alert", "neuro": "left arm drift"},
+                     history={"medications": ["Eliquis"], "past_medical": [], "allergies": [], "code_status": None})
+    events = []
+    m = IncidentManager(lambda text, meta: dict(stroke), quiet_s=25.0, clock=lambda: 1000.0, emit=events.append, start_worker=False)
+    m.add_burst("Medic 14, 64 male, left-sided weakness, BP 168 over 94", at=1000.0, duration_s=20.0)
+    m.run_pending(timeout=5)                                       # nothing fired yet: the quiet period has not passed
+    assert m.sessions[0].ask is None and m.sessions[0].closing is None
+    m.add_burst("ETA 6 minutes, see you on arrival", at=1040.0, duration_s=5.0)      # closing cue
+    m.run_pending(timeout=5)
+    s = m.sessions[0]
+    assert s.closing == "closing cue in burst 2"
+    assert s.ask == "Not stated for STROKE: last known well or onset time"
+    assert [e for e in events if e.get("event") == "ask"][-1]["ask"] == s.ask
+    assert s.snapshot()["ask"] == s.ask and s.snapshot()["closing"] == s.closing
+    assert any(ev.startswith("ask after burst 2 (closing cue in burst 2): Not stated") for ev in s.events)
+
+
+def test_no_ask_when_the_closing_report_has_everything_or_the_call_is_still_open():
+    from ems_handoff.incident import IncidentManager
+    full = _report(alert_type="STEMI", chief_complaint="chest pain",
+                   assessment_findings={"level_of_consciousness": "Alert", "other_findings": ["12-lead: inferior ST elevation"]},
+                   ems_interventions=[{"intervention": "Aspirin", "details": "324 mg", "response": None}])
+    m = IncidentManager(lambda text, meta: dict(full), quiet_s=25.0, clock=lambda: 1000.0, start_worker=False)
+    m.add_burst("Medic 2, 67 male, chest pain, ST elevation, aspirin given, ETA 8, Medic 2 clear", at=1000.0, duration_s=30.0)
+    m.run_pending(timeout=5)
+    assert m.sessions[0].closing == "closing cue in burst 1" and m.sessions[0].ask is None
+    assert any(ev.endswith("nothing missing") for ev in m.sessions[0].events)
+    m2 = IncidentManager(lambda text, meta: dict(_report(eta_minutes=None)), quiet_s=25.0, clock=lambda: 1000.0, start_worker=False)
+    m2.add_burst("Medic 3, 34 male, rollover", at=1000.0, duration_s=20.0)
+    m2.poll(now=2000.0)                                            # quiet period, not a closing cue
+    m2.run_pending(timeout=5)
+    assert m2.sessions[0].reports and m2.sessions[0].ask is None and m2.sessions[0].closing is None
