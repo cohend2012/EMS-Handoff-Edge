@@ -180,6 +180,9 @@ FACTS_ONLY_GUIDANCE = (
     "- Write the clinical facts only. There is no handoff_summary, no data_quality, no resources_to_prepare and no "
     "time_critical_actions in this structure: the receiving system composes the summary, the missing-information list "
     "and the preparation list from your facts, so writing them here would only cost time.\n"
+    "- ems_interventions must list every intervention the paramedic named: IV or IO access, oxygen and its device, each "
+    "drug with its dose and route, splinting, CPR, airway devices, 12-lead. The facts-only writer omitted one in twelve "
+    "of these on 10-30; a missing intervention is the receiving team's most costly surprise.\n"
 )
 _HOSP_START = '  "hospital_recommendations": {{'
 

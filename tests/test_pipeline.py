@@ -582,3 +582,10 @@ def test_ground_activation_clears_time_phrases_and_unrequested_destination_names
     r = blank_report(); r["hospital_recommendations"]["activation_requested"] = "Trauma team activation"
     assert ground_activation(r, "Rollover, priority 1, trauma team activation requested.") is None     # a request phrase: kept
     r = blank_report(); assert ground_activation(r, "anything") is None                                # nothing to clear
+
+
+def test_facts_only_guidance_insists_on_every_intervention():
+    from ems_handoff.prompt import extraction_prompt
+    f = extraction_prompt(facts_only=True)
+    assert "ems_interventions must list every intervention" in f
+    assert "ems_interventions must list every intervention" not in extraction_prompt()
