@@ -56,6 +56,8 @@ From SYNTH_V1_2026-10-27.md, one scorer over every row. Local = faster-whisper i
 | local medium, int8, beam 5 instead of greedy (10-29) | hint | 7.1 % | 6.9 % | 13.0 % | 14.0 % | 0.908 | 0.885 | 1.2x |
 | local large-v3-turbo, int8, greedy + gap re-decode with beam 5 on the span (10-29) | hint | 10.8 % | 10.8 % | 18.0 % | 16.0 % | 0.889 | 0.840 | 0.77x |
 | local medium, int8, greedy + gap re-decode with beam 5 on the span (10-29) | hint | 5.9 % | 7.0 % | 10.5 % | 13.5 % | 0.912 | 0.876 | 0.85x |
+| local large-v3-turbo, int8, greedy + re-decode, word-rate trigger, no lead-in (10-29) | hint | 9.1 % | 8.5 % | 18.0 % | 16.0 % | 0.893 | 0.847 | 0.85x |
+| local medium, int8, greedy + re-decode, word-rate trigger, 3 s lead-in (10-29) | hint | 5.3 % | 7.0 % | 10.0 % | 13.5 % | 0.914 | 0.876 | 0.85x |
 | local large-v3-turbo (the app default until today) | hint | 12.8 % | 10.8 % | 21.5 % | 16.0 % | 0.881 | 0.840 | 0.8x |
 | local large-v3-turbo | hint + gap re-decode, before the loop guard | 13.4 % | 10.8 % | 21.5 % | 16.0 % | 0.875 | 0.840 | 0.8x |
 | local large-v3-turbo | hint + gap re-decode, with the loop guard (shipped) | 12.6 % | 10.8 % | 21.5 % | 16.0 % | 0.881 | 0.840 | 0.8x |
@@ -110,7 +112,13 @@ segment's last words repeated). A span that starts mid-sentence and the hint tog
 the first phrase that matches the hint's vocabulary. So the re-decode now starts 3 s before the gap and
 trims the words that repeat the previous segment's tail (`LEAD_IN_SECONDS`, `_trim_seam`); `medium_hint_rd5b`
 and `large-v3-turbo_hint_rd5c` (queued) measure the word-rate trigger with the lead-in; `large-v3-turbo_hint_rd5b`
-(running) is the trigger without it.
+is the trigger without it.
+
+Results of those two (18:05): the word-rate trigger on turbo, without the lead-in, gives 9.1 / 8.5 %: both
+repeating windows are fixed (SY078 40 to 6 %, SY188 68 to 12 %), SY074 stays fixed, and SY055 and SY184 are
+still collapsed (44 and 38 %), which the per-clip diagnostic below explains. Medium with the trigger and the
+lead-in gives 5.3 / 7.0 %, the best local medium row with today's hint (greedy 7.1, old re-decode 5.9): SY078
+goes 45 to 11 % (148 words for 139, the seam repeats a few words), and no clip got worse.
 
 \* The medium re-decode rows were run with the day's revised hint, which by itself moved the clean row from 4.8 to
 7.1 % (two clips collapsed the other way; SYNTH_V1_2026-10-27.md); against that same-hint run the re-decode is a
