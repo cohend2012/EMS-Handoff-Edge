@@ -94,8 +94,11 @@ audio (21.7 %) and as a per-token confidence for the patient-state layer's belie
   have been there and were not).
 - Deliverable: a trajectory dataset, about 1000 clips x 150 tokens, with labels.
 
-**Phase 2, learn V and test it as a detector (week 3). First stop rule.** Status 2026-10-30 14:00: a first reading says the stop
-rule fires, but the dump it was read on fails the dataset guard (section 7 of LYAPUNOV_MATH); provisional until a dump passes. dV 0.744 AUROC against token entropy 0.807 and a logistic regression over the four baselines 0.826 (+0.008
+**Phase 2, learn V and test it as a detector (week 3). First stop rule.** Status 2026-10-30 14:30: the stop rule fires for V as a decreasing energy (dV 0.744 against entropy 0.807), but a
+classifier on the same hidden state detects a wrong token at 0.915 [0.900, 0.933] against 0.826 for the uncertainty
+baselines (permutation control 0.42), so the hypothesis survives and the formulation changes: a learned per-token
+detector on the hidden state, and a per-clip collapse detector from mean log-probability (0.942) that faster-whisper can
+supply today. LYAPUNOV_MATH_2026-10-30.md section 8. dV 0.744 AUROC against token entropy 0.807 and a logistic regression over the four baselines 0.826 (+0.008
 with dV added). The line stops here; the detector to carry forward is the logistic regression over the model's own
 quantities. Full write-up: docs/reports/LYAPUNOV_PHASE2_2026-10-30.md. Original plan text follows.
 - V is a small input-convex network (two hidden layers of 64) on the 768-dim decoder state. Loss:

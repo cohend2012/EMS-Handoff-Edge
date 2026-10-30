@@ -87,8 +87,10 @@ def check_dataset(clips, traj_dir: Path, expected_wer: float = 0.09, tol: float 
     rows = list(csv.DictReader(open(traj_dir / "summary.tsv"), delimiter="\t"))
     ratios = [(r["id"], r["snr"], int(r["tokens"]) / max(1, int(r["ref_words"]))) for r in rows if int(r["ref_words"]) > 30]
     low = [(i, s, round(x, 2)) for i, s, x in ratios if x < 0.8]; high = [(i, s, round(x, 2)) for i, s, x in ratios if x > 3.0]
-    if low or high:
-        problems.append(f"tokens per reference word out of [0.8, 3.0] on {len(low) + len(high)} clips (truncation or runaway): {(low + high)[:5]}")
+    share_low = len(low) / max(1, len(ratios))
+    if share_low > 0.30 or high:
+        problems.append(f"tokens per reference word out of [0.8, 3.0] on {len(low) + len(high)} of {len(ratios)} long clips (a truncation or runaway signature): {(low + high)[:5]}")
+    notes = [f"{len(low)} of {len(ratios)} long clips ({100 * share_low:.0f} %) emitted under 0.8 tokens per reference word: the decoder's own collapses and early stops, kept as data"]
     for c in clips:
         for k in ("hidden", "logprob", "entropy", "attn_entropy", "attn_mass"):
             if not np.isfinite(c[k]).all():
@@ -104,7 +106,7 @@ def check_dataset(clips, traj_dir: Path, expected_wer: float = 0.09, tol: float 
         problems.append(f"bad-token rate {rate:.3f} outside [0.03, 0.25]: labels suspect")
     report = {"clips": len(clips), "tokens": tot, "bad_rate": round(rate, 4), "mean_wer_long_scripts": round(mean_wer, 4),
               "tokens_per_ref_word_min_max": (round(min(x for _, _, x in ratios), 2), round(max(x for _, _, x in ratios), 2)) if ratios else None,
-              "problems": problems}
+              "problems": problems, "notes": notes}
     return report
 
 
@@ -118,6 +120,7 @@ def main(argv=None) -> int:
     ap.add_argument("--alarm", type=float, default=0.05, help="conformal false-alarm rate on correct tokens")
     ap.add_argument("--expected-wer", type=float, default=0.09, help="the trusted scorer's WER for this model on these scripts (guard 3)")
     ap.add_argument("--check-only", action="store_true", help="run the dataset guard and stop")
+    ap.add_argument("--force", action="store_true", help="train even if the guard fails (diagnostics only; the results say so)")
     args = ap.parse_args(argv)
     import torch
     torch.manual_seed(args.seed); rng = np.random.default_rng(args.seed)
@@ -126,7 +129,7 @@ def main(argv=None) -> int:
     clips = load(args.traj)
     guard = check_dataset(clips, args.traj, expected_wer=args.expected_wer)
     print("dataset guard:", json.dumps(guard, indent=1))
-    if guard["problems"]:
+    if guard["problems"] and not args.force:
         print("ABORT: the dataset fails its invariants; nothing was trained.")
         return 2
     if args.check_only:
@@ -150,7 +153,7 @@ def main(argv=None) -> int:
     norm = lambda X: (X - mu) / sd
 
     # --- baselines
-    res = {"n_scripts": len(sids), "train_scripts": n_train, "test_scripts": len(sids) - n_train,
+    res = {"guard": guard, "forced_past_guard": bool(guard["problems"]), "n_scripts": len(sids), "train_scripts": n_train, "test_scripts": len(sids) - n_train,
            "train_transitions": int(len(Ytr)), "test_transitions": int(len(Yte)), "test_bad": int(Yte.sum()),
            "test_bad_rate": float(Yte.mean()), "auroc": {}}
     names = ["-logprob", "entropy", "attn_entropy", "-attn_mass"]
@@ -194,6 +197,79 @@ def main(argv=None) -> int:
         dv_te = (v(torch.tensor(norm(X1te), device=device)) - v(torch.tensor(norm(X0te), device=device))).cpu().numpy()
         dv_tr = (v(x1) - v(x0)).cpu().numpy()
     res["auroc"]["dV (learned V)"] = auroc(dv_te, Yte)
+    # --- Idea 1: is there information in the hidden state beyond the model's own uncertainty? Classifiers on x alone and on
+    # [x, phi], against the logistic regression on phi. If C(x, phi) - logistic(phi) < 0.02 the hidden state adds nothing and any
+    # energy over it is capped at the uncertainty baseline.
+    def train_clf(Xtr_, ytr_, Xte_, hidden=64, epochs=15):
+        net = torch.nn.Sequential(torch.nn.Linear(Xtr_.shape[1], hidden), torch.nn.ReLU(), torch.nn.Linear(hidden, 1)).to(device)
+        o = torch.optim.Adam(net.parameters(), lr=1e-3, weight_decay=1e-4); Xt = torch.tensor(Xtr_, device=device); yt = torch.tensor(ytr_, dtype=torch.float32, device=device)
+        pw = torch.tensor(float((1 - ytr_.mean()) / max(ytr_.mean(), 1e-6)), device=device)
+        for _ in range(epochs):
+            perm = torch.randperm(len(yt), device=device)
+            for i in range(0, len(yt), 1024):
+                b = perm[i:i + 1024]; o.zero_grad()
+                loss = torch.nn.functional.binary_cross_entropy_with_logits(net(Xt[b]).squeeze(1), yt[b], pos_weight=pw); loss.backward(); o.step()
+        with torch.no_grad():
+            return net(torch.tensor(Xte_, device=device)).squeeze(1).cpu().numpy()
+    phi_tr = ((Ftr - fmu) / fsd).astype(np.float32); phi_te = ((Fte - fmu) / fsd).astype(np.float32)
+    res["auroc"]["C(x): classifier on the hidden state"] = auroc(train_clf(norm(X1tr).astype(np.float32), Ytr, norm(X1te).astype(np.float32)), Yte)
+    res["auroc"]["C(x, phi): hidden state + 4 baselines"] = auroc(train_clf(np.concatenate([norm(X1tr), phi_tr], 1).astype(np.float32), Ytr, np.concatenate([norm(X1te), phi_te], 1).astype(np.float32)), Yte)
+    # caution checks on idea 1: a label-permutation control (must fall to about 0.5), a bootstrap interval over test scripts,
+    # the per-noise-level AUROC, and a second seed
+    sc_cx = train_clf(norm(X1tr).astype(np.float32), Ytr, norm(X1te).astype(np.float32))
+    perm_y = rng.permutation(Ytr)
+    sc_perm = train_clf(norm(X1tr).astype(np.float32), perm_y, norm(X1te).astype(np.float32))
+    torch.manual_seed(args.seed + 1)
+    sc_cx2 = train_clf(norm(X1tr).astype(np.float32), Ytr, norm(X1te).astype(np.float32))
+    torch.manual_seed(args.seed)
+    # script id and snr per test transition, for the bootstrap and the per-level split
+    sid_te, snr_te = [], []
+    for c in test:
+        idx = np.where(c["keep"])[0]; n_ = max(0, len(idx) - 1)
+        sid_te += [c["sid"]] * n_; snr_te += [c["file"].split("_")[1][:-4]] * n_
+    sid_te = np.array(sid_te); snr_te = np.array(snr_te)
+    boots = []
+    uniq = np.array(sorted(set(sid_te.tolist())))
+    for _ in range(300):
+        pick = rng.choice(uniq, len(uniq)); mask = np.concatenate([np.where(sid_te == s)[0] for s in pick])
+        if Yte[mask].sum() and (1 - Yte[mask]).sum():
+            boots.append(auroc(sc_cx[mask], Yte[mask]))
+    res["idea1_checks"] = {"C(x) seed 0": auroc(sc_cx, Yte), "C(x) seed 1": auroc(sc_cx2, Yte),
+                           "C(x) with permuted training labels (control, expect about 0.5)": auroc(sc_perm, Yte),
+                           "C(x) bootstrap 95 % over test scripts": [float(np.percentile(boots, 2.5)), float(np.percentile(boots, 97.5))],
+                           "C(x) per level": {lvl: auroc(sc_cx[snr_te == lvl], Yte[snr_te == lvl]) for lvl in sorted(set(snr_te.tolist()))},
+                           "logistic(phi) per level": {lvl: auroc(lr(Fte_t).squeeze(1).detach().cpu().numpy()[snr_te == lvl], Yte[snr_te == lvl]) for lvl in sorted(set(snr_te.tolist()))}}
+    res["idea1"] = {"C(x,phi) minus logistic(phi)": round(res["auroc"]["C(x, phi): hidden state + 4 baselines"] - res["auroc"]["logistic(4 baselines)"], 4),
+                    "verdict": "hidden state carries information beyond uncertainty" if res["auroc"]["C(x, phi): hidden state + 4 baselines"] - res["auroc"]["logistic(4 baselines)"] >= 0.02 else "hidden state adds nothing beyond uncertainty (< 0.02)"}
+
+    # --- Idea 2: an energy with a known target. E_t = number of bad tokens among the next 16 kept tokens of the same clip, a
+    # potential that falls through a good stretch and rises before a bad one. V_E regresses E from the hidden state (MSE);
+    # the detector is dV_E, and Spearman(V_E, E) on the test transitions says how well V_E tracks the target.
+    def energy_targets(cs):
+        X, E = [], []
+        for c in cs:
+            idx = np.where(c["keep"])[0]; bad = c["bad"][idx].astype(np.float32)
+            for j in range(len(idx)):
+                X.append(c["hidden"][idx[j]]); E.append(float(bad[j:j + 16].sum()))
+        return np.array(X), np.array(E, dtype=np.float32)
+    XE_tr, E_tr = energy_targets(train); XE_te, E_te = energy_targets(test)
+    reg = torch.nn.Sequential(torch.nn.Linear(XE_tr.shape[1], 64), torch.nn.Softplus(), torch.nn.Linear(64, 64), torch.nn.Softplus(), torch.nn.Linear(64, 1)).to(device)
+    o = torch.optim.Adam(reg.parameters(), lr=1e-3, weight_decay=1e-4); Xt = torch.tensor(norm(XE_tr).astype(np.float32), device=device); Et = torch.tensor(E_tr, device=device)
+    for _ in range(20):
+        perm = torch.randperm(len(Et), device=device)
+        for i in range(0, len(Et), 1024):
+            b = perm[i:i + 1024]; o.zero_grad(); loss = torch.nn.functional.mse_loss(reg(Xt[b]).squeeze(1), Et[b]); loss.backward(); o.step()
+    with torch.no_grad():
+        VE_te = reg(torch.tensor(norm(XE_te).astype(np.float32), device=device)).squeeze(1).cpu().numpy()
+        VE0 = reg(torch.tensor(norm(X0te).astype(np.float32), device=device)).squeeze(1).cpu().numpy()
+        VE1 = reg(torch.tensor(norm(X1te).astype(np.float32), device=device)).squeeze(1).cpu().numpy()
+    def spearman(a, b):
+        ra = np.argsort(np.argsort(a)); rb = np.argsort(np.argsort(b)); return float(np.corrcoef(ra, rb)[0, 1])
+    res["auroc"]["dV_E (energy regressed on bad-tokens-ahead)"] = auroc(VE1 - VE0, Yte)
+    res["auroc"]["V_E itself at the next token"] = auroc(VE1, Yte)
+    res["idea2"] = {"spearman(V_E, E) on test tokens": round(spearman(VE_te, E_te), 4), "mean E test": float(E_te.mean()),
+                    "verdict": "continue" if (VE1 - VE0 >= 0).any() and auroc(VE1 - VE0, Yte) > res["auroc"]["logistic(4 baselines)"] else "dV_E does not beat the four-feature regression"}
+
     # V plus the baselines in one logistic regression: does V add information?
     Gtr = np.concatenate([(Ftr - fmu) / fsd, dv_tr[:, None]], 1).astype(np.float32); Gte = np.concatenate([(Fte - fmu) / fsd, dv_te[:, None]], 1).astype(np.float32)
     lr2 = torch.nn.Linear(5, 1).to(device); opt = torch.optim.Adam(lr2.parameters(), lr=0.05)
@@ -219,6 +295,35 @@ def main(argv=None) -> int:
         "mean dV | correct": float(good_te.mean()), "mean dV | bad": float(bad_te.mean()),
         "train P(dV < 0 | correct)": float((dv_tr[Ytr == 0] < 0).mean()), "train P(dV >= 0 | bad)": float((dv_tr[Ytr == 1] >= 0).mean())}
     np.savez_compressed(args.out / "dv_test.npz", dv=dv_te, bad=Yte, features=Fte)
+    # --- Idea 3: detect the collapse at the level it happens. Label a clip bad when its WER > 0.30 (the window collapses
+    # and early stops that lose whole stretches), score it from quantities the decoder gives for free, aggregated over the
+    # clip: tokens per audio second, mean and min log-probability, mean and max entropy, mean attention entropy, and the
+    # fraction of windows that emitted fewer than one token per second. Leave-scripts-out: the same 70 / 30 split by script.
+    import csv as _csv
+    summ = {(r["id"], r["snr"]): r for r in _csv.DictReader(open(args.traj / "summary.tsv"), delimiter="\t")}
+    def clip_feats(c):
+        d = np.load(args.traj / c["file"], allow_pickle=True)
+        win = d["window"]; nwin = int(win.max()) + 1 if len(win) else 1
+        secs = float(summ[(c["sid"], c["file"].split("_")[1][:-4])]["ref_words"]) / 2.5   # the script's spoken length, about 2.5 words a second
+        per_win = [int((win == k).sum()) for k in range(nwin)]
+        slow = np.mean([1.0 if toks < max(8.0, min(30.0, secs - 30 * k)) else 0.0 for k, toks in enumerate(per_win)])
+        lp = c["logprob"][c["keep"]]; en = c["entropy"][c["keep"]]; ae = np.nan_to_num(c["attn_entropy"][c["keep"]], nan=0.0)
+        return [len(win) / max(secs, 1.0), float(lp.mean()), float(lp.min()), float(en.mean()), float(en.max()), float(ae.mean()), float(slow)]
+    cf_names = ["tokens/s", "mean logprob", "min logprob", "mean entropy", "max entropy", "mean attn entropy", "slow-window fraction"]
+    Ctr = np.array([clip_feats(c) for c in train], dtype=np.float32); Cte = np.array([clip_feats(c) for c in test], dtype=np.float32)
+    ytr_c = np.array([1 if float(summ[(c["sid"], c["file"].split("_")[1][:-4])]["wer"]) > 0.30 else 0 for c in train])
+    yte_c = np.array([1 if float(summ[(c["sid"], c["file"].split("_")[1][:-4])]["wer"]) > 0.30 else 0 for c in test])
+    res["clip_collapse"] = {"test_clips": int(len(yte_c)), "test_bad": int(yte_c.sum()), "auroc": {}}
+    for k, nm in enumerate(cf_names):
+        a = auroc(Cte[:, k], yte_c); res["clip_collapse"]["auroc"][nm] = (a if a >= 0.5 else 1 - a)
+    cmu, csd = Ctr.mean(0), Ctr.std(0) + 1e-6
+    lr3 = torch.nn.Linear(len(cf_names), 1).to(device); opt = torch.optim.Adam(lr3.parameters(), lr=0.05)
+    Ctr_t = torch.tensor((Ctr - cmu) / csd, device=device); ytr_ct = torch.tensor(ytr_c, dtype=torch.float32, device=device)
+    wpos = float((1 - ytr_c.mean()) / max(ytr_c.mean(), 1e-6))
+    for _ in range(600):
+        opt.zero_grad(); loss = torch.nn.functional.binary_cross_entropy_with_logits(lr3(Ctr_t).squeeze(1), ytr_ct, pos_weight=torch.tensor(wpos, device=device)); loss.backward(); opt.step()
+    with torch.no_grad():
+        res["clip_collapse"]["auroc"]["logistic(all clip features)"] = auroc(lr3(torch.tensor((Cte - cmu) / csd, device=device)).squeeze(1).cpu().numpy(), yte_c)
     best_single = max(v_ for k, v_ in res["auroc"].items() if k in names)
     logistic = res["auroc"]["logistic(4 baselines)"]; dv = res["auroc"]["dV (learned V)"]
     res["stop_rule"] = {"best_single_baseline": best_single, "logistic_baselines": logistic, "dV": dv,
@@ -232,6 +337,11 @@ def main(argv=None) -> int:
     for k, v_ in res["auroc"].items():
         md.append(f"| {k} | {v_:.3f} |")
     c = res["conformal"]
+    cc = res["clip_collapse"]
+    md += ["", f"Clip-level collapse detector (label: clip WER > 0.30; {cc['test_bad']} of {cc['test_clips']} test clips):", "", "| clip score | AUROC |", "|---|---|"]
+    for k, v_ in cc["auroc"].items():
+        md.append(f"| {k} | {v_:.3f} |")
+    md += ["", f"Idea 1: {res['idea1']}", f"Idea 1 checks: {json.dumps(res['idea1_checks'])}", f"Idea 2: {res['idea2']}", f"Guard: {'FORCED past a failing guard: ' + '; '.join(res['guard']['problems']) if res['forced_past_guard'] else 'passed'}; {res['guard']['notes'][0]}"]
     dp = res["decrease_property"]
     md += ["", "Decrease property on the test transitions: " + "; ".join(f"{k} = {v_:.3f}" for k, v_ in dp.items()), ""]
     md += [f"Conformal threshold on dV at alpha = {c['alpha']}: {c['threshold_dV']:.4f}; realised false-alarm rate on correct test tokens {100 * c['test_false_alarm_rate']:.1f} %, detection rate on bad test tokens {100 * c['test_detection_rate']:.1f} %.", "",

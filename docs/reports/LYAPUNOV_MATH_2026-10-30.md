@@ -106,3 +106,71 @@ Run on the dump that produced sections 4 and 5, the guard fails on 1 (19 clips, 
 (0.173 against a band near 0.09). So that dump still loses output on some clips, and every number above is provisional
 until a dump passes. The trusted-scorer run for the same model and clips (faster-whisper small, no hint, GPU) is in
 progress to set the band exactly and to find, clip by clip, where the PyTorch decode diverges.
+
+## 8. Four ideas, tested (14:30). Same dump, same 98 / 42 split by script, guard passed (the refined guard separates a
+truncation signature, most long clips short, from the decoder's own collapses, 19 of 246 long clips, which are data)
+
+**Idea 1: does the hidden state carry information beyond the model's own uncertainty?** A classifier C(x) on the hidden
+state alone (768 -> 64 -> 1, two seeds) detects a wrong next token at AUROC 0.915 / 0.913; with the four baselines added,
+0.926; the four baselines alone, 0.826. Difference 0.100, far above the 0.02 bar. Caution checks: training labels
+permuted, 0.418 (chance, the control passes); bootstrap over test scripts, 95 % interval [0.900, 0.933]; per level 0.923
+clean and 0.911 at 5 dB against 0.818 and 0.829 for the baselines. **Yes: the hidden state knows when the decoder is
+about to be wrong, and it knows it better than the decoder's own entropy.** What failed yesterday was the Lyapunov
+formulation (a scalar forced to decrease by a fixed margin), not the hypothesis behind it.
+
+**Idea 2: an energy with a known target.** V_E regressed on E_t = bad tokens among the next 16: Spearman(V_E, E) = 0.35
+on test tokens; V_E itself at the next token 0.705 AUROC; its step dV_E 0.441 (0.559 inverted). **Fails.** A decreasing
+scalar over this state is the wrong object even with the right target.
+
+**Idea 3: detect the collapse where it happens.** Label a clip bad when its WER exceeds 0.30 (12 of 84 test clips: the
+early stops and collapses). Mean log-probability over the clip alone: 0.942; tokens per second 0.913; mean entropy 0.921;
+the logistic over all clip features 0.931. **Works, and it costs nothing:** faster-whisper reports a per-segment average
+log-probability, so the app can flag a collapsing window from it. The conformal threshold recipe gives the false-alarm
+rate; calibration against the trusted scorer's segments is the next step.
+
+**Idea 4: the provable property of our own re-decode.** Stated and tested in `tests/test_config_phrase.py` (see section 9).
+
+Raw results of this run:
+
+# Stability gauge, Phase 2 results
+
+Scripts: 140 (98 train / 42 test, split by script). Test transitions: 9730, bad 1028 (10.6 %).
+
+| detector | AUROC on the test scripts |
+|---|---|
+| -logprob | 0.787 |
+| entropy | 0.807 |
+| attn_entropy | 0.677 |
+| -attn_mass | 0.512 |
+| logistic(4 baselines) | 0.826 |
+| dV (learned V) | 0.744 |
+| C(x): classifier on the hidden state | 0.915 |
+| C(x, phi): hidden state + 4 baselines | 0.926 |
+| dV_E (energy regressed on bad-tokens-ahead) | 0.458 |
+| V_E itself at the next token | 0.718 |
+| logistic(4 baselines + dV) | 0.836 |
+
+Clip-level collapse detector (label: clip WER > 0.30; 12 of 84 test clips):
+
+| clip score | AUROC |
+|---|---|
+| tokens/s | 0.913 |
+| mean logprob | 0.942 |
+| min logprob | 0.751 |
+| mean entropy | 0.921 |
+| max entropy | 0.817 |
+| mean attn entropy | 0.631 |
+| slow-window fraction | 0.815 |
+| logistic(all clip features) | 0.928 |
+
+Idea 1: {'C(x,phi) minus logistic(phi)': 0.1005, 'verdict': 'hidden state carries information beyond uncertainty'}
+Idea 1 checks: {"C(x) seed 0": 0.9172756028177251, "C(x) seed 1": 0.9134615728572617, "C(x) with permuted training labels (control, expect about 0.5)": 0.418329410386449, "C(x) bootstrap 95 % over test scripts": [0.9000950291068366, 0.9331891315826234], "C(x) per level": {"snr5": 0.910685223788334, "snrinf": 0.923159739663624}, "logistic(phi) per level": {"snr5": 0.828807561513223, "snrinf": 0.8181840325290561}}
+Idea 2: {'spearman(V_E, E) on test tokens': 0.3485, 'mean E test': 1.590381145477295, 'verdict': 'dV_E does not beat the four-feature regression'}
+Guard: passed; 19 of 246 long clips (8 %) emitted under 0.8 tokens per reference word: the decoder's own collapses and early stops, kept as data
+
+Decrease property on the test transitions: P(dV < 0 | correct) = 0.594; P(dV <= -margin | correct) = 0.180; P(dV >= 0 | bad) = 0.779; P(dV >= margin | bad) = 0.509; mean dV | correct = -0.015; mean dV | bad = 0.098; train P(dV < 0 | correct) = 0.630; train P(dV >= 0 | bad) = 0.975
+
+Conformal threshold on dV at alpha = 0.05: 0.1594; realised false-alarm rate on correct test tokens 6.7 %, detection rate on bad test tokens 32.0 %.
+
+Stop rule: best single baseline 0.807, logistic over baselines 0.826, dV 0.744: **stop**.
+

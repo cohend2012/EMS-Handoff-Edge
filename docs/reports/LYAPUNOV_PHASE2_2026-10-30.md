@@ -1,6 +1,6 @@
 # Lyapunov stability gauge: Phase 1 and Phase 2 results (2026-10-30)
 
-**Status 14:00: PROVISIONAL.** A dataset guard added after these numbers were written finds the Phase 1 dump failing two
+**Status 14:30: superseded in part by LYAPUNOV_MATH section 8: the hidden state does carry information beyond uncertainty (classifier AUROC 0.915 against 0.826), the Lyapunov formulation was what failed; a clip-level collapse detector from mean log-probability reaches 0.942.** Earlier note: A dataset guard added after these numbers were written finds the Phase 1 dump failing two
 invariants (19 clips with far fewer tokens than reference words, down to 0.27 per word; long-script WER 0.173 against a
 trusted band near 0.09). The numbers below are therefore from a dump that still loses output on some clips, and the
 verdict is not final until a dump passes the guard. See LYAPUNOV_MATH_2026-10-30.md section 7.
