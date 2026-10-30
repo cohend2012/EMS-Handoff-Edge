@@ -259,3 +259,22 @@ per-step scores on its first try and would need the long-form generation API tak
 
 Next in the product: carry each word's probability into the state module's slots as the belief weight the state-graph
 plan described, and show low-confidence values ("SBP 84, low confidence") on the slot board.
+
+## 12. The shipped models' own word confidence (15:55)
+
+Same protocol as section 11 (faster-whisper, VAD on, greedy, no hint, word timestamps, 140 training scripts, split by
+script, 280 clips each):
+
+| model | held-out words (bad) | AUROC of 1 - word probability | 95 % over scripts | permuted control | clean / 5 dB | conformal at 5 %: false alarm / detection |
+|---|---|---|---|---|---|---|
+| small | 7,139 (566) | 0.864 | [0.844, 0.882] | 0.49 | 0.85 / 0.87 | 5.4 % / 34.8 % |
+| medium | 6,953 (411) | 0.883 | [0.866, 0.902] | 0.49 | 0.88 / 0.88 | 4.8 % / 38.0 % |
+| large-v3 | 7,048 (302) | 0.860 | [0.834, 0.887] | 0.48 | 0.86 / 0.86 | 5.5 % / 45.4 % |
+
+Segment-level average log-probability stays weak for every model (0.55 to 0.64 for bad segments). Deleted reference
+words are 1.2 to 1.4 % of the reference under the production decode, so the word detector sees almost everything the
+decoder emits. The conformal thresholds differ by model (large-v3 flags at 1 - p above 0.23, medium above 0.47), so
+the threshold is calibrated per model, from the correct words of a held-out set, and stored with the model choice.
+
+Verdict: the per-word probability is a stable, free, model-agnostic confidence at 0.86 to 0.88; it goes into the app
+as the belief weight on every slot the state layer carries.
