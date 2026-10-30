@@ -51,8 +51,15 @@ unless marked cloud.
 | 10-28 | medium_hint all-SNR report completion (vox-ai GPU; one report, SY099 at 10 dB, failed on malformed model JSON and was re-run on 10-29) | 81 | 70 min | the local report stage's noise curve, 150 of 150: weighted 94.7 / 94.7 / 92.9 / 94.2 / 93.9 at clean / 20 / 15 / 10 / 5 dB while the transcript WER goes 4.8 to 13.5 %; level right at every SNR; hallucinations 0.13 to 0.23 per report | SYSTEM_VS_BASE section 4 |
 | 10-29 | Report stage, cloud writer over the bare cloud transcripts (Groq, paced 25 s) | 60 | 25 min | 95.2 / 94.4 weighted against 96.8 / 95.1 over our cloud stack; paired +1.5 [-0.5, +3.9] at clean, +0.5 [-1.6, +2.8] at 5 dB |
 | 10-29 | Report stage, cloud writer with the rules off | 13 of 60 | 25 min, then HTTP 429 | 93.6 / 90.2 on the 13; the Groq daily token cap stopped the run, it resumes when the cap resets |
+| 10-29 | Candidate transcribers on the test split (vox-ai CPU): distil-large-v3, distil-large-v3.5, turbo float32, turbo without VAD, medium beam 5, turbo beam 5 | 6 x 60 clips | 20 to 90 min each | none beats medium: 9.4 / 10.5, 8.8 / 12.6, 9.2 / 11.0, 12.8 / 10.7, 7.1 / 6.9 (1.2x), 6.2 / 8.1 % (0.81x) | SYSTEM_VS_BASE section 2 |
+| 10-29 | Span re-decode rewritten (collapsed, sparse, repeating, trailing, looping and over-long windows; beam 5 on the span; 3 s lead-in with seam trim), seven decode variants measured on medium and turbo | 7 x 60 clips | 30 to 60 min each | medium 7.1 greedy to 5.0 / 7.0 % (shipped), turbo 12.8 / 10.8 to 6.0 / 8.5 % at greedy speed; 6 new tests, 245 pass | commits 0431bbb to 8cbfc31 |
+| 10-29 | GPU whisper on cohendynamics: dustynv CUDA container, scipy added, app decode | bench 9 bursts; 3 models x 60 clips | 5 to 8 min per model | medium fp16 5.4 s per burst against 27.8 s CPU (5.1x); medium 4.6 / 7.3 % (5.3 s a clip), turbo 6.8 / 8.5 (4.1 s), large-v3 4.6 / 5.5 (8.4 s); with the corrector 4.5 / 7.1 and 4.6 / 5.5 | gpu_whisper on cohendynamics; evals/*_gpu_fp16_hint_rd5d |
+| 10-29 | The real nine bursts on the GPU, every stack with the corrector, after two loop fixes found on them | 9 bursts x 2 models | 2 min | GPU large-v3 21.7 % (equals cloud turbo stack, beats CPU medium stack 22.7), GPU medium 25.8 % (one burst looped in fp16); first pass before the fixes was 31.5 % | SYSTEM_VS_BASE section 2, real-burst table |
+| 10-29 | qwen3:8b report rows over the base and stack CPU transcripts (cohendynamics, 13 % of layers on CPU) | 56 + 50 of 60 | 171 s median, 270 s p90, 32 timeouts re-run | 96.2 / 94.2 and 95.6 / 94.8; against the 4B +0.2 [-1.0, +1.5] and +1.2 [-0.3, +2.9] at clean; offline-only, not a live writer | reports/*__qwen3-8b |
+| 10-29 | 4B report rows over the GPU medium transcripts, with and without the corrector (vox-ai GPU) | 59 + 59 of 60 (SY117 at 5 dB: malformed model JSON both times) | 52 min each | 95.3 / 94.2 both (the corrector touched 3 transcripts, no score); +1.6 [+0.1, +3.4] over the CPU stack row at clean; -1.5 [-3.9, +0.9] against the cloud stack; level with the cloud base system | reports/medium_gpu_fp16_hint_rd5d*__qwen3-4b-instruct |
+| 10-29 | 4B report rows over the GPU large-v3 transcripts | running | | | |
 
-Regression on every commit: 239 tests under `.venv/bin/python -m pytest` (2 min), including the pipeline on the four
+Regression on every commit: 245 tests under `.venv/bin/python -m pytest` (2 min), including the pipeline on the four
 gold samples with a fake model, the re-decode and its loop guard, the rules switch, and the transcript checks.
 
 ## 3. Bare Whisper out of the box against our stack
@@ -75,6 +82,15 @@ the generated set. The cloud is ten times faster than the Jetson CPU for the tra
 report; that is the price of running without a network. The one speed lever is model size (small is 2.6 times
 faster at 2 more points of WER), and the one big accuracy lever was choosing medium over the turbo default (8 points).
 
+Revised 10-29. Two things changed the local column. The re-decode now catches every kind of collapsed window, so
+medium on the CPU is 5.0 / 7.0 % (from 7.1 % greedy under the same hint) and turbo 6.0 / 8.5 % at greedy speed. And
+the second device's GPU runs the same decode in fp16: medium 4.6 / 7.3 % at 0.13 times real time (6.6 times the CPU),
+large-v3 4.6 / 5.5 % at 0.20 times, against the best cloud row's 3.9 / 4.9 % at 0.07 times. On the real bursts GPU
+large-v3 with the stack is 21.7 %, equal to the cloud turbo stack. The speed is the hardware's, not the stack's: bare
+medium on the GPU would be as fast. The accuracy gain over bare medium at 5 dB is now 0.8 to 1.1 points on the
+generated set and 3 to 4 on the real calls; the local-against-cloud transcript gap is 0.6 to 0.7 points on the
+generated set for the same model (large-v3) and zero on the real bursts for turbo-class cloud.
+
 ## 4. The report stage: bare model against ours, local against cloud
 
 | | local qwen3:4b-instruct, bare prompt | local, our prompt and rules | cloud gpt-oss-120b, our prompt and rules |
@@ -84,7 +100,9 @@ faster at 2 more points of WER), and the one big accuracy lever was choosing med
 | four gold samples, weighted | 83.5 (baseline commit) | 91.3 | 98.0 on CS008 |
 | generated set, 60 reports, weighted clean / 5 dB | 88.0 / 88.3 (rules off, same transcripts, same device) | 93.7 to 95.7 / 93.7 to 94.1 | 96.8 / 95.1 (95.2 / 94.4 over the bare cloud transcript) |
 | hallucinations per report, generated set | 0.73 / 0.70 | 0.10 to 0.20 | 0.03 to 0.07 |
-| time per report | 50 s | 50 s | 3 s |
+| generated set, 60 reports over the GPU transcripts with the 10-29 decode (local writer) | | 95.3 / 94.2 (-1.5 [-3.9, +0.9] against the cloud stack at clean) | |
+| generated set, qwen3:8b writer over the CPU transcripts | | 96.2 / 94.2 bare, 95.6 / 94.8 stack (+0.2 to +1.2 over the 4B, intervals through zero) | |
+| time per report | 50 s | 50 s (8B: 171 s median) | 3 s |
 | repeatability | five replays of CS008 gave the identical report (10-25); a second run of 60 reports on the same device and input reproduced all 60 scores (10-28). The 11-clip difference between bare and stacked transcripts at clean is therefore caused by the transcripts' punctuation and case, to which the 4B writer is sensitive | | |
 
 ## 5. How long things take (for planning)
@@ -92,6 +110,7 @@ faster at 2 more points of WER), and the one big accuracy lever was choosing med
 | job | time on the Orin Nano |
 |---|---|
 | one transcriber run over the 150-clip split, medium or turbo | about 90 min; small 34 min; tiny.en 11 min; cloud 7 to 9 min |
+| one transcriber run over the 60-clip clean + 5 dB rows on the cohendynamics GPU (CUDA container) | medium 5 min, turbo 4 min, large-v3 8 min; model load 20 to 60 s; one container per model |
 | the corrector pass over saved transcripts | seconds |
 | one report-stage run, 60 reports, local | 50 min (50 s per report); cloud 25 min paced, 3 s per report |
 | replay of one real call through the live server with a recording | 2 to 4 min |
@@ -100,7 +119,8 @@ faster at 2 more points of WER), and the one big accuracy lever was choosing med
 | rendering the generated set (Piper, five SNRs) | 2 h; XTTS clones 8 min per script on this CPU |
 
 Whisper and Ollama cannot share this box's 7.4 GB; a second Orin Nano Super (cohendynamics) now runs the report
-stage at 24 tokens a second, so transcriber and report runs go in parallel.
+stage at 24 tokens a second, so transcriber and report runs go in parallel; since 10-29 it also runs faster-whisper on
+its GPU through a CUDA container (the first device's JetPack is too old for it), with one model per container.
 
 ## 6. Where that leaves the abstract
 
@@ -110,5 +130,7 @@ with their definitions changed to human ground truth. The recall claim has a cou
 recall, P = 99.2 %). The precision-from-filtering claim, the 1.5 to 2 times speedup and "both edge models
 outperformed the cloud" do not; the defensible statements are "within a point of the cloud on the same model
 class", "3 to 6 points better than the bare model on real audio", "runs disconnected", and "abstains rather than
-invents". Twenty-two calls with three references and thirty synthetic scripts in one voice is a pilot, and every
+invents". After 10-29 the local transcript on the second device's GPU is within a point of the same cloud model and
+the local report is within 1.5 points of the cloud stack with an interval through zero, at a fifth of real time; the
+speed claim still belongs to the hardware, not to the stack, and an 8B writer bought nothing measurable. Twenty-two calls with three references and thirty synthetic scripts in one voice is a pilot, and every
 number above should be read with that sample size in front of it.
