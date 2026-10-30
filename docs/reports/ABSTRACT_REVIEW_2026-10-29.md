@@ -26,8 +26,8 @@ moved.
 | "standard AI models and cloud baselines" | bare faster-whisper medium and large-v3-turbo; Groq whisper-large-v3-turbo, whisper-large-v3, openai/gpt-oss-120b | name them once |
 | "compact micro-computer" | NVIDIA Jetson Orin Nano, 8 GB; the GPU rows used a second Orin Nano Super | name the device |
 
-Two things the abstract does not say and could: the local report over the GPU transcripts is within 1.5
-points of the cloud stack with an interval through zero (95.3 / 94.2 against 96.8 / 95.1), and the plain
+Two things the abstract does not say and could: the local report over the large-v3 GPU transcripts is level with the cloud stack (96.6 / 95.3 against 96.8 / 95.1,
+-0.1 [-2.4, +2.0]), and the plain
 local large-v3 on the Jetson GPU equals the plain cloud large-v3 clip for clip, so the remaining cloud lead
 is in prompt handling, not the model.
 
@@ -59,8 +59,8 @@ GPU configuration equalled the cloud turbo model with the same additions at 21.7
 cut unsupported claims in 73 real-call reports from 98 to 32 and invented allergy and code-status entries
 from 50 and 23 to zero; turning them off on the same transcripts cost 5.4 to 5.8 weighted points
 [3.8, 7.5], raised fabricated facts from 0.2 to 0.7 per report and dropped alert-level agreement from
-100 % to 67 %. The local report score was within 1.5 points of the cloud pipeline (95.3 / 94.2 against
-96.8 / 95.1, interval through zero). An average real call (85 s of audio) was processed in 143 s with every
+100 % to 67 %. The local report score over the largest local model's transcripts was level with the cloud pipeline (96.6 / 95.3
+against 96.8 / 95.1, difference -0.1 [-2.4, +2.0]). An average real call (85 s of audio) was processed in 143 s with every
 outbound connection blocked, and in about 85 s with the transcript on the second device's GPU.
 
 **Conclusion.** An edge device can produce a grounded handoff report from radio audio with no network,

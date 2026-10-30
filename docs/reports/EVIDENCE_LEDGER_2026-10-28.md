@@ -59,7 +59,7 @@ unless marked cloud.
 | 10-29 | 4B report rows over the GPU medium transcripts, with and without the corrector (vox-ai GPU) | 59 + 59 of 60 (SY117 at 5 dB: malformed model JSON both times) | 52 min each | 95.3 / 94.2 both (the corrector touched 3 transcripts, no score); +1.6 [+0.1, +3.4] over the CPU stack row at clean; -1.5 [-3.9, +0.9] against the cloud stack; level with the cloud base system | reports/medium_gpu_fp16_hint_rd5d*__qwen3-4b-instruct |
 | 10-29 | Plain-decode GPU base rows (no hint, no re-decode, no corrector), medium and large-v3 fp16 on cohendynamics | 2 x 60 clips | 5 + 8 min | medium 7.5 / 8.3 % (stack -2.8 [-5.9, -0.9] at clean, -1.1 [-2.2, -0.1] at 5 dB); large-v3 4.5 / 6.3 % (stack -0.1 [-0.8, +0.6], -1.0 [-1.8, -0.2]); plain GPU large-v3 equals plain cloud large-v3 to the clip | evals/*_gpu_fp16_nohint |
 | 10-29 | Whisper hint ablation on the cohendynamics GPU: hint trimmed to fit the 223-token cut, and sentence + radio phrases only; medium and large-v3 fp16 | 4 x 60 clips | 27 min | trimmed = current (medium +0.0 [-0.4, +0.5]); short worse (medium +1.0 [+0.2, +1.8] at clean); the terminology list is the hint's value, the opening sentence is worth nothing | evals/*_gpu_fp16_hint{fit,short}_rd5d |
-| 10-29 | 4B report rows over the GPU large-v3 transcripts | running | | | |
+| 10-29 | 4B report rows over the GPU large-v3 transcripts, with and without the corrector (vox-ai GPU) | 60 + 60 | 52 min each | 96.6 / 95.3 both; against the cloud stack -0.1 [-2.4, +2.0] at clean, +0.2 [-2.4, +2.7] at 5 dB: level; +1.4 / +0.9 over the GPU medium stack | reports/large-v3_gpu_fp16_hint_rd5d*__qwen3-4b-instruct |
 
 Regression on every commit: 245 tests under `.venv/bin/python -m pytest` (2 min), including the pipeline on the four
 gold samples with a fake model, the re-decode and its loop guard, the rules switch, and the transcript checks.
@@ -102,7 +102,7 @@ generated set for the same model (large-v3) and zero on the real bursts for turb
 | four gold samples, weighted | 83.5 (baseline commit) | 91.3 | 98.0 on CS008 |
 | generated set, 60 reports, weighted clean / 5 dB | 88.0 / 88.3 (rules off, same transcripts, same device) | 93.7 to 95.7 / 93.7 to 94.1 | 96.8 / 95.1 (95.2 / 94.4 over the bare cloud transcript) |
 | hallucinations per report, generated set | 0.73 / 0.70 | 0.10 to 0.20 | 0.03 to 0.07 |
-| generated set, 60 reports over the GPU transcripts with the 10-29 decode (local writer) | | 95.3 / 94.2 (-1.5 [-3.9, +0.9] against the cloud stack at clean) | |
+| generated set, 60 reports over the GPU transcripts with the 10-29 decode (local writer) | | medium 95.3 / 94.2 (-1.5 [-3.9, +0.9] against the cloud stack at clean); large-v3 96.6 / 95.3 (-0.1 [-2.4, +2.0], +0.2 [-2.4, +2.7]: level with the cloud) | |
 | generated set, qwen3:8b writer over the CPU transcripts | | 96.2 / 94.2 bare, 95.6 / 94.8 stack (+0.2 to +1.2 over the 4B, intervals through zero) | |
 | time per report | 50 s | 50 s (8B: 171 s median) | 3 s |
 | repeatability | five replays of CS008 gave the identical report (10-25); a second run of 60 reports on the same device and input reproduced all 60 scores (10-28). The 11-clip difference between bare and stacked transcripts at clean is therefore caused by the transcripts' punctuation and case, to which the 4B writer is sensitive | | |
@@ -133,6 +133,6 @@ recall, P = 99.2 %). The precision-from-filtering claim, the 1.5 to 2 times spee
 outperformed the cloud" do not; the defensible statements are "within a point of the cloud on the same model
 class", "3 to 6 points better than the bare model on real audio", "runs disconnected", and "abstains rather than
 invents". After 10-29 the local transcript on the second device's GPU is within a point of the same cloud model and
-the local report is within 1.5 points of the cloud stack with an interval through zero, at a fifth of real time; the
+the local report over large-v3 GPU transcripts is level with the cloud stack (96.6 / 95.3 against 96.8 / 95.1, -0.1 [-2.4, +2.0]), at a fifth of real time; the
 speed claim still belongs to the hardware, not to the stack, and an 8B writer bought nothing measurable. Twenty-two calls with three references and thirty synthetic scripts in one voice is a pilot, and every
 number above should be read with that sample size in front of it.
