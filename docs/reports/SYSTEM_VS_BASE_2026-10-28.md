@@ -58,6 +58,7 @@ From SYNTH_V1_2026-10-27.md, one scorer over every row. Local = faster-whisper i
 | local medium, int8, greedy + gap re-decode with beam 5 on the span (10-29) | hint | 5.9 % | 7.0 % | 10.5 % | 13.5 % | 0.912 | 0.876 | 0.85x |
 | local large-v3-turbo, int8, greedy + re-decode, word-rate trigger, no lead-in (10-29) | hint | 9.1 % | 8.5 % | 18.0 % | 16.0 % | 0.893 | 0.847 | 0.85x |
 | local medium, int8, greedy + re-decode, word-rate trigger, 3 s lead-in (10-29) | hint | 5.3 % | 7.0 % | 10.0 % | 13.5 % | 0.914 | 0.876 | 0.85x |
+| local large-v3-turbo, int8, greedy + re-decode, word-rate trigger, 3 s lead-in (10-29) | hint | 6.7 % | 8.5 % | 11.5 % | 16.0 % | 0.907 | 0.847 | 0.83x |
 | local large-v3-turbo (the app default until today) | hint | 12.8 % | 10.8 % | 21.5 % | 16.0 % | 0.881 | 0.840 | 0.8x |
 | local large-v3-turbo | hint + gap re-decode, before the loop guard | 13.4 % | 10.8 % | 21.5 % | 16.0 % | 0.875 | 0.840 | 0.8x |
 | local large-v3-turbo | hint + gap re-decode, with the loop guard (shipped) | 12.6 % | 10.8 % | 21.5 % | 16.0 % | 0.881 | 0.840 | 0.8x |
@@ -126,8 +127,12 @@ nothing; the trim now lets the matched run start up to three words in. The two t
 the lead-in code both come back whole (118 and 120 words, correct endings), and the eval's miss came from the
 first pass returning a short segment with the rest of the clip left wordless, which the rules skipped as
 trailing silence; speech after the last worded segment (6 s or more at speech level) is now a gap like any
-other. `large-v3-turbo_hint_rd5c` (running, lead-in without these two) and the `_rd5d` rows for turbo and
-medium (queued, every fix) measure the result.
+other. `large-v3-turbo_hint_rd5c` (lead-in without these two) gives turbo 6.7 / 8.5 % at greedy speed (35 s against
+33 s per clip): every one of the five failing clips is rescued (SY055 44 to 11 %, SY074 46 to 9 %, SY078 40 to
+6 %, SY184 40 to 11 %; SY188 68 to 12 % at 5 dB), no clip is worse by more than two points, and the row sits
+half a point behind whole-clip beam 5 (6.2 / 8.1 %) because the seam still repeats a few words on SY055 and
+SY184 (124 and 129 words for 117). The `_rd5d` rows for turbo and medium (running, every fix) measure the
+seam trim and the trailing rule on top of that.
 
 \* The medium re-decode rows were run with the day's revised hint, which by itself moved the clean row from 4.8 to
 7.1 % (two clips collapsed the other way; SYNTH_V1_2026-10-27.md); against that same-hint run the re-decode is a
