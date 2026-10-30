@@ -66,10 +66,24 @@ From SYNTH_V1_2026-10-27.md, one scorer over every row. Local = faster-whisper i
 | local medium, float16 on the cohendynamics GPU, greedy + re-decode, every 10-29 fix + corrector (ours, local, GPU) | hint + corrector | 4.5 % | 7.1 % | 8.0 % | 12.0 % | 0.926 | 0.877 | 0.13x |
 | local large-v3, float16 on the cohendynamics GPU (container), greedy + re-decode, every 10-29 fix | hint | 4.6 % | 5.5 % | 9.0 % | 9.0 % | 0.925 | 0.902 | 0.20x (8.4 s per clip) |
 | local large-v3, float16 on the cohendynamics GPU, every 10-29 fix + corrector (ours, local, GPU, largest) | hint + corrector | 4.6 % | 5.5 % | 8.5 % | 8.5 % | 0.925 | 0.903 | 0.20x |
+| local medium, float16 on the cohendynamics GPU, plain decode (base: no hint, no re-decode, no corrector) | base (no prompt) | 7.5 % | 8.3 % | 13.0 % | 14.5 % | 0.892 | 0.856 | 0.12x (4.9 s per clip) |
+| local large-v3, float16 on the cohendynamics GPU, plain decode (base) | base (no prompt) | 4.5 % | 6.3 % | 7.5 % | 12.5 % | 0.924 | 0.881 | 0.20x (8.3 s per clip) |
 | local large-v3-turbo (the app default until today) | hint | 12.8 % | 10.8 % | 21.5 % | 16.0 % | 0.881 | 0.840 | 0.8x |
 | local large-v3-turbo | hint + gap re-decode, before the loop guard | 13.4 % | 10.8 % | 21.5 % | 16.0 % | 0.875 | 0.840 | 0.8x |
 | local large-v3-turbo | hint + gap re-decode, with the loop guard (shipped) | 12.6 % | 10.8 % | 21.5 % | 16.0 % | 0.881 | 0.840 | 0.8x |
 | local tiny.en | hint | 13.3 % | 33.3 % | 26.0 % | 42.5 % | 0.823 | 0.624 | 0.1x |
+
+GPU base rows (10-29, late): the GPU stack now has its own base, the same fp16 decode with no hint, no re-decode and
+no corrector. For medium the stack is worth -2.8 points of WER at clean [-5.9, -0.9] and -1.1 at 5 dB [-2.2, -0.1],
+and term recall rises from 86.2 to 88.8 % pooled over both rows (P(stack > base) = 0.857). For large-v3 the stack is
+worth nothing at clean (-0.1 [-0.8, +0.6]) and -1.0 at 5 dB [-1.8, -0.2], term recall 90.0 to 91.0 % (P = 0.683):
+the largest model needs the additions least, and what it gains it gains under noise. Two cross-device pairs: the
+plain fp16 large-v3 on the Jetson GPU equals the plain cloud whisper-large-v3 to the clip (+0.0 [-0.2, +0.3] at
+clean, -0.2 [-0.6, +0.1] at 5 dB, term recall identical at 92.5 and 87.5 %), so the cloud's remaining lead
+(3.9 / 4.9 against our 4.6 / 5.5 %) is in how the endpoint uses the prompt, not in the model or the hardware; and
+plain fp16 medium on the GPU is 1.4 points worse at clean than plain int8 medium on the CPU [-0.2, +4.2] and 0.6
+better at 5 dB [-2.3, +0.6], the fp16 and int8 decoders of one model being different decoders, as the real bursts
+also showed.
 
 Candidate rows added on 2026-10-29 (`HORSEPOWER_GOALS.md` lever C): distil-large-v3 with the hint is uniformly
 worse than medium (median clip WER 9.8 % at clean, no tail drops or loops) and only 15 % faster on the CPU
