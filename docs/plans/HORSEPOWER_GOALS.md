@@ -43,6 +43,14 @@ affordable by that GPU (accuracy), and a writer that is as grounded as the 120B 
 | F | writer size and grounding | cohendynamics GPU | 8B against 4B on the same 60 transcripts (running); then rules on/off on the 8B | done 10-29: 8B +0.2 to +1.2 weighted, every interval includes zero; 171 s median per report, 32 timeouts in 120 (6 GB model in a 7.5 GB box). Not a live writer; offline judge or teacher only. Rules on/off on the 8B dropped |
 | G | split the live pipeline | both boxes | whisper on one GPU, writer on the other; CS008 replay end to end, time to report | after A |
 
+Full-stack checkpoint, 10-29 night: GPU medium fp16 transcripts (lever A, every decode fix of lever B) through the
+4B writer score 95.3 / 94.2 weighted, +1.6 [+0.1, +3.4] over the CPU-transcript local stack at clean and -1.5
+[-3.9, +0.9] against the cloud stack, where the 10-28 local-against-cloud gap was -3.0 [-5.6, -0.6]. Transcript
+side: local large-v3 fp16 4.6 / 5.5 % against cloud large-v3's 3.9 / 4.9 %, at 0.20 times real time against the
+cloud's 0.07. Next levers in order: G (split pipeline, time to report on a real call), the writer rows over the
+large-v3 GPU transcripts, a plain-decode GPU base row, then the slot-state and dynamic-hint work in
+docs/plans/STATEFUL_PIPELINE.md; E (fine-tune) waits for CUDA torch in the container.
+
 Each row lands in the matrix report with its device named, its posterior against the row it replaces, and
 its per-clip rows kept under `~/datasets/synth_v1/evals/<label>/rows.tsv`.
 
