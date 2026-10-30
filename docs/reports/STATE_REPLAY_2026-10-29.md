@@ -71,3 +71,35 @@ missing {'STROKE: anticoagulant use (yes or no)': 6, 'TRAUMA: respiratory rate':
 | CS021 | 7 | ENDOCRINE | 2 | glucose | 0 (partial) | 0 | - | eta_minutes: 15 (burst 2) then 12 (burst 6); alert_type: ENDOCRINE (burst 2) then ENDOCRINE (burst 7) |
 | CS022 | 1 | STROKE | 1 | - | 0 (partial) | 0 | - | - |
 | CS023 | 3 | STROKE | 1 | - | 4 (partial) | 0 | anticoagulant use (yes or no) | - |
+
+## Cumulative replay with the real writer (10-30, 07:00 to 07:39)
+
+`scripts/corpus/state_replay.py` runs the incident manager exactly as the live app does: bursts at their real
+epochs, the 25 s offline quiet period, closing cues, one cumulative report per trigger, the 4B writer with the
+rules, then the state and the ask rule. 22 calls, 26 reports (most calls' bursts arrive inside the quiet window,
+so the writer ran once per call; CS014, CS016 and CS021 got two or three), 39 minutes on the vox-ai GPU.
+Output: `~/reports_state/<CS>.json` and `summary.md`.
+
+    calls 22, reports 26, flags 8, asks 5, missing items at close 35, conflicts 0
+
+- **Conflicts went to zero** on cumulative reports (ten over per-burst reports): the per-burst ETA and
+  alert-type changes were artefacts of scoring fragments alone, as the caveat above said.
+- **Flags held at eight**, the same calls as before (shock index on CS002, CS004, CS007, CS020; the three
+  trauma flags together on CS004; a respiratory rate on CS012; a glucose on CS021).
+- **The closing cue was heard on eight calls**; five produced an ask and three closed with nothing missing
+  (CS006, CS008, CS014). Checked against the saved transcripts:
+
+| call | ask | right? |
+|---|---|---|
+| CS002 | STROKE: LKW, glucose, deficit or scale, anticoagulants | wrong upstream: the call is shortness of breath (SpO2 85, wheezing, duoneb); the writer took "paramedic CVA on board" (a unit name misheard) as a stroke, so the stroke checklist applied to a respiratory call |
+| CS003 | STROKE: age, ETA, LKW, glucose, deficit or scale, anticoagulants | right that nothing is stated; the call is a tail fragment ("CVA, we'll see you on arrival") so there was nothing to ask about |
+| CS016 | TRAUMA: respiratory rate | right: HR 64, SpO2 100, BP 160/90, GCS 15 are stated, no respiratory rate |
+| CS019 | STROKE: deficit or stroke scale | right: "altered mentation, unable to follow commands, unsteady" but no scale or focal deficit; LKW (0900), glucose (123) and "no blood thinners" were stated and correctly not asked |
+| CS023 | STROKE: LKW, anticoagulants | right: found down by bystanders, LKW unknown and not stated as such, no anticoagulant status |
+
+  Four of five asks name items the crew did not state; the fifth is a wrong alert type, not a wrong rule. The
+  rule's precision therefore rides on the writer's alert type, which argues for showing the ask with the alert
+  type it assumed ("for STROKE:"), as it does, so the receiver can discard it in a glance.
+- **Missing at close, 35 items over 22 calls**: the stroke items again (anticoagulant status on 7 of 9 stroke
+  calls, LKW on 5, glucose on 4, a deficit or scale on 4), respiratory rate on 4 of 5 trauma calls, ETA on 6.
+- **No vital-sign crossings** (every call stated vitals once), as before.
