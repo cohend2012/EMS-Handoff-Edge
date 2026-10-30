@@ -308,8 +308,8 @@ class LocalTranscriber:
 
 
 class _Span:
-    redecoded = True     # a kept collapsed copy is the pass's own output too
     """A segment made here: a loop collapsed to one copy."""
+    redecoded = True     # a kept collapsed copy is the pass's own output too
     def __init__(self, start: float, end: float, text: str):
         self.start, self.end, self.text = start, end, text
 
