@@ -336,3 +336,46 @@ def test_local_transcriber_redecodes_a_window_that_loops_at_a_normal_word_rate()
     t.last_notes = []
     assert t.transcribe(audio) == "Priority 1, protocol. blurry vision, gray vision, LAMS zero"
     assert any("collapsed" in n for n in t.last_notes)
+
+
+def test_local_transcriber_treats_a_run_of_identical_segments_as_a_loop_and_caps_impossible_word_counts():
+    import dataclasses
+    import numpy as np
+    from ems_handoff.transcribe import LocalTranscriber, SAMPLE_RATE
+
+    class Seg:
+        def __init__(self, start, end, text):
+            self.start, self.end, self.text = start, end, text
+
+    span = {"text": "Shady Grove, this is Medic 715, 57-year-old male, stroke alert by protocol."}
+
+    class FakeModel:
+        def transcribe(self, audio, **kw):
+            if len(audio) > 50 * SAMPLE_RATE:      # fourteen 2 s segments of the same words, as medium fp16 gave on CS001 S044
+                return iter([Seg(2.0 * i, 2.0 * i + 2.0, "Priority 1, protocol.") for i in range(14)] + [Seg(30.0, 40.0, "blurry vision, gray vision, LAMS zero")]), None
+            return iter([Seg(0.0, 28.0, span["text"])]), None
+
+    rng = np.random.default_rng(0)
+    audio = (0.1 * rng.standard_normal(60 * SAMPLE_RATE)).astype(np.float32)
+    audio[40 * SAMPLE_RATE:] *= 0.01
+    t = LocalTranscriber(dataclasses.replace(load_settings(), local_whisper_redecode=True), model_size="tiny.en")
+    t._model = FakeModel()
+    assert t.transcribe(audio) == span["text"] + " blurry vision, gray vision, LAMS zero"
+    assert "0.0-28.0" in t.last_notes[0]
+    span["text"] = "Priority 1, protocol. " * 14                      # the span loops again: one copy is kept
+    t.last_notes = []
+    assert t.transcribe(audio) == "Priority 1, protocol. blurry vision, gray vision, LAMS zero"
+
+    # 42 words for a 3.7 s burst (large-v3 fp16, CS014 S055) is decoded again and replaced only by something shorter
+    class Short:
+        def __init__(self):
+            self.calls = 0
+        def transcribe(self, audio, **kw):
+            self.calls += 1
+            if self.calls == 1:
+                return iter([Seg(0.0, 3.7, " ".join(f"w{i}" for i in range(42)))]), None
+            return iter([Seg(0.0, 3.7, "How old? Seven.")]), None
+
+    t._model = Short()
+    short = (0.1 * rng.standard_normal(int(3.7 * SAMPLE_RATE))).astype(np.float32)
+    assert t.transcribe(short) == "How old? Seven." and t._model.calls == 2

@@ -188,6 +188,7 @@ class LocalTranscriber:
                                # skip the span's first 20 s (SY078: "lactate is 2.8" where "temp of 96.1 and blood
                                # glucose 231, GCS of 13, ..." was); with 3 s of lead-in it comes back whole
     SEAM_WORDS = 8             # words of the lead-in that may repeat the previous segment's tail and are trimmed
+    LOOP_RUN = 3               # this many consecutive segments with the same words are a loop, whatever their rate
 
     def _redecode_gaps(self, x: np.ndarray, segments: list, decode: dict) -> list:
         """Whisper's decoder now and then collapses a whole 30 s window to one word or nothing, and the
@@ -234,14 +235,33 @@ class LocalTranscriber:
                 elif rate > self.DENSE_WORDS_PER_SECOND:
                     gaps.append((s.start, s.end)); dense.add((s.start, s.end))
         # A loop inside a window that is not dense: "Priority 1, protocol." fourteen times for 30 s is 1.4 words a
-        # second (medium fp16 on the GPU, CS001 S044, 10-29). The repeat collapser sees it whatever the rate.
+        # second (medium fp16 on the GPU, CS001 S044, 10-29). The repeat collapser sees it whatever the rate. The
+        # loop came as fourteen 2 s segments of the same three words, so runs of consecutive segments with the same
+        # words are one span too, and the span is replaced by one copy if its re-decode fails.
         from .transcript_checks import collapse_repeats   # here, not at the top: transcript_checks imports this module
         looped = {}
+        def key(t: str) -> str:
+            return " ".join("".join(c for c in w.lower() if c.isalnum()) for w in t.split())
+        i = 0
+        while i < len(worded):
+            j = i
+            while j + 1 < len(worded) and key(worded[j + 1].text) == key(worded[i].text) and key(worded[i].text):
+                j += 1
+            if j - i + 1 >= self.LOOP_RUN:
+                a, b = worded[i].start, worded[j].end
+                gaps.append((a, b)); dense.add((a, b)); looped[(a, b)] = worded[i].text.strip()
+            i = j + 1
         for s in worded:
             if (s.end - s.start) >= self.GAP_SECONDS and (s.start, s.end) not in dense:
                 collapsed, note = collapse_repeats(s.text)
                 if note:
                     gaps.append((s.start, s.end)); dense.add((s.start, s.end)); looped[(s.start, s.end)] = collapsed
+        # More words than anyone says in the clip's whole length (large-v3 fp16 gave 42 words for a 3.7 s burst,
+        # CS014 S055): the whole clip is decoded again and replaced only by something plausible.
+        total_words = sum(len(s.text.split()) for s in worded)
+        if total_words > self.MAX_WORDS_PER_SECOND * max(len(x) / SAMPLE_RATE, 1.0) and (0.0, len(x) / SAMPLE_RATE) not in dense:
+            a, b = 0.0, len(x) / SAMPLE_RATE
+            gaps = [(a, b)]; dense = {(a, b)}; looped = {}
         if not gaps:
             return segments
         out = list(segments)
@@ -259,9 +279,8 @@ class LocalTranscriber:
             _collapsed, loop_note = collapse_repeats(" ".join(s.text.strip() for s in redone))
             def keep_collapsed():
                 if (a, b) in looped:
-                    for s in out:
-                        if s.start == a and s.end == b:
-                            s.text = looped[(a, b)]
+                    out[:] = [s for s in out if not (a <= s.start and s.end <= b)]
+                    out.append(_Span(a, b, looped[(a, b)]))
                     self.last_notes.append(f"{a:.1f}-{b:.1f} s kept with its repeats collapsed")
             if loop_note or words > self.MAX_WORDS_PER_SECOND * max(b - a, 1.0):
                 keep_collapsed()
@@ -282,6 +301,12 @@ class LocalTranscriber:
             out = [s for s in out if not (a <= s.start and s.end <= b)]
             out.extend(redone)
         return sorted(out, key=lambda s: s.start)
+
+
+class _Span:
+    """A segment made here: a loop collapsed to one copy."""
+    def __init__(self, start: float, end: float, text: str):
+        self.start, self.end, self.text = start, end, text
 
 
 class _Shifted:
