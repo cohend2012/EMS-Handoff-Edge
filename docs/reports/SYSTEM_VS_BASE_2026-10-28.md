@@ -338,6 +338,8 @@ are compared at the one-point level only within one device.
 | **held-out check**: cloud turbo + hint + corrector on the 30 VALIDATION scripts (10-30) | cloud gpt-oss-120b, Groq | rules on (ours, cloud) | 60 | 95.8 | 93.8 | 95.0 / 92.8 % | 96.6 / 94.5 % | 0.10 / 0.23 | 100 % | 100 % | 88 / 81 % | 3 |
 | GPU large-v3 fp16, our stack (10-30) | local qwen3:4b-instruct, vox-ai GPU | rules on, FACTS-ONLY writer (HANDOFF_FACTS_ONLY=1: no summary, data-quality or preparation sections in the model's output; the pipeline composes them) | 60 | 95.3 | 94.4 | 95.3 / 93.9 % | 96.3 / 95.9 % | 0.20 / 0.20 | 90 % | 100 % | 83 / 87 % | 28 |
 | **third split**: GPU large-v3 fp16, our stack, on 30 TRAINING scripts never scored before (10-30) | local qwen3:4b-instruct, vox-ai GPU | rules on, lexicon on; 59 of 60 | 59 | 95.3 | 96.2 | 94.7 / 95.9 % | 97.3 / 97.7 % | 0.07 / 0.13 | 93 % | 100 % | 100 / 96 % | 51 |
+| GPU large-v3 fp16, our stack, corrector v2 (NKDA rule), test split (10-30 14:20): the consistency rerun of the headline | local qwen3:4b-instruct, vox-ai GPU | rules on, lexicon on | 60 | 96.9 | 95.6 | 96.8 / 95.1 % | 97.2 / 97.1 % | 0.17 / 0.17 | 90 % | 100 % | 83 / 87 % | 51 |
+| GPU large-v3 fp16, our stack, corrector v2, FACTS-ONLY writer + intervention emphasis (10-30) | local qwen3:4b-instruct, vox-ai GPU | rules on; 438 output tokens, 29.0 s | 60 | 95.9 | 94.5 | 95.4 / 94.0 % | 95.9 / 95.6 % | 0.20 / 0.27 | 90 % | 100 % | 83 / 87 % | 29 |
 
 The GPU local stack row (10-29): the first full local system number with the day's decode fixes and the GPU transcripts (medium fp16 on cohendynamics, hint, span re-decode, corrector, then the 4B writer with rules on vox-ai) is 95.3 weighted at clean and 94.2 at 5 dB. Paired against the CPU local stack on the same clips it is +1.6 points at clean [+0.1, +3.4] and +0.6 at 5 dB [-0.3, +1.7]; against the cloud stack's 96.8 / 95.1 it is -1.5 at clean [-3.9, +0.9] and -1.1 at 5 dB [-3.9, +1.6] (30 and 28 pairs). So the GPU transcripts close the local-against-cloud gap of section 5 (which was -3.0 [-5.6, -0.6] at clean) to a difference whose interval now includes zero. The same transcripts without the corrector give the identical row: the corrector changed three of the sixty GPU transcripts (SY028 at 5 dB, SY079 clean, and SY117 at 5 dB, the clip whose report failed either way) and none of the changes moved a report score, so on this set the corrector's value is in the transcript metric (4.6 to 4.5 % WER), not in the report. Against the CPU base writer row (95.7 / 93.9, medium without a hint) the GPU hint + re-decode row is -0.4 [-1.8, +1.4] at clean and +0.3 [-0.8, +1.4] at 5 dB, and against the cloud base row (95.2 / 94.2) +0.1 [-2.3, +2.6] and -0.0 [-2.2, +2.2]: the local writer over GPU transcripts is level with the cloud base system. There is no GPU row with a plain base decode (no hint, no re-decode) yet. The rows over the large-v3 GPU transcripts are running.
 
@@ -435,6 +437,14 @@ transcripts themselves move from 3.7 / 4.6 to 3.5 / 4.4 % WER on the 30 training
 of 12 scripts across all three splits, so every `_corr` label and writer row above was made with the corrector before this
 rule; a consistency rerun of the test-split headline under the new corrector is owed before its number is quoted beside
 these.
+
+Corrector v2 and the headline (10-30, 14:20): the test-split transcripts under the new corrector (the NKDA rule touched 2 of
+the 60) through the same writer score 96.9 / 95.6 against 96.6 / 95.3, paired +0.2 [+0.0, +0.7] and +0.3 [+0.0, +0.8]. The
+headline under the shipped corrector is therefore 96.9 / 95.6 against the cloud stack's 96.8 / 95.1 on the test split, and
+every statement made at 96.6 / 95.3 holds. The facts-only writer with the intervention emphasis scores 95.9 / 94.5 at 29.0 s
+and 438 output tokens: -1.0 [-2.1, -0.1] and -1.1 [-2.3, +0.0] against the full writer, +0.6 [-0.1, +1.5] and +0.0 against the
+facts-only writer without the emphasis. The emphasis recovers a little at clean and nothing at 5 dB; the half-time writer
+still costs about a point, so it stays unshipped and the open-call / closing-cue hybrid is the remaining option.
 
 The 8B rows (10-29): the 8B against the 4B on the same transcripts, paired over the reports the 8B finished, is +0.2
 weighted points at clean [-1.0, +1.5] and +0.3 at 5 dB [-1.3, +2.0] over the base transcripts (27 and 29 reports),

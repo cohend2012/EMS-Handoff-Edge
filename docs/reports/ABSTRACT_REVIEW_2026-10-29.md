@@ -202,3 +202,7 @@ Methods: We built an offline pipeline on 8 GB NVIDIA Jetson devices: faster-whis
 Results: Local word error rate was 4.6%/5.5% (clean/5 dB) on a second device's GPU versus 3.9%/4.9% for the best cloud model; held-out 4.1%/5.7% versus cloud turbo 5.2%/6.5%. Term recall rose from 87.1% to 90.5% (P=0.99). On real calls, rules reduced unsupported statements from 98 to 32 (73 reports) and invented allergy and code-status entries from 50 and 23 to zero; disabling them cost 5.4 to 5.8 points [3.8, 7.5]. Local report score was 96.6/95.3 versus cloud 96.8/95.1 (-0.1 [-2.4, +2.0]); held-out 94.6/93.6 versus 95.8/93.8 (-1.3 [-3.6, +1.2]). An average call (85 s) took 143 s offline, 70 to 75 s with the GPU. Human-verified real-call transcripts are pending.
 
 Conclusions: An offline edge device produced handoff reports within about one point of a cloud pipeline on a generated benchmark, with fabrication-prone fields protected by rules. Pilot limits: one synthetic voice, real-call accuracy awaiting verified references.
+
+### Note, 10-30 14:25
+
+The test-split headline rerun under the corrector shipped today (the spelled-NKDA rule) is 96.9 / 95.6, paired +0.2 [+0.0, +0.7] and +0.3 [+0.0, +0.8] over the 96.6 / 95.3 in the 300-word text sent to Lois. Either number is defensible; if the text is revised again, 96.9 / 95.6 is the current one and the cloud comparison becomes +0.1 at clean.
