@@ -564,5 +564,5 @@ def test_facts_only_parse_accepts_a_reply_without_the_prose_sections(monkeypatch
         parse_report(reply)                       # the full schema still requires handoff_summary
     monkeypatch.setenv("HANDOFF_FACTS_ONLY", "1")
     r = parse_report(reply)
-    assert r["handoff_summary"]["one_liner"] is None and r["data_quality"]["confidence"] == "LOW"   # blanks, filled later by render_prose
+    assert r["handoff_summary"]["one_liner"] is None and r["data_quality"]["confidence"] == "MEDIUM"   # blanks (MEDIUM when the model said nothing); render_prose fills them
     assert r["hospital_recommendations"]["activation_requested"] == "Cath lab"
