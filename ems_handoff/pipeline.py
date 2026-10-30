@@ -474,7 +474,7 @@ def clean_sources(value: Any) -> Dict[str, int]:
     return out
 
 
-def parse_report(text: str) -> Dict[str, Any]:
+def parse_report(text: str, facts_only: Optional[bool] = None) -> Dict[str, Any]:
     """Parse and validate the LLM's JSON. Null or missing parts take their empty shape, so a
     sparse reply to a short transcript is still a complete report."""
     try:
@@ -484,7 +484,8 @@ def parse_report(text: str) -> Dict[str, Any]:
     if not isinstance(data, dict):
         raise PipelineError("The AI returned JSON that is not an object.")
     data = scrub_placeholders(data)
-    required = REQUIRED_FIELDS - ({"handoff_summary"} if facts_only() else set())   # facts-only: the pipeline composes it
+    fo = facts_only_flag() if facts_only is None else bool(facts_only)
+    required = REQUIRED_FIELDS - ({"handoff_summary"} if fo else set())   # facts-only: the pipeline composes it
     missing = sorted(required - data.keys())
     if missing:
         raise PipelineError(f"The AI left out required fields: {', '.join(missing)}.")
@@ -563,10 +564,24 @@ def compact_output() -> bool:
     return os.environ.get("HANDOFF_COMPACT_OUTPUT", "0").strip().lower() in ("1", "true", "yes", "on")
 
 
-def facts_only() -> bool:
+def facts_only_flag() -> bool:
     """HANDOFF_FACTS_ONLY=1: the writer produces the clinical facts only and render_prose() composes the summary,
     the missing-information list and the preparation lists from them (the prose was 61 % of the output tokens)."""
     return os.environ.get("HANDOFF_FACTS_ONLY", "0").strip().lower() in ("1", "true", "yes", "on")
+
+
+facts_only = facts_only_flag   # the old name, kept for callers
+
+
+def writer_mode_for(mode: str, closing: bool) -> Optional[bool]:
+    """The hybrid writer: facts-only (28 s) for every report while the call is open, the full writer (52 s) once the
+    closing cue or the operator ends it, so the receiver sees fast updates and a complete final handoff. Returns the
+    facts_only argument for ReportPipeline.run: None means follow HANDOFF_FACTS_ONLY."""
+    if mode == "facts":
+        return True
+    if mode == "hybrid":
+        return not closing
+    return None
 
 
 _PREP = {  # what a receiving facility readies for each alert type, when the crew asked for nothing more specific
@@ -649,8 +664,12 @@ class ReportPipeline:
         self.last_reference = ""      # textbook excerpts ("" when no store / nothing found)
 
     def run(self, transcript: str, source: str = "text",
-            timings: Optional[Dict[str, float]] = None) -> Dict[str, Any]:
+            timings: Optional[Dict[str, float]] = None, facts_only: Optional[bool] = None) -> Dict[str, Any]:
+        """`facts_only` overrides HANDOFF_FACTS_ONLY for this call: the hybrid writer mode asks for the facts-only writer
+        while a call is open and the full writer at its closing cue (writer_mode_for)."""
         timings = dict(timings or {})
+        fo = facts_only_flag() if facts_only is None else bool(facts_only)
+        timings["writer"] = "facts-only" if fo else "full"
         raw = (transcript or "").strip()
         text = strip_phrase(raw, self.stop_phrase) if self.stop_phrase else raw
         if len(text) > MAX_REPORT_CHARS:
@@ -672,7 +691,7 @@ class ReportPipeline:
         if suspects:
             context = f"{context}\n{suspects}" if context else suspects
         self.last_context, self.last_reference = context, ""
-        prompt = extraction_prompt(self.attribution, compact=compact_output(), facts_only=facts_only()).format(ems_report=fix.text, lexicon_context=context)
+        prompt = extraction_prompt(self.attribution, compact=compact_output(), facts_only=fo).format(ems_report=fix.text, lexicon_context=context)
 
         # 3. extract
         t0 = time.perf_counter()
@@ -685,12 +704,12 @@ class ReportPipeline:
             reply = self.llm.complete_json(prompt, temperature=0.0)
         except LLMError as e:
             raise PipelineError(str(e)) from e
-        report = parse_report(reply)
+        report = parse_report(reply, facts_only=fo)
         timings["extract_s"] = round(time.perf_counter() - t0, 3)
         usage = getattr(self.llm, "last_usage", None)
         if usage:
             timings.update(usage)      # tokens_in, tokens_out, tok_s: says where a slow model spent its time
-        if facts_only():
+        if fo:
             render_prose(report)
         report["data_quality"]["assumptions"].extend(assumption_notes(fix))
         if self.rules:

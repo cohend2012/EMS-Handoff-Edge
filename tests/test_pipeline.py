@@ -589,3 +589,16 @@ def test_facts_only_guidance_insists_on_every_intervention():
     f = extraction_prompt(facts_only=True)
     assert "ems_interventions must list every intervention" in f
     assert "ems_interventions must list every intervention" not in extraction_prompt()
+
+
+def test_writer_mode_for_the_hybrid_and_the_run_override(monkeypatch):
+    from ems_handoff.pipeline import writer_mode_for, parse_report, PipelineError
+    assert writer_mode_for("full", False) is None and writer_mode_for("full", True) is None
+    assert writer_mode_for("facts", False) is True and writer_mode_for("facts", True) is True
+    assert writer_mode_for("hybrid", False) is True and writer_mode_for("hybrid", True) is False
+    reply = json.dumps({"alert_type": "STEMI", "alert_level": "RED", "patient": {}, "chief_complaint": "chest pain", "vital_signs": {},
+                        "assessment_findings": {}, "history": {}})
+    monkeypatch.delenv("HANDOFF_FACTS_ONLY", raising=False)
+    with pytest.raises(PipelineError):
+        parse_report(reply)                             # the environment says full: handoff_summary required
+    assert parse_report(reply, facts_only=True)["alert_type"] == "STEMI"   # the per-call override wins

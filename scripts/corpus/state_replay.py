@@ -106,8 +106,11 @@ def main(argv=None) -> int:
     pipeline = ReportPipeline(llm, stop_phrase="", lexicon_store=engines.lexicon_store, textbook_rag=engines.textbook_rag,
                               on_stage=lambda m: None, attribution=True)
 
+    from ems_handoff.pipeline import writer_mode_for
+
     def extract(text: str, meta: dict) -> dict:
-        return pipeline.run(text, source=f"state_replay:{meta.get('session')}", timings={})
+        return pipeline.run(text, source=f"state_replay:{meta.get('session')}", timings={},
+                            facts_only=writer_mode_for(settings.writer_mode, bool(meta.get("closing"))))
 
     args.out.mkdir(parents=True, exist_ok=True)
     dirs = sorted(d for d in args.callsets_dir.glob("CS*") if d.is_dir() and (d / "callset_info.json").exists())

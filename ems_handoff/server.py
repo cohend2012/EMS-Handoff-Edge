@@ -695,7 +695,9 @@ class ReplayRun(ReplayHost):
     def _extract(self, text: str, meta: dict) -> dict:
         source = f"replay:{self.callset.id}"
         try:
-            report = self._pipeline(self.llm).run(text, source=source, timings={})
+            from .pipeline import writer_mode_for
+            report = self._pipeline(self.llm).run(text, source=source, timings={},
+                                                  facts_only=writer_mode_for(getattr(self.ctl.settings, "writer_mode", "full"), bool(meta.get("closing"))))
             report["_meta"]["transcription"] = list(self.transcriptions)
             return report
         except PipelineError as e:

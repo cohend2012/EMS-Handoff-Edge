@@ -510,7 +510,7 @@ class IncidentManager:
             bursts = list(session.bursts[:session.queued_through])
             covers = len(bursts)
             transcript = session_transcript(bursts)
-            meta = {"session": session.id, "bursts": covers, "of": len(session.bursts)}
+            meta = {"session": session.id, "bursts": covers, "of": len(session.bursts), "closing": bool(session.closing)}
         try:
             report = self._extract(transcript, meta)
             verify_attribution(report, bursts)
