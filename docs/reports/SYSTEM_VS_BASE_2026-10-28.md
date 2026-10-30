@@ -63,6 +63,8 @@ From SYNTH_V1_2026-10-27.md, one scorer over every row. Local = faster-whisper i
 | local medium, float16 on the cohendynamics GPU (container), greedy + re-decode, every 10-29 fix | hint | 4.6 % | 7.3 % | 9.0 % | 13.5 % | 0.925 | 0.876 | 0.13x (5.3 s per clip) |
 | local large-v3-turbo, float16 on the cohendynamics GPU (container), greedy + re-decode, every 10-29 fix | hint | 6.8 % | 8.5 % | 11.5 % | 16.0 % | 0.897 | 0.855 | 0.10x (4.1 s per clip) |
 | local medium, float16 on the cohendynamics GPU, greedy + re-decode, every 10-29 fix + corrector (ours, local, GPU) | hint + corrector | 4.5 % | 7.1 % | 8.0 % | 12.0 % | 0.926 | 0.877 | 0.13x |
+| local large-v3, float16 on the cohendynamics GPU (container), greedy + re-decode, every 10-29 fix | hint | 4.6 % | 5.5 % | 9.0 % | 9.0 % | 0.925 | 0.902 | 0.20x (8.4 s per clip) |
+| local large-v3, float16 on the cohendynamics GPU, every 10-29 fix + corrector (ours, local, GPU, largest) | hint + corrector | 4.6 % | 5.5 % | 8.5 % | 8.5 % | 0.925 | 0.903 | 0.20x |
 | local large-v3-turbo (the app default until today) | hint | 12.8 % | 10.8 % | 21.5 % | 16.0 % | 0.881 | 0.840 | 0.8x |
 | local large-v3-turbo | hint + gap re-decode, before the loop guard | 13.4 % | 10.8 % | 21.5 % | 16.0 % | 0.875 | 0.840 | 0.8x |
 | local large-v3-turbo | hint + gap re-decode, with the loop guard (shipped) | 12.6 % | 10.8 % | 21.5 % | 16.0 % | 0.881 | 0.840 | 0.8x |
@@ -147,8 +149,12 @@ the lead-in row) and 6.6 times faster than the CPU. Against the cloud: cloud tur
 and cloud large-v3 with our stack 3.9 / 4.9 %, so the local GPU medium is within half a point at clean and a
 point at 5 dB before the corrector, at 5 s a burst against the cloud's 2 to 3. With the corrector (the full local
 transcript stack, `medium_gpu_fp16_hint_rd5d_corr`) it is 4.5 / 7.1 %: 0.3 behind cloud turbo with our stack at
-clean and 0.7 behind at 5 dB, on 30 clips a side. large-v3 in float16 on the GPU (lever D) is running, and the
-writer rows over these transcripts are queued on the vox-ai GPU.
+clean and 0.7 behind at 5 dB, on 30 clips a side. large-v3 in float16 on the GPU (lever D, `large-v3_gpu_fp16_hint_rd5d`, 3.1 GB of weights, 1.5 GB free
+beside it): 4.6 / 5.5 % at 8.4 s per clip, the same as medium at clean (11 clips better, 12 worse, 7 tied) and
+1.8 points better at 5 dB (15 better, 5 worse, 10 tied; SY071 20 to 0 %, SY117 14 to 4 %), with half medium's
+dropped tail. With the corrector it is 4.6 / 5.5 %, against cloud large-v3 with our stack at 3.9 / 4.9 %: the
+largest local transcriber is now within a point of the largest cloud one on both rows, at 8 s a burst. The writer
+rows over the GPU medium and GPU large-v3 transcripts are queued on the vox-ai GPU.
 
 \* The medium re-decode rows were run with the day's revised hint, which by itself moved the clean row from 4.8 to
 7.1 % (two clips collapsed the other way; SYNTH_V1_2026-10-27.md); against that same-hint run the re-decode is a
