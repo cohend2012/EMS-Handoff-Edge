@@ -310,6 +310,7 @@ are compared at the one-point level only within one device.
 | GPU medium fp16, hint + re-decode, no corrector (10-29, cohendynamics GPU transcripts) | local qwen3:4b-instruct, vox-ai GPU | rules on; 59 of 60, same SY117 failure | 59 | 95.3 | 94.2 | 94.6 / 94.2 % | 97.1 / 95.4 % | 0.10 / 0.24 | 90 % | 100 % | 83 / 82 % | 51 |
 | GPU large-v3 fp16, our stack (10-29, every decode fix + corrector, cohendynamics GPU transcripts; the best local system) | local qwen3:4b-instruct, vox-ai GPU | rules on (ours, local, GPU whisper, largest model) | 60 | 96.6 | 95.3 | 96.6 / 94.9 % | 97.1 / 96.9 % | 0.17 / 0.20 | 90 % | 100 % | 83 / 87 % | 53 |
 | GPU large-v3 fp16, hint + re-decode, no corrector (10-29) | local qwen3:4b-instruct, vox-ai GPU | rules on; identical to the corrector row | 60 | 96.6 | 95.3 | 96.6 / 94.9 % | 97.1 / 96.9 % | 0.17 / 0.20 | 90 % | 100 % | 83 / 87 % | 52 |
+| GPU medium fp16, plain decode (base: no hint, no re-decode, no corrector; 10-29 night) | local qwen3:4b-instruct, vox-ai GPU | rules on (base transcripts, GPU) | 60 | 94.1 | 94.1 | 93.3 / 93.1 % | 96.2 / 96.2 % | 0.13 / 0.13 | 90 % | 100 % | 78 / 74 % | 52 |
 
 The GPU local stack row (10-29): the first full local system number with the day's decode fixes and the GPU transcripts (medium fp16 on cohendynamics, hint, span re-decode, corrector, then the 4B writer with rules on vox-ai) is 95.3 weighted at clean and 94.2 at 5 dB. Paired against the CPU local stack on the same clips it is +1.6 points at clean [+0.1, +3.4] and +0.6 at 5 dB [-0.3, +1.7]; against the cloud stack's 96.8 / 95.1 it is -1.5 at clean [-3.9, +0.9] and -1.1 at 5 dB [-3.9, +1.6] (30 and 28 pairs). So the GPU transcripts close the local-against-cloud gap of section 5 (which was -3.0 [-5.6, -0.6] at clean) to a difference whose interval now includes zero. The same transcripts without the corrector give the identical row: the corrector changed three of the sixty GPU transcripts (SY028 at 5 dB, SY079 clean, and SY117 at 5 dB, the clip whose report failed either way) and none of the changes moved a report score, so on this set the corrector's value is in the transcript metric (4.6 to 4.5 % WER), not in the report. Against the CPU base writer row (95.7 / 93.9, medium without a hint) the GPU hint + re-decode row is -0.4 [-1.8, +1.4] at clean and +0.3 [-0.8, +1.4] at 5 dB, and against the cloud base row (95.2 / 94.2) +0.1 [-2.3, +2.6] and -0.0 [-2.2, +2.2]: the local writer over GPU transcripts is level with the cloud base system. There is no GPU row with a plain base decode (no hint, no re-decode) yet. The rows over the large-v3 GPU transcripts are running.
 
@@ -320,6 +321,11 @@ The large-v3 GPU rows (10-29, night): the full local system with the largest mod
 +1.4 [-0.2, +3.0] and +0.9 [-0.3, +2.3]; the corrector again changed no report score. Precision is a point under the
 cloud's (96.8 against 98.3 % at clean, P(local > cloud) = 0.10) and recall a point over (96.1 against 95.7 %), so the
 remaining difference is in what the 4B states beyond the transcript, which is the slot-state writer's job.
+
+The GPU base writer row (10-30, 00:20): the 4B writer over the plain-decode GPU medium transcripts scores 94.1 / 94.1,
+so on the GPU our transcript stack is worth +1.2 weighted points at clean [-0.7, +3.5] and +0.1 at 5 dB [-1.4, +1.7] at
+the report stage, intervals through zero, the same shape as the cloud's +1.5 / +0.5 (section 5): the stack's value shows
+in WER and term recall (2.8 / 1.1 points, section 2) more than in the report score. The large-v3 base writer row is running.
 
 The 8B rows (10-29): the 8B against the 4B on the same transcripts, paired over the reports the 8B finished, is +0.2
 weighted points at clean [-1.0, +1.5] and +0.3 at 5 dB [-1.3, +2.0] over the base transcripts (27 and 29 reports),
