@@ -44,7 +44,7 @@ def load_env_files() -> None:
     load_dotenv(PROJECT_ROOT / ".env")
 
 PROVIDERS = ("groq", "ollama", "openrouter")
-TRANSCRIBERS = ("auto", "groq", "local")
+TRANSCRIBERS = ("auto", "groq", "local", "remote")
 CAPTION_ENGINES = ("auto", "vosk", "whisper", "off")
 
 
@@ -87,7 +87,8 @@ class Settings:
     llm_timeout_s: float = 180.0                 # per request; local models are slow
 
     # --- final transcript (runs once, after DONE) -------------------------
-    transcriber: str = "auto"                    # auto | groq | local
+    transcriber: str = "auto"                    # auto | groq | local | remote (whisper on another box, HANDOFF_WHISPER_URL)
+    remote_whisper_url: str = ""                 # e.g. http://100.77.24.78:8765 : scripts/whisper_server.py on the GPU Jetson
     groq_whisper_model: str = "whisper-large-v3-turbo"
     local_whisper_model: str = "medium"                # large-v3-turbo until 2026-10-28: 12.8 % WER at clean on the generated set against medium's 4.8 % at the same speed (SYSTEM_VS_BASE_2026-10-28.md)
     local_whisper_device: str = "cpu"            # cpu | cuda
@@ -158,8 +159,8 @@ class Settings:
                 "openrouter": self.openrouter_model}[p]
 
     def effective_transcriber(self) -> str:
-        """'groq' or 'local'. 'auto' uses Groq when a Groq key exists."""
-        if self.transcriber in ("groq", "local"):
+        """'groq', 'local' or 'remote'. 'auto' uses Groq when a Groq key exists."""
+        if self.transcriber in ("groq", "local", "remote"):
             return self.transcriber
         return "groq" if self.groq_api_key else "local"
 
@@ -196,6 +197,7 @@ def load_settings(env: Optional[Mapping[str, str]] = None) -> Settings:
         openrouter_model=g("OPENROUTER_MODEL") or defaults.openrouter_model,
         llm_timeout_s=_float(g("HANDOFF_LLM_TIMEOUT_S"), defaults.llm_timeout_s),
         transcriber=_choice(g("HANDOFF_TRANSCRIBER"), TRANSCRIBERS, defaults.transcriber),
+        remote_whisper_url=(g("HANDOFF_WHISPER_URL") or defaults.remote_whisper_url).strip().rstrip("/"),
         groq_whisper_model=g("GROQ_WHISPER_MODEL") or defaults.groq_whisper_model,
         local_whisper_model=g("LOCAL_WHISPER_MODEL") or defaults.local_whisper_model,
         local_whisper_device=g("LOCAL_WHISPER_DEVICE") or defaults.local_whisper_device,

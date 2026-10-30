@@ -336,7 +336,64 @@ def _trim_seam(before: str, text: str, max_words: int, skip: int = 3) -> str:
     return text
 
 
+class RemoteTranscriber:
+    """The app's local decode running on another box (scripts/whisper_server.py, e.g. the GPU Jetson).
+
+    Posts the burst as WAV to <url>/transcribe and gets {"text", "seconds", "notes"} back. The hint, the span
+    re-decode and the model choice live on the server, so the transcript is the same as LocalTranscriber's
+    there; this side only moves audio. The split pipeline: whisper on one Jetson's GPU, the writer on the other.
+    """
+    name = "remote"
+
+    def __init__(self, settings: Settings, url: Optional[str] = None, timeout_s: float = 120.0):
+        self.settings = settings
+        self.url = (url or getattr(settings, "remote_whisper_url", "") or "").rstrip("/")
+        if not self.url:
+            raise TranscriptionError("Remote transcription needs HANDOFF_WHISPER_URL (the whisper server's address).")
+        self.timeout_s = timeout_s
+        self.hint = ""                      # the server applies its own hint
+        self.last_notes: List[str] = []
+        self.server_info: dict = {}
+
+    def describe(self) -> str:
+        m = self.server_info.get("model") or "?"
+        d = self.server_info.get("device") or "?"
+        return f"remote whisper {m} ({d}) at {self.url}"
+
+    def warm_up(self) -> None:
+        import json as _json
+        import urllib.request
+        try:
+            with urllib.request.urlopen(f"{self.url}/health", timeout=10) as r:
+                self.server_info = _json.loads(r.read().decode("utf-8"))
+        except Exception as e:  # noqa: BLE001 - the app still starts; the first burst reports the error
+            logger.warning("Remote whisper at %s not reachable: %s", self.url, e)
+
+    def transcribe(self, audio: np.ndarray) -> str:
+        import json as _json
+        import urllib.request
+        if audio is None or len(audio) < SAMPLE_RATE // 2:
+            raise TranscriptionError("The recording is too short (under half a second).")
+        t0 = time.perf_counter()
+        req = urllib.request.Request(f"{self.url}/transcribe", data=to_wav_bytes(audio),
+                                     headers={"Content-Type": "audio/wav"}, method="POST")
+        try:
+            with urllib.request.urlopen(req, timeout=self.timeout_s) as r:
+                body = _json.loads(r.read().decode("utf-8"))
+        except Exception as e:  # noqa: BLE001
+            raise TranscriptionError(f"Remote transcription failed ({self.url}): {type(e).__name__}: {e}") from e
+        if body.get("error"):
+            raise TranscriptionError(f"Remote transcription failed: {body['error']}")
+        self.last_notes = list(body.get("notes") or [])
+        logger.info("Remote transcription: %.1fs of audio in %.2fs (server %.2fs)", len(audio) / SAMPLE_RATE,
+                    time.perf_counter() - t0, float(body.get("seconds") or 0.0))
+        return (body.get("text") or "").strip()
+
+
 def make_transcriber(settings: Settings):
-    if settings.effective_transcriber() == "groq":
+    kind = settings.effective_transcriber()
+    if kind == "groq":
         return GroqTranscriber(settings)
+    if kind == "remote":
+        return RemoteTranscriber(settings)
     return LocalTranscriber(settings)
