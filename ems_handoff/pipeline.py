@@ -529,6 +529,68 @@ def compact_output() -> bool:
     return os.environ.get("HANDOFF_COMPACT_OUTPUT", "0").strip().lower() in ("1", "true", "yes", "on")
 
 
+def facts_only() -> bool:
+    """HANDOFF_FACTS_ONLY=1: the writer produces the clinical facts only and render_prose() composes the summary,
+    the missing-information list and the preparation lists from them (the prose was 61 % of the output tokens)."""
+    return os.environ.get("HANDOFF_FACTS_ONLY", "0").strip().lower() in ("1", "true", "yes", "on")
+
+
+_PREP = {  # what a receiving facility readies for each alert type, when the crew asked for nothing more specific
+    "STEMI": (["Cath team", "12-lead on arrival"], ["Activate cath lab"]),
+    "STROKE": (["Stroke team", "CT scanner"], ["Stroke alert", "Confirm last known well"]),
+    "TRAUMA": (["Trauma team", "Blood products available"], ["Trauma activation"]),
+    "SEPSIS": (["Sepsis bundle", "Lactate and cultures"], ["Early antibiotics"]),
+    "CARDIAC_ARREST": (["Resuscitation team", "Airway equipment"], ["Resuscitation bay ready"]),
+    "PEDIATRIC": (["Pediatric team", "Weight-based dosing chart"], []),
+    "OBSTETRIC": (["OB team"], []),
+}
+
+
+def render_prose(report: Dict[str, Any]) -> None:
+    """Compose handoff_summary, data_quality and the preparation lists from the facts the writer stated.
+
+    Nothing here adds a clinical fact: every word comes from a field the writer filled or from the alert type's
+    standing preparation table. The rules that run afterwards may append to missing_info and assumptions.
+    """
+    p = report.get("patient") or {}
+    bits = []
+    if p.get("age") is not None:
+        bits.append(f"{p['age']} {p.get('age_unit') or 'years'}".replace(" years", "-year-old") if (p.get("age_unit") or "years") == "years" else f"{p['age']}-month-old")
+    if p.get("sex"):
+        bits.append(str(p["sex"]).lower())
+    who = " ".join(bits) or "patient"
+    parts = [who]
+    if report.get("chief_complaint"):
+        parts.append(str(report["chief_complaint"]).rstrip("."))
+    alert = report.get("alert_type") or "UNCLEAR"
+    if alert != "UNCLEAR":
+        parts.append(f"{alert.replace('_', ' ').lower()} alert" + (f", {report['alert_level']}" if report.get("alert_level") else ""))
+    if report.get("eta_minutes") is not None:
+        parts.append(f"ETA {report['eta_minutes']} min")
+    hr = report.setdefault("hospital_recommendations", {})
+    hs = report.setdefault("handoff_summary", {})
+    hs["one_liner"] = ", ".join(parts) + "."
+    concerns = [c for c in [report.get("chief_complaint"), hr.get("activation_requested")] if c]
+    hs["key_concerns"] = concerns[:3]
+    hs["pending_needs"] = [hr["activation_requested"]] if hr.get("activation_requested") else []
+    prep = _PREP.get(alert)
+    if prep and not hr.get("resources_to_prepare"):
+        hr["resources_to_prepare"] = list(prep[0])
+    if prep and not hr.get("time_critical_actions"):
+        hr["time_critical_actions"] = list(prep[1])
+    hr.setdefault("resources_to_prepare", []); hr.setdefault("time_critical_actions", [])
+    dq = report.setdefault("data_quality", {})
+    vitals_present = any(not _is_empty(v) for v in (report.get("vital_signs") or {}).values())
+    if alert != "UNCLEAR" and report.get("chief_complaint") and vitals_present and report.get("eta_minutes") is not None:
+        dq["confidence"] = "HIGH"
+    elif alert != "UNCLEAR" and report.get("chief_complaint"):
+        dq["confidence"] = "MEDIUM"
+    else:
+        dq["confidence"] = "LOW"
+    dq["missing_info"] = unstated(report)
+    dq.setdefault("assumptions", []).append("summary, missing-information list and preparation lists composed from the stated facts (facts-only writer)")
+
+
 def rules_enabled() -> bool:
     """HANDOFF_REPORT_RULES=0 turns the post-model grounding rules off (ablation runs only)."""
     return os.environ.get("HANDOFF_REPORT_RULES", "1").strip().lower() not in ("0", "false", "no", "off")
@@ -576,7 +638,7 @@ class ReportPipeline:
         if suspects:
             context = f"{context}\n{suspects}" if context else suspects
         self.last_context, self.last_reference = context, ""
-        prompt = extraction_prompt(self.attribution, compact=compact_output()).format(ems_report=fix.text, lexicon_context=context)
+        prompt = extraction_prompt(self.attribution, compact=compact_output(), facts_only=facts_only()).format(ems_report=fix.text, lexicon_context=context)
 
         # 3. extract
         t0 = time.perf_counter()
@@ -594,6 +656,8 @@ class ReportPipeline:
         usage = getattr(self.llm, "last_usage", None)
         if usage:
             timings.update(usage)      # tokens_in, tokens_out, tok_s: says where a slow model spent its time
+        if facts_only():
+            render_prose(report)
         report["data_quality"]["assumptions"].extend(assumption_notes(fix))
         if self.rules:
             self._apply_rules(report, fix.text)

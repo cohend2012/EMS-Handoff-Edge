@@ -512,3 +512,42 @@ def test_compact_output_mode_changes_only_the_guidance(monkeypatch):
     assert P.compact_output() is False
     monkeypatch.setenv("HANDOFF_COMPACT_OUTPUT", "1")
     assert P.compact_output() is True
+
+
+def test_facts_only_prompt_drops_the_prose_sections_and_keeps_the_stated_request(monkeypatch):
+    from ems_handoff.prompt import extraction_prompt, FACTS_ONLY_GUIDANCE
+    from ems_handoff import pipeline as P
+    f = extraction_prompt(facts_only=True)
+    for gone in ('"handoff_summary"', '"data_quality"', '"resources_to_prepare"', '"time_critical_actions"', "missing_info", "data_quality.assumptions"):
+        assert gone not in f, gone
+    assert '"activation_requested"' in f and '"suggested_destination"' in f and '"history"' in f
+    assert FACTS_ONLY_GUIDANCE.strip() in f and f.count("/no_think") == 1 and f.rstrip().endswith("/no_think")
+    both = extraction_prompt(attribution=True, facts_only=True)
+    assert '"sources"' in both and '"handoff_summary"' not in both and "every source is 1" in both
+    assert '"handoff_summary"' in extraction_prompt()          # the default is untouched
+    monkeypatch.delenv("HANDOFF_FACTS_ONLY", raising=False)
+    assert P.facts_only() is False
+    monkeypatch.setenv("HANDOFF_FACTS_ONLY", "1")
+    assert P.facts_only() is True
+
+
+def test_render_prose_composes_summary_quality_and_preparation_from_the_facts():
+    from ems_handoff.pipeline import blank_report, render_prose
+    r = blank_report()
+    r.update({"alert_type": "STEMI", "alert_level": "RED", "eta_minutes": 8, "chief_complaint": "Chest pain radiating to left arm"})
+    r["patient"].update({"age": 67, "age_unit": "years", "sex": "Male"})
+    r["vital_signs"]["heart_rate"] = 98
+    r["hospital_recommendations"]["activation_requested"] = "Cath lab"
+    render_prose(r)
+    assert r["handoff_summary"]["one_liner"] == "67-year-old male, Chest pain radiating to left arm, stemi alert, RED, ETA 8 min."
+    assert r["handoff_summary"]["key_concerns"] == ["Chest pain radiating to left arm", "Cath lab"]
+    assert r["handoff_summary"]["pending_needs"] == ["Cath lab"]
+    assert r["hospital_recommendations"]["resources_to_prepare"] == ["Cath team", "12-lead on arrival"]
+    assert r["hospital_recommendations"]["time_critical_actions"] == ["Activate cath lab"]
+    assert r["data_quality"]["confidence"] == "HIGH"
+    assert "allergies" in r["data_quality"]["missing_info"] and "code status" in r["data_quality"]["missing_info"]
+    assert r["data_quality"]["assumptions"][-1].startswith("summary, missing-information list")
+    bare = blank_report()
+    render_prose(bare)
+    assert bare["handoff_summary"]["one_liner"] == "patient." and bare["data_quality"]["confidence"] == "LOW"
+    assert bare["hospital_recommendations"]["resources_to_prepare"] == []

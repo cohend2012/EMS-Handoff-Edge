@@ -170,7 +170,21 @@ COMPACT_GUIDANCE = (
 )
 
 
-def extraction_prompt(attribution: bool = False, compact: bool = False) -> str:
+FACTS_ONLY_BLOCK = (
+    '  "hospital_recommendations": {{\n'
+    '    "activation_requested": "What the paramedic requested (cath lab, trauma team, etc.), or null",\n'
+    '    "suggested_destination": "Cath Lab" | "Trauma Bay" | "Resuscitation Bay" | "Critical Care" | "General ED"\n'
+    "  }}\n}}\n"
+)
+FACTS_ONLY_GUIDANCE = (
+    "- Write the clinical facts only. There is no handoff_summary, no data_quality, no resources_to_prepare and no "
+    "time_critical_actions in this structure: the receiving system composes the summary, the missing-information list "
+    "and the preparation list from your facts, so writing them here would only cost time.\n"
+)
+_HOSP_START = '  "hospital_recommendations": {{'
+
+
+def extraction_prompt(attribution: bool = False, compact: bool = False, facts_only: bool = False) -> str:
     """The extraction prompt template; with ``attribution`` the "sources" entry and its guidance line; with
     ``compact`` the model is told to omit empty fields (the pipeline's fill_blanks restores the structure)."""
     text = EXTRACTION_PROMPT
@@ -180,6 +194,21 @@ def extraction_prompt(attribution: bool = False, compact: bool = False) -> str:
     if compact:
         text = text.replace("Still return the full structure.", "Return the fields that have a value (see the last guidance line).", 1)
         text = text.replace("/no_think\n", COMPACT_GUIDANCE + "/no_think\n", 1)
-    if attribution:
+    if facts_only:
+        # the prose sections (handoff_summary, data_quality, the preparation lists) leave the schema; the pipeline
+        # renders them from the facts. 61 % of the writer's output tokens were these sections (10-30).
+        start = text.index(_HOSP_START)
+        end = text.index(_SCHEMA_END if not attribution else ATTRIBUTION_SCHEMA, start)
+        tail = ATTRIBUTION_SCHEMA if attribution else _SCHEMA_END
+        block = FACTS_ONLY_BLOCK if not attribution else FACTS_ONLY_BLOCK.replace("  }}\n}}\n", ATTRIBUTION_SCHEMA)
+        text = text[:start] + block + text[end + len(tail):]
+        text = text.replace("set alert_level to null, data_quality.confidence to \"LOW\", and list what was not provided in missing_info",
+                            "set alert_level to null", 1)
+        text = text.replace("and record that in data_quality.assumptions", "", 1)
+        text = text.replace(', and list "allergies" or "code status" in missing_info when null', "", 1)
+        text = text.replace("/no_think\n", FACTS_ONLY_GUIDANCE + "/no_think\n", 1)
+    if attribution and not facts_only:
+        text = text.replace("/no_think\n", ATTRIBUTION_GUIDANCE, 1)
+    elif attribution:
         text = text.replace("/no_think\n", ATTRIBUTION_GUIDANCE, 1)
     return text
