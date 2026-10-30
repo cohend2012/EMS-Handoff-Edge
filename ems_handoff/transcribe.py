@@ -259,8 +259,9 @@ class LocalTranscriber:
         # More words than anyone says in the clip's whole length (large-v3 fp16 gave 42 words for a 3.7 s burst,
         # CS014 S055): the whole clip is decoded again and replaced only by something plausible.
         total_words = sum(len(s.text.split()) for s in worded)
-        if total_words > self.MAX_WORDS_PER_SECOND * max(len(x) / SAMPLE_RATE, 1.0) and (0.0, len(x) / SAMPLE_RATE) not in dense:
-            a, b = 0.0, len(x) / SAMPLE_RATE
+        if total_words > self.MAX_WORDS_PER_SECOND * max(len(x) / SAMPLE_RATE, 1.0):
+            # the span covers every segment, including one whose end runs past the audio (whisper's 30 s window)
+            a, b = 0.0, max(len(x) / SAMPLE_RATE, max(s.end for s in worded))
             gaps = [(a, b)]; dense = {(a, b)}; looped = {}
         if not gaps:
             return segments
@@ -291,7 +292,9 @@ class LocalTranscriber:
                                        f"the first pass keeps its {first} words")
                 logger.info("Local transcription: %s", self.last_notes[-1])
                 continue
-            if (a, b) in dense and words >= first:
+            if (a, b) in dense and (a, b) not in looped and words >= first:
+                # a repeating window must come back shorter; a loop of a short phrase comes back longer (the
+                # "Priority 1, protocol." span re-decoded to its real 63 words) and is judged by the loop check alone
                 self.last_notes.append(f"re-decode of {a:.1f}-{b:.1f} s discarded ({words} words, no shorter than the first pass's {first})")
                 logger.info("Local transcription: %s", self.last_notes[-1])
                 keep_collapsed()

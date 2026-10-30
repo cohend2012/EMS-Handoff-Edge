@@ -362,6 +362,9 @@ def test_local_transcriber_treats_a_run_of_identical_segments_as_a_loop_and_caps
     t._model = FakeModel()
     assert t.transcribe(audio) == span["text"] + " blurry vision, gray vision, LAMS zero"
     assert "0.0-28.0" in t.last_notes[0]
+    span["text"] = " ".join(f"real{i}" for i in range(63))            # longer than the 42-word loop: still taken
+    t.last_notes = []
+    assert t.transcribe(audio) == span["text"] + " blurry vision, gray vision, LAMS zero"
     span["text"] = "Priority 1, protocol. " * 14                      # the span loops again: one copy is kept
     t.last_notes = []
     assert t.transcribe(audio) == "Priority 1, protocol. blurry vision, gray vision, LAMS zero"
@@ -372,8 +375,8 @@ def test_local_transcriber_treats_a_run_of_identical_segments_as_a_loop_and_caps
             self.calls = 0
         def transcribe(self, audio, **kw):
             self.calls += 1
-            if self.calls == 1:
-                return iter([Seg(0.0, 3.7, " ".join(f"w{i}" for i in range(42)))]), None
+            if self.calls == 1:                 # the hallucinated segment runs to the 30 s window, past the audio
+                return iter([Seg(0.0, 30.0, " ".join(f"w{i}" for i in range(42)))]), None
             return iter([Seg(0.0, 3.7, "How old? Seven.")]), None
 
     t._model = Short()

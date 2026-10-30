@@ -60,6 +60,7 @@ From SYNTH_V1_2026-10-27.md, one scorer over every row. Local = faster-whisper i
 | local medium, int8, greedy + re-decode, word-rate trigger, 3 s lead-in (10-29) | hint | 5.3 % | 7.0 % | 10.0 % | 13.5 % | 0.914 | 0.876 | 0.85x |
 | local large-v3-turbo, int8, greedy + re-decode, word-rate trigger, 3 s lead-in (10-29) | hint | 6.7 % | 8.5 % | 11.5 % | 16.0 % | 0.907 | 0.847 | 0.83x |
 | local large-v3-turbo, int8, greedy + re-decode, every 10-29 fix (trigger, trailing speech, lead-in, seam skip) | hint | 6.0 % | 8.5 % | 11.5 % | 16.0 % | 0.910 | 0.847 | 0.79x |
+| local medium, int8, greedy + re-decode, every 10-29 fix (the shipped default) | hint | 5.0 % | 7.0 % | 10.0 % | 13.5 % | 0.915 | 0.876 | 0.88x |
 | local medium, float16 on the cohendynamics GPU (container), greedy + re-decode, every 10-29 fix | hint | 4.6 % | 7.3 % | 9.0 % | 13.5 % | 0.925 | 0.876 | 0.13x (5.3 s per clip) |
 | local large-v3-turbo, float16 on the cohendynamics GPU (container), greedy + re-decode, every 10-29 fix | hint | 6.8 % | 8.5 % | 11.5 % | 16.0 % | 0.897 | 0.855 | 0.10x (4.1 s per clip) |
 | local medium, float16 on the cohendynamics GPU, greedy + re-decode, every 10-29 fix + corrector (ours, local, GPU) | hint + corrector | 4.5 % | 7.1 % | 8.0 % | 12.0 % | 0.926 | 0.877 | 0.13x |
@@ -139,7 +140,9 @@ other. `large-v3-turbo_hint_rd5c` (lead-in without these two) gives turbo 6.7 / 
 half a point behind whole-clip beam 5 (6.2 / 8.1 %) because the seam still repeats a few words on SY055 and
 SY184 (124 and 129 words for 117). With every fix (`large-v3-turbo_hint_rd5d`) turbo is 6.0 / 8.5 % at 34 s per
 clip: on the CPU, greedy decoding plus the targeted re-decode now matches whole-clip beam 5 (6.2 / 8.1 %) at
-greedy speed. The medium row with every fix is running.
+greedy speed. Medium with every fix (`medium_hint_rd5d`, the shipped default) is 5.0 / 7.0 % at 37 s per clip:
+the seam skip takes SY078 from 11 to 4 %, nothing else moves by more than two points, and with today's hint the
+CPU medium path has gone from 7.1 % greedy to 5.0 % in one day of decode work, without touching the model.
 
 The same decode on the cohendynamics GPU (the `dustynv/faster-whisper` image plus scipy, float16, the app's own
 `eval_set.py` inside the container, 19:11 to 19:22): medium 4.6 / 7.3 % at 5.3 s per clip (160 s for 1257 s of
