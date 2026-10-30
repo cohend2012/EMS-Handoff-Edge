@@ -43,7 +43,10 @@ affordable by that GPU (accuracy), and a writer that is as grounded as the 120B 
 | F | writer size and grounding | cohendynamics GPU | 8B against 4B on the same 60 transcripts (running); then rules on/off on the 8B | done 10-29: 8B +0.2 to +1.2 weighted, every interval includes zero; 171 s median per report, 32 timeouts in 120 (6 GB model in a 7.5 GB box). Not a live writer; offline judge or teacher only. Rules on/off on the 8B dropped |
 | G | split the live pipeline | both boxes | whisper on one GPU, writer on the other; CS008 replay end to end, time to report | done 10-30: HANDOFF_TRANSCRIBER=remote + scripts/whisper_server.py; CS008 70 to 75 s against 135 s on one box the same morning; the writer (50 s) is now 70 % of the wait |
 
-Full-stack checkpoint, 10-29 night: with large-v3 fp16 on the GPU the local system is level with the cloud stack at
+Writer latency, 10-30: the compact-output instruction bought 6 % for -0.6 (not shipped); the facts-only writer (prose sections
+composed by the pipeline) halves the writer, 51.6 to 27.8 s, for -1.4 / -0.9 weighted with intervals excluding zero, so the
+time to report on CS008 would fall from 70 to about 47 s at a one-point cost; next: an intervention-list emphasis and the
+open-call / closing-cue hybrid, both on the same 60 reports. Full-stack checkpoint, 10-29 night: with large-v3 fp16 on the GPU the local system is level with the cloud stack at
 the report stage (96.6 / 95.3 against 96.8 / 95.1, -0.1 [-2.4, +2.0]). Earlier the same night: GPU medium fp16 transcripts (lever A, every decode fix of lever B) through the
 4B writer score 95.3 / 94.2 weighted, +1.6 [+0.1, +3.4] over the CPU-transcript local stack at clean and -1.5
 [-3.9, +0.9] against the cloud stack, where the 10-28 local-against-cloud gap was -3.0 [-5.6, -0.6]. Transcript
