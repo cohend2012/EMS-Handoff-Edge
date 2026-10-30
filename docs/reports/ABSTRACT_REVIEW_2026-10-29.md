@@ -70,3 +70,68 @@ GPU, and a dedicated accelerator is the next step. These results are a feasibili
 (three referenced calls, one synthetic voice) and the next phase adds references for the remaining calls,
 a second annotator, and the state-aware pipeline that lets the device flag missing fields before the
 transmission ends.
+
+## 3. Revision of 2026-10-30 (after the held-out validation check)
+
+The draft resubmitted on 10-30 is unchanged from 10-29. What changed is the evidence: the 30 validation scripts
+(never used while tuning) were scored, and the report stage lost about two points there (94.6 / 93.6 against
+96.6 / 95.3 on the test split), while the transcript stage held (4.1 / 5.7 against 4.6 / 5.5 % WER for large-v3).
+Verdicts that change or sharpen:
+
+| draft says | verdict now |
+|---|---|
+| "5.8 % to 6.9 % error rate" | stale and under-specified. Current: 5.0 / 7.0 % (CPU, medium) and 4.6 / 5.5 % (second Jetson's GPU, large-v3) on the test split; 4.1 / 5.7 % on the held-out validation split. Say which hardware, which model, which split. |
+| "87.1 % to 90.5 % (99.2 % probability)" | correct for the test split, CPU medium, pooled over five noise levels; the probability is a Beta-Binomial posterior that treats term occurrences as independent and overstates certainty; quote the clip-level interval too. The validation split's term error was 3 points higher at 5 dB, so say "on the test split". |
+| "25.7 % to 22.7 % on real-world audio" | correct, 612 reference words over 9 bursts of 3 calls; add the sample size. The GPU configuration reaches 21.7 %. |
+| "98 to 32", "50 to zero" | 98 to 32 correct (73 reports); "code-status entries from 50 to zero" is the wrong pairing: allergy entries 50 to 0, code-status entries 23 to 0. |
+| "100 % to 67 %" | correct for alert-level agreement with the stated priority; name it, and add the stronger measured effects: 5.8 / 5.4 weighted points, hallucinations 0.2 to 0.7 per report. |
+| "143 seconds without cell service" | correct, one call (CS008, 84.5 s of audio, the average length), 10-28; the same call is 70 to 75 s with whisper on the second Jetson's GPU (10-30, three runs). |
+| "cloud processing took 14 seconds" | no measurement; drop or say "about ten seconds" from component rates, or run it. |
+| "well within the standard debriefing window" | no source; cite one or drop. |
+| report accuracy (not stated in the draft) | the draft tracks "report accuracy" in Methods but reports none; the number is 96.6 / 95.3 (test) and 94.6 / 93.6 (validation) weighted against gold; cloud 96.8 / 95.1 on the test split only. Say "within about two points of the cloud pipeline" and that the held-out set is two points lower. |
+| "hallucination-free framework" | overclaim: 0.17 to 0.34 fabricated facts per report on the generated set. "Abstains rather than invents" holds for the two rule-protected fields (allergies, code status) on 73 real reports. |
+| "1,000 simulated radio clips", "22 real emergency calls" | the set is 1,000 clips; scoring used the 150-clip test split and, from 10-30, the 150-clip validation split; reports 60 + 60. Real WER rests on 3 referenced calls of the 22; the 22 supplied the 73-report fabrication counts and the 10-30 state replay. |
+| "acceleration engines" | the measured lever is the GPU already on the second Jetson (whisper 6.6x, call time halved); an NPU is a plan. |
+| OODA-loop auditing | now partly built: a timed, sourced patient state with published prehospital rules, a documentation checklist per alert type, and an ask rule that fired on 5 of 22 real calls (4 naming items the crew did not state). Pilot-size; can be mentioned as implemented, not as evaluated. |
+
+### Corrected draft, 10-30
+
+**Background.** EMS training relies on simulation. Video records the physical interventions, but instructors transcribe
+and synthesise the radio audio by hand for the debrief, and in field training EMTs document from memory. Cloud
+transcription services raise data-handling questions, and the models behind them can state clinical facts that were
+never said. We evaluated a local device that listens to the radio report and produces a structured, sourced handoff
+without a network, so that after-action review starts from a transcript, a report and a timed record of what was
+stated and what was missing, rather than from memory.
+
+**Methods.** We built an offline pipeline on NVIDIA Jetson Orin Nano devices (8 GB): faster-whisper for the transcript,
+with a radio-phrase prompt, a re-decode of collapsed decoder windows and a medical-lexicon corrector, and a
+4-billion-parameter instruction model for a 25-field handoff report under grounding rules that abstain rather than
+invent, followed by a patient-state layer that applies published prehospital rules (shock index, field-triage
+vital-sign criteria, stroke and STEMI documentation elements) and lists what the call has not stated. It was benchmarked
+against the bare models and against cloud baselines (Groq whisper-large-v3-turbo, whisper-large-v3 and gpt-oss-120b) on
+a 1,000-clip generated radio set (200 scripted reports in one synthetic voice at five signal-to-noise ratios; a 150-clip
+test split used during development and a 150-clip validation split held out until the end) and on 22 real public-feed
+calls, three of which have human reference transcripts (612 words) and gold reports. We measured word error rate,
+medical-term recall, a weighted report score against gold with recall and precision over stated facts, and the count of
+fabricated facts, with paired clip-level bootstrap intervals and a Beta-Binomial posterior on per-term outcomes.
+
+**Results.** On the test split the local transcriber scored 5.0 % WER at clean and 7.0 % at 5 dB on the device's CPU,
+and 4.6 % / 5.5 % with the largest model on a second device's GPU, against 3.9 % / 4.9 % for the best cloud model; on the
+held-out validation split the GPU configuration scored 4.1 % / 5.7 %. Medical-term recall rose from 87.1 % with the bare
+model to 90.5 % with the additions (P = 0.99, test split). On real audio the additions reduced WER from 25.7 % to 22.7 %
+(612 words), and the GPU configuration reached 21.7 %. The grounding rules cut unsupported claims in 73 real-call reports
+from 98 to 32 and invented allergy and code-status entries from 50 and 23 to zero; turning them off on the same
+transcripts cost 5.4 to 5.8 weighted points [3.8, 7.5], raised fabricated facts from 0.2 to 0.7 per report and dropped
+alert-level agreement from 100 % to 67 %. The local report scored 96.6 / 95.3 (weighted, clean / 5 dB) on the test split,
+level with the cloud pipeline's 96.8 / 95.1 (difference -0.1 [-2.4, +2.0]), and 94.6 / 93.6 on the held-out split, with
+0.3 fabricated facts per report. An average real call (85 s of audio) was processed in 143 s with every outbound
+connection blocked, and in 70 to 75 s with the transcript on the second device's GPU. On the 22 real calls the state
+layer flagged a published threshold on 8 and, at the close of 5, named documentation the crew had not stated (4 of 5
+confirmed against the transcript).
+
+**Conclusions.** An edge device can produce a grounded, sourced handoff report from radio audio with no network, within
+about two points of a cloud pipeline on transcript and report accuracy, with the two fields most prone to fabrication
+protected by rules, and can tell the receiver what a closing call has not stated. It is slower than the cloud; the
+measured remedy is the device's GPU, and a dedicated accelerator is the next step. These are feasibility results on a
+pilot sample (three referenced calls, one synthetic voice, one annotator), and the report stage lost two points on
+held-out scripts, so the next phase adds references for the remaining calls, a second annotator and a second voice.
