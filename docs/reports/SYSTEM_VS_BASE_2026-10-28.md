@@ -72,6 +72,7 @@ From SYNTH_V1_2026-10-27.md, one scorer over every row. Local = faster-whisper i
 | local large-v3, GPU fp16, every 10-29 fix, hint = opening sentence + radio phrases only (94 tokens) | hint (short) | 4.8 % | 6.1 % | 7.5 % | 10.0 % | 0.920 | 0.890 | 0.20x |
 | local medium, GPU fp16, every 10-29 fix, hint trimmed to 220 tokens | hint (fit) | 4.6 % | 7.0 % | 9.0 % | 13.5 % | 0.925 | 0.881 | 0.12x |
 | local medium, GPU fp16, every 10-29 fix, hint = sentence + radio phrases only | hint (short) | 5.5 % | 7.9 % | 9.5 % | 13.0 % | 0.910 | 0.864 | 0.12x |
+| local large-v3, GPU fp16, every 10-29 fix, through the whisper server (10-30): the noise curve at 20 / 15 / 10 dB | hint | 4.5 / 4.4 / 5.0 % | | 8.0 / 8.0 / 9.0 % | | 0.920 / 0.918 / 0.908 | | 9 s per clip over the wire |
 | local large-v3-turbo (the app default until today) | hint | 12.8 % | 10.8 % | 21.5 % | 16.0 % | 0.881 | 0.840 | 0.8x |
 | local large-v3-turbo | hint + gap re-decode, before the loop guard | 13.4 % | 10.8 % | 21.5 % | 16.0 % | 0.875 | 0.840 | 0.8x |
 | local large-v3-turbo | hint + gap re-decode, with the loop guard (shipped) | 12.6 % | 10.8 % | 21.5 % | 16.0 % | 0.881 | 0.840 | 0.8x |
@@ -88,6 +89,15 @@ clean, -0.2 [-0.6, +0.1] at 5 dB, term recall identical at 92.5 and 87.5 %), so 
 plain fp16 medium on the GPU is 1.4 points worse at clean than plain int8 medium on the CPU [-0.2, +4.2] and 0.6
 better at 5 dB [-2.3, +0.6], the fp16 and int8 decoders of one model being different decoders, as the real bursts
 also showed.
+
+The large-v3 noise curve on the GPU (10-30): with the clean and 5 dB rows above, the local large-v3 stack reads
+4.6 / 4.5 / 4.4 / 5.0 / 5.5 % WER at clean / 20 / 15 / 10 / 5 dB against cloud large-v3 with the hint at 3.9 / 3.8 / 3.6 /
+4.0 / 4.9 %, a steady 0.6 to 1.0 points behind at every level (paired +0.7 [+0.1, +1.4] at 20 dB, +0.7 [+0.0, +1.4]
+at 15, +0.9 [+0.1, +1.8] at 10) with term recall equal (92.0 against 91.7 % pooled over the three middle levels).
+Against the CPU medium curve of 10-27 it is -0.4 / -2.1 / -0.3 points at 20 / 15 / 10 dB, the 15 dB gain being the
+one collapsed clip (SY-family row at 22.8 %) that the re-decode now rescues. The curve was produced by eval_set
+`--provider remote` through the whisper server while vox-ai's writer ran the lexicon row: the first run with both GPUs
+working on different jobs at once.
 
 Hint ablation on the GPU (10-29, late): the app's hint is 780 characters, 243 whisper tokens, and faster-whisper keeps
 only the last 223 tokens of a prompt, so the opening sentence ("The following is a paramedic radio report.
