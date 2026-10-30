@@ -424,8 +424,8 @@ def build_state(history: List[Tuple[str, Optional[float], Dict[str, Any]]]) -> P
         if not isinstance(report, dict):
             continue
         for path, value in _leaves(report).items():
-            if _empty(value):
-                continue
+            if _empty(value) or (path == "alert_type" and str(value).upper() == "UNCLEAR"):
+                continue        # UNCLEAR means this text stated no type; it is not a change of type
             slot = st.slots.get(path)
             if slot is None:
                 st.slots[path] = Slot(path=path, value=value, first=source)

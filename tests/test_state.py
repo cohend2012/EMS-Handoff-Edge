@@ -144,3 +144,10 @@ def test_incident_session_snapshot_carries_the_state_with_burst_provenance():
     assert any(f["name"] == "shock_index" for f in st["flags"])
     assert st["missing"] == []
     assert "eta_minutes: 10 (burst 1) then 5 (burst 2)" in st["conflicts"]
+
+
+def test_an_unclear_alert_after_a_stated_one_is_not_a_conflict():
+    h = [("burst 1", None, _report(alert_type="STROKE")), ("burst 2", None, _report(alert_type="UNCLEAR"))]
+    st = S.build_state(h)
+    assert st.slots["alert_type"].value == "STROKE" and st.slots["alert_type"].changed == []
+    assert st.conflicts == []
