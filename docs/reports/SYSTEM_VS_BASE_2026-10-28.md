@@ -68,6 +68,10 @@ From SYNTH_V1_2026-10-27.md, one scorer over every row. Local = faster-whisper i
 | local large-v3, float16 on the cohendynamics GPU, every 10-29 fix + corrector (ours, local, GPU, largest) | hint + corrector | 4.6 % | 5.5 % | 8.5 % | 8.5 % | 0.925 | 0.903 | 0.20x |
 | local medium, float16 on the cohendynamics GPU, plain decode (base: no hint, no re-decode, no corrector) | base (no prompt) | 7.5 % | 8.3 % | 13.0 % | 14.5 % | 0.892 | 0.856 | 0.12x (4.9 s per clip) |
 | local large-v3, float16 on the cohendynamics GPU, plain decode (base) | base (no prompt) | 4.5 % | 6.3 % | 7.5 % | 12.5 % | 0.924 | 0.881 | 0.20x (8.3 s per clip) |
+| local large-v3, GPU fp16, every 10-29 fix, hint trimmed to 220 whisper tokens (opening sentence kept) | hint (fit) | 4.7 % | 5.5 % | 8.5 % | 9.0 % | 0.925 | 0.903 | 0.20x |
+| local large-v3, GPU fp16, every 10-29 fix, hint = opening sentence + radio phrases only (94 tokens) | hint (short) | 4.8 % | 6.1 % | 7.5 % | 10.0 % | 0.920 | 0.890 | 0.20x |
+| local medium, GPU fp16, every 10-29 fix, hint trimmed to 220 tokens | hint (fit) | 4.6 % | 7.0 % | 9.0 % | 13.5 % | 0.925 | 0.881 | 0.12x |
+| local medium, GPU fp16, every 10-29 fix, hint = sentence + radio phrases only | hint (short) | 5.5 % | 7.9 % | 9.5 % | 13.0 % | 0.910 | 0.864 | 0.12x |
 | local large-v3-turbo (the app default until today) | hint | 12.8 % | 10.8 % | 21.5 % | 16.0 % | 0.881 | 0.840 | 0.8x |
 | local large-v3-turbo | hint + gap re-decode, before the loop guard | 13.4 % | 10.8 % | 21.5 % | 16.0 % | 0.875 | 0.840 | 0.8x |
 | local large-v3-turbo | hint + gap re-decode, with the loop guard (shipped) | 12.6 % | 10.8 % | 21.5 % | 16.0 % | 0.881 | 0.840 | 0.8x |
@@ -84,6 +88,19 @@ clean, -0.2 [-0.6, +0.1] at 5 dB, term recall identical at 92.5 and 87.5 %), so 
 plain fp16 medium on the GPU is 1.4 points worse at clean than plain int8 medium on the CPU [-0.2, +4.2] and 0.6
 better at 5 dB [-2.3, +0.6], the fp16 and int8 decoders of one model being different decoders, as the real bursts
 also showed.
+
+Hint ablation on the GPU (10-29, late): the app's hint is 780 characters, 243 whisper tokens, and faster-whisper keeps
+only the last 223 tokens of a prompt, so the opening sentence ("The following is a paramedic radio report.
+Terminology: B") never reaches the local decoder; the Groq endpoint may keep all of it. Two variants, same decode
+otherwise: the hint trimmed to 220 tokens so the sentence survives, and the sentence plus the radio phrases alone
+with no terminology list. The trimmed hint changes nothing (medium +0.0 [-0.4, +0.5] at clean and -0.3 [-0.9, +0.3]
+at 5 dB; large-v3 4.7 / 5.5 against 4.6 / 5.5 %), so the sentence is worth nothing and the 20 terms it displaces are
+worth nothing either. The short hint is worse: medium +1.0 point of WER at clean [+0.2, +1.8] and +0.8 at 5 dB
+[-0.1, +1.6], large-v3 +0.4 [-0.4, +1.2] and +0.6 [-0.2, +1.3], term recall unchanged within a point. So the
+terminology list is what the hint is for, and the cloud's lead over the same model (3.9 / 4.9 against 4.6 / 5.5 %)
+is not explained by the token cut. What remains untested is the Groq endpoint's own prompt handling (whether it
+keeps the whole 243 tokens, and whether it applies the prompt to every 30 s window or only the first), and a
+family-specific term list after the first burst, which is the dynamic-hint step of the stateful plan.
 
 Candidate rows added on 2026-10-29 (`HORSEPOWER_GOALS.md` lever C): distil-large-v3 with the hint is uniformly
 worse than medium (median clip WER 9.8 % at clean, no tail drops or loops) and only 15 % faster on the CPU
