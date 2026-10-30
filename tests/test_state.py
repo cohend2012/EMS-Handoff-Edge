@@ -151,3 +151,12 @@ def test_an_unclear_alert_after_a_stated_one_is_not_a_conflict():
     st = S.build_state(h)
     assert st.slots["alert_type"].value == "STROKE" and st.slots["alert_type"].changed == []
     assert st.conflicts == []
+
+
+def test_the_checklist_runs_over_the_merged_slots_so_a_short_later_burst_does_not_blank_it():
+    full = _report(alert_type="STEMI", chief_complaint="chest pain",
+                   assessment_findings={"level_of_consciousness": "Alert", "other_findings": ["12-lead: inferior ST elevation"]},
+                   ems_interventions=[{"intervention": "Aspirin", "details": "324 mg", "response": None}])
+    reply = {"alert_type": "UNCLEAR", "eta_minutes": None, "patient": {}, "vital_signs": {}, "assessment_findings": {}, "history": {}}
+    st = S.build_state([("burst 1", None, full), ("burst 2", None, reply)])
+    assert st.alert_type == "STEMI" and st.missing == []

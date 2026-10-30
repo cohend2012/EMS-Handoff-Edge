@@ -436,7 +436,15 @@ def build_state(history: List[Tuple[str, Optional[float], Dict[str, Any]]]) -> P
         r = reading_from_report(report, source, at)
         if r.has_vitals() and (not st.readings or r.to_dict() != {**st.readings[-1].to_dict(), "source": source, "time": at}):
             st.readings.append(r)
-    latest = history[-1][2] if isinstance(history[-1][2], dict) else {}
+    # the merged report: the latest non-empty value of every slot, so a short later burst cannot blank the checklist
+    merged: Dict[str, Any] = {}
+    for path, slot in st.slots.items():
+        cur = merged
+        parts = path.split(".")
+        for part in parts[:-1]:
+            cur = cur.setdefault(part, {})
+        cur[parts[-1]] = slot.value
+    latest = merged
     st.alert_type = str(latest.get("alert_type") or "")
     if st.readings:
         st.flags = flags_for(st.readings[-1])
