@@ -83,7 +83,7 @@ def make_handler(transcriber: LocalTranscriber, settings):
             except TranscriptionError as e:
                 return self._send(500, {"error": str(e)})
             self._send(200, {"text": text, "seconds": round(time.perf_counter() - t0, 2),
-                             "audio_s": round(len(audio) / SAMPLE_RATE, 1), "notes": list(getattr(transcriber, "last_notes", [])),
+                             "audio_s": round(len(audio) / SAMPLE_RATE, 1), "notes": list(getattr(transcriber, "last_notes", [])), "words": list(getattr(transcriber, "last_words", [])),
                              "model": transcriber.model_size})
 
         def log_message(self, fmt, *args):  # quieter: one line per request

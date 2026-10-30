@@ -63,3 +63,33 @@ def test_server_decodes_the_wav_it_is_sent():
     x = (np.sin(np.linspace(0, 200, SAMPLE_RATE)) * 0.5).astype(np.float32)
     y = mod.wav_to_float(to_wav_bytes(x))
     assert y.shape == x.shape and abs(float(np.abs(y - x).max())) < 1e-3
+
+
+def test_local_transcriber_keeps_each_words_probability_when_word_conf_is_on():
+    import dataclasses
+    from ems_handoff.config import load_settings
+    from ems_handoff.transcribe import LocalTranscriber
+    class W:
+        def __init__(s, word, start, end, p): s.word, s.start, s.end, s.probability = word, start, end, p
+    class Seg:
+        def __init__(s, start, end, text, words): s.start, s.end, s.text, s.words = start, end, text, words
+    class Model:
+        def __init__(s): s.kw = None
+        def transcribe(s, audio, **kw):
+            s.kw = kw
+            return iter([Seg(0.0, 2.0, " Medic 14, BP 84", [W(" Medic", 0.0, 0.4, 0.98), W(" 14,", 0.4, 0.8, 0.91), W(" BP", 1.0, 1.3, 0.99), W(" 84", 1.4, 1.9, 0.52)])]), None
+    t = LocalTranscriber(dataclasses.replace(load_settings(), local_whisper_word_conf=True, local_whisper_redecode=False), model_size="tiny.en")
+    m = Model(); t._model = m
+    text = t.transcribe(np.zeros(SAMPLE_RATE * 2, dtype=np.float32))
+    assert text == "Medic 14, BP 84" and m.kw["word_timestamps"] is True
+    assert [w["word"] for w in t.last_words] == ["Medic", "14,", "BP", "84"]
+    assert t.last_words[-1]["probability"] == 0.52 and t.last_words[-1]["start"] == 1.4
+    t2 = LocalTranscriber(dataclasses.replace(load_settings(), local_whisper_word_conf=False, local_whisper_redecode=False), model_size="tiny.en")
+    m2 = Model(); t2._model = m2; t2.transcribe(np.zeros(SAMPLE_RATE * 2, dtype=np.float32))
+    assert t2.last_words == [] and m2.kw["word_timestamps"] is False
+
+
+def test_remote_transcriber_reads_the_servers_words(server):
+    s = Settings(transcriber="remote", remote_whisper_url=server)
+    t = make_transcriber(s); t.transcribe(np.zeros(SAMPLE_RATE * 2, dtype=np.float32))
+    assert t.last_words == []            # the fake server sends none; a real one sends [{word, start, end, probability}]

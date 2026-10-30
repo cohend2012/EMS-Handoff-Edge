@@ -125,7 +125,9 @@ class LocalTranscriber:
         self.hint = whisper_hint(vocab=getattr(settings, 'radio_vocab', ''))
         self.fallback = bool(getattr(settings, "local_whisper_fallback", False))
         self.redecode = bool(getattr(settings, "local_whisper_redecode", False))
+        self.word_conf = bool(getattr(settings, "local_whisper_word_conf", False))
         self.last_notes: List[str] = []
+        self.last_words: List[dict] = []    # [{word, start, end, probability}] of the last transcript when word_conf is on
         self._model = None
         self._lock = threading.Lock()
 
@@ -164,6 +166,9 @@ class LocalTranscriber:
             if self.redecode:
                 segments = self._redecode_gaps(x, segments, decode)
             text = " ".join(s.text.strip() for s in segments).strip()
+            self.last_words = [{"word": w.word.strip(), "start": round(float(w.start), 2), "end": round(float(w.end), 2),
+                                "probability": round(float(w.probability), 3)}
+                               for s in segments for w in (getattr(s, "words", None) or [])] if self.word_conf else []
         except Exception as e:  # noqa: BLE001
             raise TranscriptionError(f"Local transcription failed: {type(e).__name__}: {e}") from e
         logger.info("Local transcription: %.1fs of audio in %.2fs",
@@ -176,7 +181,8 @@ class LocalTranscriber:
         segments, _info = self._get_model().transcribe(
             x, language="en", beam_size=beam, condition_on_previous_text=False, **decode,
             initial_prompt=self.hint or None, hotwords=getattr(self, "hotwords", None) or None, vad_filter=vad,
-            vad_parameters={"min_silence_duration_ms": 500} if vad else None)
+            vad_parameters={"min_silence_duration_ms": 500} if vad else None,
+            word_timestamps=bool(getattr(self, "word_conf", False)))
         return segments
 
     GAP_SECONDS = 6.0          # a stretch of audio this long with no words from the first pass
@@ -320,6 +326,13 @@ class _Shifted:
     redecoded = True
     def __init__(self, seg, offset: float):
         self.start, self.end, self.text = seg.start + offset, seg.end + offset, seg.text
+        ws = getattr(seg, "words", None) or []
+        self.words = [_ShiftedWord(w, offset) for w in ws]
+
+
+class _ShiftedWord:
+    def __init__(self, w, offset: float):
+        self.word, self.start, self.end, self.probability = w.word, w.start + offset, w.end + offset, w.probability
 
 
 def _trim_seam(before: str, text: str, max_words: int, skip: int = 3) -> str:
@@ -357,6 +370,7 @@ class RemoteTranscriber:
         self.timeout_s = timeout_s
         self.hint = ""                      # the server applies its own hint
         self.last_notes: List[str] = []
+        self.last_words: List[dict] = []
         self.server_info: dict = {}
 
     def describe(self) -> str:
@@ -389,6 +403,7 @@ class RemoteTranscriber:
         if body.get("error"):
             raise TranscriptionError(f"Remote transcription failed: {body['error']}")
         self.last_notes = list(body.get("notes") or [])
+        self.last_words = list(body.get("words") or [])
         logger.info("Remote transcription: %.1fs of audio in %.2fs (server %.2fs)", len(audio) / SAMPLE_RATE,
                     time.perf_counter() - t0, float(body.get("seconds") or 0.0))
         return (body.get("text") or "").strip()
