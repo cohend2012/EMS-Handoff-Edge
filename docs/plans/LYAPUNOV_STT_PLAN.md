@@ -71,7 +71,13 @@ per script).
 - Deliverable: a table of WER and MTER against SNR per model. This alone answers "where does the
   transcriber break", and it is the dataset the Tuesday enhancer experiment also needs.
 
-**Phase 1, trajectories (week 2).** Status 2026-10-30: started. `scripts/corpus/trajectories.py` dumps, per emitted
+**Phase 1, trajectories (week 2).** Status 2026-10-30 13:00: done for whisper-small, no prompt, on the 140 training
+scripts at clean and 5 dB: 280 clips, 34,120 tokens; labels 30,448 correct, 3,018 substituted, 649 inserted, 5 in loops;
+2,527 reference words deleted (mostly the model's own omissions; the first run had lost every tail to the feature
+extractor's 30 s truncation and was discarded). Mean per-clip WER 0.16 / 0.17 without a prompt, inflated by the short
+fragment scripts. Data: cohendynamics `~/datasets/synth_v1/trajectories/small_train/` (one .npz per clip with hidden
+states, log-probabilities, entropies, cross-attention statistics, labels, window index). Phase 2 script:
+`scripts/corpus/stability_gauge.py`. Started as: `scripts/corpus/trajectories.py` dumps, per emitted
 token, the last decoder hidden state, log-probability, entropy and cross-attention peak / entropy / windowed mass, and
 labels every token correct / substituted / inserted / loop from the alignment against the script (deleted reference
 spans saved beside them). It runs on the GPU Jetson in a PyTorch container (pull in progress; faster-whisper exposes
