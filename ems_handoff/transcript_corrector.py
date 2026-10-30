@@ -182,6 +182,11 @@ _CONTEXT_RULES: List[Tuple[str, "re.Pattern", str]] = [
     ("blow-by oxygen",
      re.compile(r"(?i)\bglow([- ]by)\b"),
      r"blow\1"),
+    # "NKDA" spelled letter by letter comes back as "NKD day", "NKD-8", "NKDSA", "NKD, hey", "NKD is." (25 + 6 + 3 + 3 + 3
+    # times over the 10-30 GPU transcripts of 12 scripts that say NKDA); the writer then never sees an allergy statement
+    ("NKDA spelled",
+     re.compile(r"(?i)\bNKD(?!A\b)\s*(?:[,\-]\s*)?(?:day|8|a|sa|hey|he|eh|ay|is(?=\s*[.,;]|\s*$))\b"),
+     "NKDA"),
 ]
 
 def _apply_context_rules(text: str) -> Tuple[str, List["Correction"]]:

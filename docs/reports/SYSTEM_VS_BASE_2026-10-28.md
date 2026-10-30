@@ -415,8 +415,8 @@ a glucose field holding "diabetes mellitus", a GCS breakdown invented once), 28 
 medications 4, SpO2 4), 17 wrong (heart rate 6, alert type 4, interventions 4, glucose 3). The six allergy omissions are
 all one transcription failure: the synthetic voice spells "NKDA" letter by letter and whisper writes "NKD-8", "NKDSA"
 or "NKD, hey", so the writer never sees an allergy statement and abstains; that is a corrector rule, not a writer fault.
-The heart-rate "wrong" rows are the scorer's phrase match on the summary, not a wrong number (the field held the right
-integer in every case), which the scorer definitions will note.
+The six heart-rate "wrong" rows are the gold's second, weight-1 heart-rate field, the rhythm phrase ("sinus tach"),
+missing from the report's assessment; the heart-rate number itself was right in every case.
 
 The 8B rows (10-29): the 8B against the 4B on the same transcripts, paired over the reports the 8B finished, is +0.2
 weighted points at clean [-1.0, +1.5] and +0.3 at 5 dB [-1.3, +2.0] over the base transcripts (27 and 29 reports),
