@@ -312,6 +312,7 @@ are compared at the one-point level only within one device.
 | GPU large-v3 fp16, hint + re-decode, no corrector (10-29) | local qwen3:4b-instruct, vox-ai GPU | rules on; identical to the corrector row | 60 | 96.6 | 95.3 | 96.6 / 94.9 % | 97.1 / 96.9 % | 0.17 / 0.20 | 90 % | 100 % | 83 / 87 % | 52 |
 | GPU medium fp16, plain decode (base: no hint, no re-decode, no corrector; 10-29 night) | local qwen3:4b-instruct, vox-ai GPU | rules on (base transcripts, GPU) | 60 | 94.1 | 94.1 | 93.3 / 93.1 % | 96.2 / 96.2 % | 0.13 / 0.13 | 90 % | 100 % | 78 / 74 % | 52 |
 | GPU large-v3 fp16, plain decode (base; 10-30) | local qwen3:4b-instruct, vox-ai GPU | rules on (base transcripts, GPU, largest model) | 60 | 96.0 | 95.4 | 95.4 / 95.2 % | 97.0 / 96.8 % | 0.13 / 0.13 | 90 % | 100 % | 87 / 87 % | 52 |
+| GPU large-v3 fp16, our stack (10-30) | local qwen3:4b-instruct, vox-ai GPU | rules on, lexicon retrieval OFF (HANDOFF_USE_LEXICON=0); 59 of 60, SY101 at 5 dB malformed JSON | 59 | 95.0 | 94.7 | 94.0 / 94.4 % | 97.3 / 98.0 % | 0.10 / 0.14 | 97 % | 100 % | 83 % | 48 |
 
 The GPU local stack row (10-29): the first full local system number with the day's decode fixes and the GPU transcripts (medium fp16 on cohendynamics, hint, span re-decode, corrector, then the 4B writer with rules on vox-ai) is 95.3 weighted at clean and 94.2 at 5 dB. Paired against the CPU local stack on the same clips it is +1.6 points at clean [+0.1, +3.4] and +0.6 at 5 dB [-0.3, +1.7]; against the cloud stack's 96.8 / 95.1 it is -1.5 at clean [-3.9, +0.9] and -1.1 at 5 dB [-3.9, +1.6] (30 and 28 pairs). So the GPU transcripts close the local-against-cloud gap of section 5 (which was -3.0 [-5.6, -0.6] at clean) to a difference whose interval now includes zero. The same transcripts without the corrector give the identical row: the corrector changed three of the sixty GPU transcripts (SY028 at 5 dB, SY079 clean, and SY117 at 5 dB, the clip whose report failed either way) and none of the changes moved a report score, so on this set the corrector's value is in the transcript metric (4.6 to 4.5 % WER), not in the report. Against the CPU base writer row (95.7 / 93.9, medium without a hint) the GPU hint + re-decode row is -0.4 [-1.8, +1.4] at clean and +0.3 [-0.8, +1.4] at 5 dB, and against the cloud base row (95.2 / 94.2) +0.1 [-2.3, +2.6] and -0.0 [-2.2, +2.2]: the local writer over GPU transcripts is level with the cloud base system. There is no GPU row with a plain base decode (no hint, no re-decode) yet. The rows over the large-v3 GPU transcripts are running.
 
@@ -331,6 +332,15 @@ worth +0.7 at clean [-0.7, +2.2] and -0.1 at 5 dB [-1.5, +1.2] at the report sta
 (-0.1 at clean, -1.0 at 5 dB) foretold. The plain local large-v3 with the local 4B writer is itself +0.7 [-1.3, +2.9] and
 +1.0 [-1.6, +3.8] over the plain cloud turbo with the 120B writer. The report-stage matrix is complete for every local
 and cloud configuration except the cloud rules-off remainder.
+
+The lexicon-retrieval row (10-30): the writer's only retrieval in these runs is the lexicon context (the term table
+and flagged suspects in the extraction prompt; the textbook store was never built and is off in every row). Switching it
+off on the same large-v3 GPU transcripts, same device, same rules, gives 95.0 / 94.7 against 96.6 / 95.1: the retrieval
+is worth +1.6 weighted points at clean [-0.2, +3.3] and +0.4 at 5 dB [-1.3, +2.0], with recall 94.0 to 96.1 % at clean
+(P(on > off) = 0.92) and precision unchanged. So the ranking of the report-stage levers on this set is: grounding rules
++5.8 / +5.4, lexicon retrieval +1.6 / +0.4, the transcript stack +0.7 / -0.1 on large-v3 (+1.2 / +0.1 on medium), the
+corrector 0.0, the 8B writer +0.2 to +1.2 at three times the latency. Without the lexicon the local system would trail the
+cloud stack by 1.8 points at clean; with it the two are level.
 
 The 8B rows (10-29): the 8B against the 4B on the same transcripts, paired over the reports the 8B finished, is +0.2
 weighted points at clean [-1.0, +1.5] and +0.3 at 5 dB [-1.3, +2.0] over the base transcripts (27 and 29 reports),
