@@ -135,3 +135,58 @@ protected by rules, and can tell the receiver what a closing call has not stated
 measured remedy is the device's GPU, and a dedicated accelerator is the next step. These are feasibility results on a
 pilot sample (three referenced calls whose references await human verification, one synthetic voice), and the report stage lost two points on
 held-out scripts, so the next phase verifies the references by listening, adds references for the remaining calls, a second annotator and a second voice.
+
+## 4. Submission version, 2026-10-30 (due today): sent / now / future, and the text
+
+What the sent draft says, what is true right now, and what belongs to future work. Only the middle column goes in.
+
+| sent | true now | future |
+|---|---|---|
+| 5.8 to 6.9 % WER | 5.0 / 7.0 % (CPU medium) and 4.6 / 5.5 % (GPU large-v3) on the 30 test scripts; 4.1 / 5.7 % on 30 held-out scripts; exact references (the scripts) | another voice, a second channel |
+| recall 87.1 to 90.5 %, P 99.2 % | true on the test split, bare medium against the CPU stack; quote P = 0.99 and say test split | held-out term recall (3 points worse at 5 dB) |
+| 25.7 to 22.7 % on real audio | true against assistant-drafted references (9 bursts, 612 words), not human-verified; must say so or leave the number out | human-verified references for all 51 bursts |
+| 98 to 32, code status 50 to 0 | 98 to 32 true (73 reports, statements with no supporting words in the transcript, counted automatically); allergies 50 to 0 and code status 23 to 0 | |
+| 100 to 67 % | true for alert-level agreement; add 5.8 / 5.4 points and 0.2 to 0.7 fabricated facts | |
+| 143 s, cloud 14 s | 143 s true (one call); 70 to 75 s with the second device's GPU; the cloud figure was never measured: drop | measure it |
+| report accuracy (promised, not given) | 96.6 / 95.3 test, 94.6 / 93.6 held-out, cloud 96.8 / 95.1 test only | cloud on the held-out split (running) |
+| hallucination-free | 0.2 to 0.3 fabricated facts per report; "abstains on allergies and code status" is the true claim | |
+| OODA-loop auditing | a sourced patient state and a missing-documentation prompt exist and fired on 5 of 22 real calls; not evaluated by clinicians | clinician review |
+| 1,000 clips, 22 calls | 1,000 clips generated, 300 scored; 22 calls: fabrication counts on all, WER on 3 against unverified references | |
+
+### Text (about 370 words)
+
+**Background.** EMS training relies on simulation. Video records the physical interventions, but instructors
+transcribe and synthesise the radio audio by hand for the debrief, and in field training EMTs document from
+memory. Cloud transcription raises data-handling questions, and the models behind it can state clinical facts
+that were never said. We evaluated a local device that turns the radio report into a structured, sourced
+handoff without a network, so that after-action review starts from a transcript and a report rather than
+from memory.
+
+**Methods.** We built an offline pipeline on NVIDIA Jetson Orin Nano devices (8 GB): faster-whisper for the
+transcript with a radio-phrase prompt, a re-decode of collapsed decoder windows and a medical-lexicon
+corrector; a 4-billion-parameter model for a 25-field handoff report under grounding rules that abstain
+rather than invent; and a patient-state layer that applies published prehospital rules and lists what the
+call has not stated. We benchmarked it against the bare models and cloud baselines (Groq
+whisper-large-v3-turbo, whisper-large-v3, gpt-oss-120b) on a generated radio set (200 scripted reports in one
+synthetic voice at five signal-to-noise ratios, 1,000 clips; a 150-clip test split used during development
+and a 150-clip validation split held out until the end) and on 22 real public-feed calls (51 bursts). Metrics:
+word error rate, medical-term recall, a weighted report score against gold with recall and precision over
+stated facts, and the count of fabricated facts; paired clip-level bootstrap intervals.
+
+**Results.** On the test split the local transcriber scored 5.0 % / 7.0 % WER (clean / 5 dB) on the device's
+CPU and 4.6 % / 5.5 % with the largest model on a second device's GPU, against 3.9 % / 4.9 % for the best cloud
+model; on the held-out split, 4.1 % / 5.7 %. Term recall rose from 87.1 % (bare model) to 90.5 % (P = 0.99).
+On the real calls the grounding rules cut report statements unsupported by the transcript from 98 to 32 over
+73 reports and invented allergy and code-status entries from 50 and 23 to zero; disabling them cost 5.4 to 5.8
+weighted points [3.8, 7.5], raised fabricated facts from 0.2 to 0.7 per report and dropped alert-level
+agreement from 100 % to 67 %. The local report scored 96.6 / 95.3 on the test split, level with the cloud
+pipeline's 96.8 / 95.1 (difference -0.1 [-2.4, +2.0]), and 94.6 / 93.6 on the held-out split. An average call
+(85 s of audio) was processed in 143 s with every outbound connection blocked, and in 70 to 75 s with the
+transcript on the second device's GPU. Human-verified transcripts of the real calls are pending, so real-audio
+word error rates are not reported.
+
+**Conclusions.** An edge device can produce a grounded handoff report from radio audio with no network, within
+about two points of a cloud pipeline on a generated benchmark, with the two fields most prone to fabrication
+protected by rules. It is slower than the cloud; the device's GPU halves the gap, and a dedicated accelerator
+is the next step. These are feasibility results on a pilot sample: one synthetic voice, and real-call accuracy
+awaiting human-verified references.
