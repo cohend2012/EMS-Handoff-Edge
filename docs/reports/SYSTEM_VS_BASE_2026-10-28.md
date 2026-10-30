@@ -220,6 +220,16 @@ are compared at the one-point level only within one device.
 | cloud turbo, our stack | cloud gpt-oss-120b, Groq | rules on (ours, cloud) | 60 | 96.8 | 95.1 | 96.4 / 93.2 % | 98.6 / 97.0 % | 0.03 / 0.07 | 100 / 97 % | 100 % | 91 / 87 % | 3 |
 | cloud turbo, our stack | cloud gpt-oss-120b, Groq | rules off, partial: 13 of 60 before the daily cap | 13 | 93.6 | 90.2 | 93.3 / 90.5 % | 95.5 / 93.9 % | 0.14 / 0.33 | 100 % | 80 % | 100 % | 3 |
 | script text (no audio) | local qwen3:4b-instruct, vox-ai GPU | rules on | 30 | 96.4 | | 98.4 % | 96.3 % | 0.43 | 93 % | 100 % | 100 % | 55 |
+| local medium, base | local qwen3:8b (Q4_K_M), cohendynamics GPU + CPU (10-29) | rules on; 56 of 60 finished, 4 timed out at 420 s | 56 | 96.2 | 94.2 | 95.7 / 93.8 % | 96.3 / 95.8 % | 0.22 / 0.28 | 96 / 93 % | 100 % | 76 / 82 % | 232 / 186 |
+| local medium, our stack | local qwen3:8b (Q4_K_M), cohendynamics GPU + CPU (10-29) | rules on; 50 of 60 finished, 10 timed out at 420 s | 50 | 95.6 | 94.8 | 95.4 / 94.2 % | 97.4 / 96.5 % | 0.20 / 0.20 | 100 / 96 % | 100 % | 90 / 81 % | 285 / 206 |
+
+The 8B rows (10-29): the 8B against the 4B on the same transcripts, paired over the reports the 8B finished, is +0.2
+weighted points at clean [-1.0, +1.5] and +0.3 at 5 dB [-1.3, +2.0] over the base transcripts (27 and 29 reports),
+and +1.2 [-0.3, +2.9] and +0.7 [-1.6, +3.0] over our stack (25 and 25). Every interval includes zero. The cost: the 8B
+is 6.0 GB in a 7.5 GB box with no swap, Ollama placed 13 % of its layers on the CPU, 166 MB was left for everything
+else, and a report took 171 s at the median, 270 s at the 90th percentile and 1401 s at worst (page-cache thrash),
+with 32 timeouts in 120 attempts at a 420 s limit, against 50 s for the 4B on the same GPU. The 8B is not a live
+writer on an 8 GB Orin (STATEFUL_PIPELINE.md section 1); its one use is offline, as a judge or a teacher.
 
 Paired, per clip (`posterior.py --reports`): the local report over our transcripts against over the base transcripts is
 -2.0 weighted points at clean [-3.4, -0.7] and -0.4 at 5 dB [-1.6, +0.7]; the cloud system against the local system
@@ -335,8 +345,15 @@ still uses Groq for the transcript and for caption repair when a key is set.
 | stage | local | cloud |
 |---|---|---|
 | transcript, speed as transcribe time over audio time | medium 0.85x, small 0.33x, large-v3-turbo 0.8x, tiny.en 0.1x (CPU int8) | paced at 20 clips a minute; about 1 to 2 s per burst |
+| transcript on the GPU (10-29): medium on cohendynamics in the `dustynv/faster-whisper` container, 25 real bursts (983 s of audio), beam 5, no hint, no VAD | float16: 5.4 s per burst, RTF 0.137, model load 3.1 s; int8_float16: 6.2 s per burst, RTF 0.158. The same 25 bursts on the vox-ai CPU (int8, greedy, hint): 27.8 s per burst, RTF 0.706. Texts differ from the CPU pass by 18 to 20 % WER (different precision and decode settings); on the 5 bursts with a human reference the GPU float16 pass is 33.2 % WER against the CPU's 31.2 % (253 words, too few to rank them) | |
 | report, extract time per clip | 50 s mean over 150 synthetic reports (vox-ai GPU), 50 to 51 s over 240 on cohendynamics; 52.7 s mean over the real corpus baseline | about 3 s |
 | memory | llama-server 3.7 GB resident with qwen3:4b; faster-whisper large-v3-turbo 1.35 GB; medium about 1.3 GB; the two must not run at once on this box | |
+
+The GPU row answers the speed question in HORSEPOWER_GOALS.md lever A: whisper medium on the Orin GPU is 5.1 times
+faster than on the CPU at beam 5 (greedy would be faster still), which puts the local transcriber at 5 s per burst
+against the cloud's 2 to 3, and leaves the GPU room (the container holds medium fp16 in 1.5 GB) for large-v3 fp16
+(lever D) once the writer runs on the other box. Accuracy on the GPU is to be measured with the app's own decode
+(hint, greedy plus re-decode) on the test split, not with the bench's plain beam 5; that run is next.
 
 Time to first token was never measured; the app does not stream the report.
 
