@@ -106,6 +106,10 @@ def make_transcriber(provider: str, model: str, hint: bool, hint_text: str | Non
         t = GroqTranscriber(settings)
         if model.startswith("whisper-"):
             t.model = model            # e.g. whisper-large-v3 beside the default turbo
+    elif provider == "remote":
+        from ems_handoff.transcribe import RemoteTranscriber
+        t = RemoteTranscriber(settings)  # scripts/whisper_server.py on the GPU Jetson (HANDOFF_WHISPER_URL); hint and decode live there
+        t.warm_up()
     else:
         t = LocalTranscriber(settings, model_size=model)
     if not hint:
@@ -169,7 +173,7 @@ def main() -> int:
     ap.add_argument("--snr", nargs="+", default=["inf", "20", "15", "10", "5"])
     ap.add_argument("--split", choices=["train", "val", "test"])
     ap.add_argument("--ids", nargs="*")
-    ap.add_argument("--provider", choices=["local", "groq"], default="local")
+    ap.add_argument("--provider", choices=["local", "groq", "remote"], default="local")
     ap.add_argument("--model", default="medium", help="faster-whisper size for --provider local; a whisper-* name picks the Groq model")
     ap.add_argument("--no-hint", action="store_true")
     ap.add_argument("--hint-file", type=Path, help="use this file's text as the Whisper hint instead of the app's (hint ablation)")
