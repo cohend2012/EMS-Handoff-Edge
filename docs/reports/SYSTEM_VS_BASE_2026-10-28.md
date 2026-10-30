@@ -166,8 +166,26 @@ at 4.0 s a burst against 27.4. All of the difference is one burst: on CS001 S044
 second the loop was under the dense trigger. The other eight bursts match the CPU stack within a few points
 (CS008 17 against 18 %, CS014 S015 28 against 21 % without the corrector). So the re-decode now also triggers on
 the repeat collapser's verdict for any segment of 6 s or more, whatever its word rate, and when the span loops
-again on its own the first pass is kept with its repeats collapsed rather than as the loop. The real bursts are
-being decoded again on the GPU with that, medium and large-v3.
+again on its own the first pass is kept with its repeats collapsed rather than as the loop. Two more rounds were
+needed: the GPU loop came as fourteen 2 s segments of the same three words, so a run of three or more identical
+consecutive segments is now one loop span; a loop span's re-decode is judged by the loop check alone (its real
+content, 63 words, is longer than the 42-word loop); and a clip whose first pass has more words than its length
+allows (large-v3 gave "How old? 30." fourteen times for a 3.7 s burst) is decoded again whole. With all of that,
+on the nine real bursts, every stack with the corrector (10-29, 19:50):
+
+| set | bursts | CPU medium stack (vox-ai, int8) | cloud turbo + stack | cloud large-v3 + stack | GPU medium fp16 + stack | GPU large-v3 fp16 + stack |
+|---|---|---|---|---|---|---|
+| CS001 | 3 | 20.9 % | 16.6 % | 20.9 % | 27.0 % | 22.7 % |
+| CS008 | 1 | 18.4 % | 11.2 % | 10.2 % | 16.8 % | 14.3 % |
+| CS014 | 5 | 27.3 % | 33.2 % | 17.8 % | 32.0 % | 26.9 % |
+| all | 9 (597 words) | 22.7 % (27.4 s per burst) | 21.7 % (0.9 s) | 16.2 % (1.1 s) | 25.8 % (4.4 s) | 21.7 % (7.0 s) |
+
+On real radio audio the local GPU large-v3 now equals cloud turbo with our stack and beats the CPU medium stack by
+a point, at 7 s a burst against 27; cloud large-v3 with our stack is still 5.5 points ahead, on 597 reference
+words. GPU medium loses to the CPU int8 medium by 3 points on these nine (float16 and int8 make different
+mistakes on the same audio; CS001 S044 is still 8 points worse after the loop fix), so on real calls large-v3 is
+the GPU model to run. These are nine bursts; the term list and more references (section 8) are what would make
+the real-call row decisive.
 
 \* The medium re-decode rows were run with the day's revised hint, which by itself moved the clean row from 4.8 to
 7.1 % (two clips collapsed the other way; SYNTH_V1_2026-10-27.md); against that same-hint run the re-decode is a
