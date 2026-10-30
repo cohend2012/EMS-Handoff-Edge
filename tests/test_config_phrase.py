@@ -305,3 +305,34 @@ def test_local_transcriber_redecodes_speech_after_the_last_worded_segment():
     calls.clear(); t.last_notes = []
     t.transcribe(audio)
     assert calls == [60.0] and not t.last_notes
+
+
+def test_local_transcriber_redecodes_a_window_that_loops_at_a_normal_word_rate():
+    import dataclasses
+    import numpy as np
+    from ems_handoff.transcribe import LocalTranscriber, SAMPLE_RATE
+
+    class Seg:
+        def __init__(self, start, end, text):
+            self.start, self.end, self.text = start, end, text
+
+    span = {"text": "Shady Grove, this is Medic 715, ten minutes out, 57-year-old male, stroke alert by protocol."}
+
+    class FakeModel:
+        def transcribe(self, audio, **kw):
+            if len(audio) > 50 * SAMPLE_RATE:      # 14 x "Priority 1, protocol." is 42 words for 30 s: not dense, a loop
+                return iter([Seg(0.0, 30.0, "Priority 1, protocol. " * 14), Seg(30.0, 40.0, "blurry vision, gray vision, LAMS zero")]), None
+            return iter([Seg(0.0, 32.0, span["text"])]), None
+
+    rng = np.random.default_rng(0)
+    audio = (0.1 * rng.standard_normal(60 * SAMPLE_RATE)).astype(np.float32)
+    audio[40 * SAMPLE_RATE:] *= 0.01
+    t = LocalTranscriber(dataclasses.replace(load_settings(), local_whisper_redecode=True), model_size="tiny.en")
+    t._model = FakeModel()
+    assert t.transcribe(audio) == span["text"] + " blurry vision, gray vision, LAMS zero"
+    assert "0.0-30.0" in t.last_notes[0]
+    # if the span loops again on its own, the first pass is kept with its repeats collapsed, not as the loop
+    span["text"] = "Priority 1, protocol. " * 14
+    t.last_notes = []
+    assert t.transcribe(audio) == "Priority 1, protocol. blurry vision, gray vision, LAMS zero"
+    assert any("collapsed" in n for n in t.last_notes)

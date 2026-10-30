@@ -156,6 +156,16 @@ dropped tail. With the corrector it is 4.6 / 5.5 %, against cloud large-v3 with 
 largest local transcriber is now within a point of the largest cloud one on both rows, at 8 s a burst. The writer
 rows over the GPU medium and GPU large-v3 transcripts are queued on the vox-ai GPU.
 
+On the nine real bursts with a human reference (section 3), the same GPU medium decode, before the corrector,
+first came out at 31.5 % against 22.7 % for the CPU medium stack and 16.2 % for cloud large-v3 with our stack,
+at 4.0 s a burst against 27.4. All of the difference is one burst: on CS001 S044 the float16 decode looped
+("Priority 1, protocol." fourteen times for the first 30 s, 57 % WER against the CPU's 22 %), and at 1.4 words a
+second the loop was under the dense trigger. The other eight bursts match the CPU stack within a few points
+(CS008 17 against 18 %, CS014 S015 28 against 21 % without the corrector). So the re-decode now also triggers on
+the repeat collapser's verdict for any segment of 6 s or more, whatever its word rate, and when the span loops
+again on its own the first pass is kept with its repeats collapsed rather than as the loop. The real bursts are
+being decoded again on the GPU with that, medium and large-v3.
+
 \* The medium re-decode rows were run with the day's revised hint, which by itself moved the clean row from 4.8 to
 7.1 % (two clips collapsed the other way; SYNTH_V1_2026-10-27.md); against that same-hint run the re-decode is a
 1.2-point gain made of one clip (SY078, 44.6 % to 20.9 %) with 149 of 150 clips identical. Read the local "ours"

@@ -233,9 +233,17 @@ class LocalTranscriber:
                     gaps.append((s.start, s.end))
                 elif rate > self.DENSE_WORDS_PER_SECOND:
                     gaps.append((s.start, s.end)); dense.add((s.start, s.end))
+        # A loop inside a window that is not dense: "Priority 1, protocol." fourteen times for 30 s is 1.4 words a
+        # second (medium fp16 on the GPU, CS001 S044, 10-29). The repeat collapser sees it whatever the rate.
+        from .transcript_checks import collapse_repeats   # here, not at the top: transcript_checks imports this module
+        looped = {}
+        for s in worded:
+            if (s.end - s.start) >= self.GAP_SECONDS and (s.start, s.end) not in dense:
+                collapsed, note = collapse_repeats(s.text)
+                if note:
+                    gaps.append((s.start, s.end)); dense.add((s.start, s.end)); looped[(s.start, s.end)] = collapsed
         if not gaps:
             return segments
-        from .transcript_checks import collapse_repeats   # here, not at the top: transcript_checks imports this module
         out = list(segments)
         for a, b in gaps:
             a0 = max(0.0, a - self.LEAD_IN_SECONDS)
@@ -249,7 +257,14 @@ class LocalTranscriber:
             words = sum(len(s.text.split()) for s in redone)
             first = sum(len(s.text.split()) for s in segments if a <= s.start and s.end <= b)
             _collapsed, loop_note = collapse_repeats(" ".join(s.text.strip() for s in redone))
+            def keep_collapsed():
+                if (a, b) in looped:
+                    for s in out:
+                        if s.start == a and s.end == b:
+                            s.text = looped[(a, b)]
+                    self.last_notes.append(f"{a:.1f}-{b:.1f} s kept with its repeats collapsed")
             if loop_note or words > self.MAX_WORDS_PER_SECOND * max(b - a, 1.0):
+                keep_collapsed()
                 # The span decoded alone can loop instead of collapsing: large-v3-turbo on the generated set gave
                 # "ETA ten minutes" 25 times (SY074) and "the end of the day" 37 times (SY051), 250 words for 28 s
                 # (SYSTEM_VS_BASE_2026-10-28.md). A loop is not a recovery: the first pass stays, the attempt is noted.
@@ -260,6 +275,7 @@ class LocalTranscriber:
             if (a, b) in dense and words >= first:
                 self.last_notes.append(f"re-decode of {a:.1f}-{b:.1f} s discarded ({words} words, no shorter than the first pass's {first})")
                 logger.info("Local transcription: %s", self.last_notes[-1])
+                keep_collapsed()
                 continue
             self.last_notes.append(f"re-decoded {a:.1f}-{b:.1f} s on its own: {words} words where the first pass had {first}")
             logger.info("Local transcription: %s", self.last_notes[-1])
