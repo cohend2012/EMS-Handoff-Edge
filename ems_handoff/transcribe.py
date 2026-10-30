@@ -226,7 +226,8 @@ class LocalTranscriber:
         # too many ("blood pressure 93 over 48, rate of 127, ..." three times, or "13." sixty times: SY078, SY188).
         # Both are decoded again; the repeating one is spliced in only if it comes back shorter.
         dense = set()
-        for s in worded:
+        fresh = [s for s in worded if not getattr(s, "redecoded", False)]   # the pass never re-flags what it produced
+        for s in fresh:
             dur = s.end - s.start
             if dur >= self.GAP_SECONDS * 2:
                 rate = len(s.text.split()) / dur
@@ -243,23 +244,23 @@ class LocalTranscriber:
         def key(t: str) -> str:
             return " ".join("".join(c for c in w.lower() if c.isalnum()) for w in t.split())
         i = 0
-        while i < len(worded):
+        while i < len(fresh):
             j = i
-            while j + 1 < len(worded) and key(worded[j + 1].text) == key(worded[i].text) and key(worded[i].text):
+            while j + 1 < len(fresh) and key(fresh[j + 1].text) == key(fresh[i].text) and key(fresh[i].text):
                 j += 1
             if j - i + 1 >= self.LOOP_RUN:
-                a, b = worded[i].start, worded[j].end
-                gaps.append((a, b)); dense.add((a, b)); looped[(a, b)] = worded[i].text.strip()
+                a, b = fresh[i].start, fresh[j].end
+                gaps.append((a, b)); dense.add((a, b)); looped[(a, b)] = fresh[i].text.strip()
             i = j + 1
-        for s in worded:
+        for s in fresh:
             if (s.end - s.start) >= self.GAP_SECONDS and (s.start, s.end) not in dense:
                 collapsed, note = collapse_repeats(s.text)
                 if note:
                     gaps.append((s.start, s.end)); dense.add((s.start, s.end)); looped[(s.start, s.end)] = collapsed
         # More words than anyone says in the clip's whole length (large-v3 fp16 gave 42 words for a 3.7 s burst,
         # CS014 S055): the whole clip is decoded again and replaced only by something plausible.
-        total_words = sum(len(s.text.split()) for s in worded)
-        if total_words > self.MAX_WORDS_PER_SECOND * max(len(x) / SAMPLE_RATE, 1.0):
+        total_words = sum(len(s.text.split()) for s in fresh)
+        if fresh and total_words > self.MAX_WORDS_PER_SECOND * max(len(x) / SAMPLE_RATE, 1.0):
             # the span covers every segment, including one whose end runs past the audio (whisper's 30 s window)
             a, b = 0.0, max(len(x) / SAMPLE_RATE, max(s.end for s in worded))
             gaps = [(a, b)]; dense = {(a, b)}; looped = {}
@@ -307,13 +308,16 @@ class LocalTranscriber:
 
 
 class _Span:
+    redecoded = True     # a kept collapsed copy is the pass's own output too
     """A segment made here: a loop collapsed to one copy."""
     def __init__(self, start: float, end: float, text: str):
         self.start, self.end, self.text = start, end, text
 
 
 class _Shifted:
-    """A re-decoded segment placed back on the clip's timeline."""
+    """A re-decoded segment placed back on the clip's timeline. `redecoded` marks it as the pass's own output, so a
+    second pass never flags it again: the pass is idempotent and its output a fixed point (tests/test_redecode_energy.py)."""
+    redecoded = True
     def __init__(self, seg, offset: float):
         self.start, self.end, self.text = seg.start + offset, seg.end + offset, seg.text
 

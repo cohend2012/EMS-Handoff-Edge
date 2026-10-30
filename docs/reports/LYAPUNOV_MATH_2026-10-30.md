@@ -174,3 +174,18 @@ Conformal threshold on dV at alpha = 0.05: 0.1594; realised false-alarm rate on 
 
 Stop rule: best single baseline 0.807, logistic over baselines 0.826, dV 0.744: **stop**.
 
+
+## 9. Idea 4: the re-decode's own Lyapunov property, stated, found false, made true, and tested
+
+Let S be the segment list after Whisper's first pass and E(S) the number of spans the re-decode flags (wordless loud gaps
+of 6 s or more, trailing speech, collapsed or repeating long segments, runs of three identical segments, more words than
+the clip's length allows). The claim: one pass drives E to zero and its output is a fixed point, pass(pass(S)) = pass(S).
+
+The first test of the claim (14:45) failed on the real code: a re-decoded span of 28 s carrying 12 words fell under the
+sparse rule (0.5 words a second) and was flagged again on a second pass, a third decode. In production the pass runs
+once, so nothing looped, but the property did not hold. The fix is one line and changes no production transcript: a
+segment the pass itself produced (a re-decoded span or a kept collapsed copy) carries a `redecoded` mark and the
+per-segment rules skip it. Now E(pass(S)) = 0 by construction, since every flagged span becomes a marked segment and no
+rule creates a new gap, and `tests/test_redecode_energy.py` checks both branches on the real code: exactly one decode
+per flagged span, zero decodes on the second pass, identical output. This is the one provable statement in this line, it
+is about our algorithm rather than the model, and it was false until the test was written.
