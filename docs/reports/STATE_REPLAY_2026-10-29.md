@@ -103,3 +103,13 @@ Output: `~/reports_state/<CS>.json` and `summary.md`.
 - **Missing at close, 35 items over 22 calls**: the stroke items again (anticoagulant status on 7 of 9 stroke
   calls, LKW on 5, glucose on 4, a deficit or scale on 4), respiratory rate on 4 of 5 trauma calls, ETA on 6.
 - **No vital-sign crossings** (every call stated vitals once), as before.
+
+## Hybrid writer with the close-after-quiet pass (10-30, 15:55)
+
+With `HANDOFF_WRITER_MODE=hybrid` and `HANDOFF_CLOSE_QUIET_S=90`, every one of the 22 calls ends with a full report (8 closed
+on a cue, 14 by 90 s of silence); the 18 open-call reports took 38.6 s and the 22 closing passes 72.5 s. The ask rule now
+runs on every call: 14 asks over 32 items. A keyword search of each call's transcripts finds 26 of the 32 items absent
+(the ask is right), and 6 with a possible mention to read by ear: CS002 and CS023 onset time, CS003 and CS019 a deficit
+word ("weakness", "unsteady": a deficit but no scale, the ask asked for a scale), CS010 onset, CS022 anticoagulants.
+CS002 remains the wrong-alert-type case (a respiratory call heard as a stroke). The per-item precision of the asks is
+part of the listening session, where the reviewer hears whether the item was said.
