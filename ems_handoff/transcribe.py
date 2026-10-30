@@ -184,6 +184,10 @@ class LocalTranscriber:
     MAX_WORDS_PER_SECOND = 5.0 # a span decoded alone that comes back faster than anyone talks is a loop
     SPARSE_WORDS_PER_SECOND = 0.5  # a long segment with fewer words a second than this is a collapsed window
     DENSE_WORDS_PER_SECOND = 3.2   # ...and one with more is repeating itself (radio reports run 2 to 2.5)
+    LEAD_IN_SECONDS = 3.0      # a span is decoded from this much earlier: alone, mid-sentence, the hint makes medium
+                               # skip the span's first 20 s (SY078: "lactate is 2.8" where "temp of 96.1 and blood
+                               # glucose 231, GCS of 13, ..." was); with 3 s of lead-in it comes back whole
+    SEAM_WORDS = 8             # words of the lead-in that may repeat the previous segment's tail and are trimmed
 
     def _redecode_gaps(self, x: np.ndarray, segments: list, decode: dict) -> list:
         """Whisper's decoder now and then collapses a whole 30 s window to one word or nothing, and the
@@ -226,8 +230,14 @@ class LocalTranscriber:
         from .transcript_checks import collapse_repeats   # here, not at the top: transcript_checks imports this module
         out = list(segments)
         for a, b in gaps:
-            span = x[int(a * SAMPLE_RATE):int(b * SAMPLE_RATE)]
-            redone = [s for s in self._decode(span, decode, beam=getattr(self.settings, "local_whisper_redecode_beam", 5)) if s.text.strip()]
+            a0 = max(0.0, a - self.LEAD_IN_SECONDS)
+            span = x[int(a0 * SAMPLE_RATE):int(b * SAMPLE_RATE)]
+            redone = [_Shifted(s, a0) for s in self._decode(span, decode, beam=getattr(self.settings, "local_whisper_redecode_beam", 5)) if s.text.strip()]
+            redone = [s for s in redone if s.end > a + 0.5]            # what the lead-in alone covered is already in
+            if redone and a0 < a:
+                before = " ".join(s.text.strip() for s in out if s.end <= a + 0.5 and s.text.strip())
+                redone[0].text = _trim_seam(before, redone[0].text, self.SEAM_WORDS)
+                redone = [s for s in redone if s.text.strip()]
             words = sum(len(s.text.split()) for s in redone)
             first = sum(len(s.text.split()) for s in segments if a <= s.start and s.end <= b)
             _collapsed, loop_note = collapse_repeats(" ".join(s.text.strip() for s in redone))
@@ -246,8 +256,7 @@ class LocalTranscriber:
             self.last_notes.append(f"re-decoded {a:.1f}-{b:.1f} s on its own: {words} words where the first pass had {first}")
             logger.info("Local transcription: %s", self.last_notes[-1])
             out = [s for s in out if not (a <= s.start and s.end <= b)]
-            for s in redone:
-                out.append(_Shifted(s, a))
+            out.extend(redone)
         return sorted(out, key=lambda s: s.start)
 
 
@@ -255,6 +264,19 @@ class _Shifted:
     """A re-decoded segment placed back on the clip's timeline."""
     def __init__(self, seg, offset: float):
         self.start, self.end, self.text = seg.start + offset, seg.end + offset, seg.text
+
+
+def _trim_seam(before: str, text: str, max_words: int) -> str:
+    """Drop from the start of `text` the longest run of words (up to max_words) that repeats the end of `before`,
+    ignoring case and punctuation: the lead-in of a re-decoded span re-says the previous segment's tail."""
+    def norm(w: str) -> str:
+        return "".join(c for c in w.lower() if c.isalnum())
+    prev = [norm(w) for w in before.split()][-max_words:]
+    new = text.split()
+    for k in range(min(max_words, len(prev), len(new)), 0, -1):
+        if prev[-k:] == [norm(w) for w in new[:k]]:
+            return " ".join(new[k:])
+    return text
 
 
 def make_transcriber(settings: Settings):

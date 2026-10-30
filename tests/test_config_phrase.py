@@ -133,7 +133,7 @@ def test_local_transcriber_redecodes_a_long_wordless_gap():
     t._model = FakeModel()
     text = t.transcribe(audio)
     assert text == "vitals are pressure 80 over 55 sugar 285 sepsis alert any questions"
-    assert calls == [60.0, 30.0] and t.last_notes and "10.0-40.0" in t.last_notes[0]
+    assert calls == [60.0, 33.0] and t.last_notes and "10.0-40.0" in t.last_notes[0]   # the span starts 3 s early
     # a quiet gap (a pause) is left alone
     audio[10 * SAMPLE_RATE:40 * SAMPLE_RATE] *= 0.01
     calls.clear(); t.last_notes = []
@@ -170,7 +170,7 @@ def test_local_whisper_redecode_uses_beam_5_on_the_span_and_greedy_on_the_clip()
     t = LocalTranscriber(dataclasses.replace(load_settings(), local_whisper_redecode=True), model_size="tiny.en")
     t._model = FakeModel()
     assert t.transcribe(audio) == "vitals are pressure 80 over 55 any questions"
-    assert beams == [(60, 1), (30, 5)]
+    assert beams == [(60, 1), (33, 5)]
 
 
 def test_local_transcriber_discards_a_re_decode_that_loops():
@@ -242,3 +242,29 @@ def test_local_transcriber_redecodes_a_sparse_or_repeating_long_segment():
     first["text"] = " ".join(f"v{i}" for i in range(60))
     t.last_notes = []
     assert t.transcribe(audio).endswith("w59 " + first["text"]) and not t.last_notes
+
+
+def test_local_transcriber_trims_the_lead_in_seam_of_a_re_decoded_span():
+    import dataclasses
+    import numpy as np
+    from ems_handoff.transcribe import LocalTranscriber, SAMPLE_RATE, _trim_seam
+
+    assert _trim_seam("temp of 96.1 and", "96.1, and blood glucose 231", 8) == "blood glucose 231"
+    assert _trim_seam("vitals are", "pressure 80 over 55", 8) == "pressure 80 over 55"
+
+    class Seg:
+        def __init__(self, start, end, text):
+            self.start, self.end, self.text = start, end, text
+
+    class FakeModel:
+        def transcribe(self, audio, **kw):
+            if len(audio) > 50 * SAMPLE_RATE:
+                return iter([Seg(0.0, 10.0, "satting at 94 percent, temp of"), Seg(40.0, 45.0, "any questions")]), None
+            # the span 7-40 s decoded alone: its first 3 s re-say the previous tail, then the missing middle
+            return iter([Seg(0.0, 2.5, "Temp of"), Seg(2.5, 30.0, "temp of 96.1 and blood glucose 231")]), None
+
+    rng = np.random.default_rng(0)
+    audio = (0.1 * rng.standard_normal(60 * SAMPLE_RATE)).astype(np.float32)
+    t = LocalTranscriber(dataclasses.replace(load_settings(), local_whisper_redecode=True), model_size="tiny.en")
+    t._model = FakeModel()
+    assert t.transcribe(audio) == "satting at 94 percent, temp of 96.1 and blood glucose 231 any questions"

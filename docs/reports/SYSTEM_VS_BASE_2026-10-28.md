@@ -102,8 +102,15 @@ greedy-span re-decode of 10-27 (`medium_hint_rd`) clip for clip, at the same tim
 failure, the 28 to 58 s gap of SY078, re-decodes to the same 109 words either way (45 to 21 % WER): the span
 decoded alone still drops its first 12 s ("temp of" runs straight into "lactate is 2.8", losing the glucose,
 GCS and lung sounds), so on medium the beam changes nothing and the remaining loss is the span's start, not
-its decode. A re-decode that starts a few seconds before the gap, inside the last worded segment, and drops the
-overlap is the next thing to try there.
+its decode. Decoding that span seven ways on 10-29 (scratch `span_diag.py`) found the cause: alone with the
+hint it comes back as 42 words starting at "lactate is 2.8" (the first 20 s gone), with the temperature
+fallback the same, and the first half of the span alone gives three words; without the hint it comes back
+whole (66 words), and with 3 s of lead-in and the hint it comes back whole (73 words, with the previous
+segment's last words repeated). A span that starts mid-sentence and the hint together make medium skip to
+the first phrase that matches the hint's vocabulary. So the re-decode now starts 3 s before the gap and
+trims the words that repeat the previous segment's tail (`LEAD_IN_SECONDS`, `_trim_seam`); `medium_hint_rd5b`
+and `large-v3-turbo_hint_rd5c` (queued) measure the word-rate trigger with the lead-in; `large-v3-turbo_hint_rd5b`
+(running) is the trigger without it.
 
 \* The medium re-decode rows were run with the day's revised hint, which by itself moved the clean row from 4.8 to
 7.1 % (two clips collapsed the other way; SYNTH_V1_2026-10-27.md); against that same-hint run the re-decode is a
