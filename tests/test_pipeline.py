@@ -551,3 +551,18 @@ def test_render_prose_composes_summary_quality_and_preparation_from_the_facts():
     render_prose(bare)
     assert bare["handoff_summary"]["one_liner"] == "patient." and bare["data_quality"]["confidence"] == "LOW"
     assert bare["hospital_recommendations"]["resources_to_prepare"] == []
+
+
+def test_facts_only_parse_accepts_a_reply_without_the_prose_sections(monkeypatch):
+    from ems_handoff.pipeline import parse_report, PipelineError
+    reply = json.dumps({"alert_type": "STEMI", "alert_level": "RED", "eta_minutes": 8, "patient": {"age": 67, "age_unit": "years", "sex": "Male"},
+                        "chief_complaint": "chest pain", "mechanism_or_onset": "at rest", "vital_signs": {"heart_rate": 98},
+                        "assessment_findings": {"level_of_consciousness": "Alert"}, "ems_interventions": [], "history": {},
+                        "hospital_recommendations": {"activation_requested": "Cath lab", "suggested_destination": "Cath Lab"}})
+    monkeypatch.delenv("HANDOFF_FACTS_ONLY", raising=False)
+    with pytest.raises(PipelineError):
+        parse_report(reply)                       # the full schema still requires handoff_summary
+    monkeypatch.setenv("HANDOFF_FACTS_ONLY", "1")
+    r = parse_report(reply)
+    assert r["handoff_summary"]["one_liner"] is None and r["data_quality"]["confidence"] == "LOW"   # blanks, filled later by render_prose
+    assert r["hospital_recommendations"]["activation_requested"] == "Cath lab"

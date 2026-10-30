@@ -451,7 +451,8 @@ def parse_report(text: str) -> Dict[str, Any]:
     if not isinstance(data, dict):
         raise PipelineError("The AI returned JSON that is not an object.")
     data = scrub_placeholders(data)
-    missing = sorted(REQUIRED_FIELDS - data.keys())
+    required = REQUIRED_FIELDS - ({"handoff_summary"} if facts_only() else set())   # facts-only: the pipeline composes it
+    missing = sorted(required - data.keys())
     if missing:
         raise PipelineError(f"The AI left out required fields: {', '.join(missing)}.")
     if not isinstance(data.get("patient"), (dict, type(None))):
