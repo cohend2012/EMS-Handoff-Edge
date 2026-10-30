@@ -94,7 +94,10 @@ audio (21.7 %) and as a per-token confidence for the patient-state layer's belie
   have been there and were not).
 - Deliverable: a trajectory dataset, about 1000 clips x 150 tokens, with labels.
 
-**Phase 2, learn V and test it as a detector (week 3). First stop rule.**
+**Phase 2, learn V and test it as a detector (week 3). First stop rule.** Status 2026-10-30 13:30: done, and the stop
+rule fired. dV 0.744 AUROC against token entropy 0.807 and a logistic regression over the four baselines 0.826 (+0.008
+with dV added). The line stops here; the detector to carry forward is the logistic regression over the model's own
+quantities. Full write-up: docs/reports/LYAPUNOV_PHASE2_2026-10-30.md. Original plan text follows.
 - V is a small input-convex network (two hidden layers of 64) on the 768-dim decoder state. Loss:
   V(x_t+1) - V(x_t) <= -margin on tokens labelled correct; >= 0 on tokens labelled inserted or looped;
   plus the usual positivity shaping. Trained on the train split, on the laptop or the Jetson CPU.
