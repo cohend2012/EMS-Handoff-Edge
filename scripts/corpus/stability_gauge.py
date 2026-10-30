@@ -99,8 +99,9 @@ def main(argv=None) -> int:
             idx = np.where(c["keep"])[0]
             for a, b in zip(idx[:-1], idx[1:]):
                 X0.append(c["hidden"][a]); X1.append(c["hidden"][b]); Y.append(int(c["bad"][b]))
-                F.append([-c["logprob"][b], c["entropy"][b], np.nan_to_num(c["attn_entropy"][b], nan=0.0), -np.nan_to_num(c["attn_mass"][b], nan=0.0)])
-        return np.array(X0), np.array(X1), np.array(Y), np.array(F, dtype=np.float32)
+                F.append([-c["logprob"][b], c["entropy"][b], c["attn_entropy"][b], -c["attn_mass"][b]])
+        F = np.nan_to_num(np.array(F, dtype=np.float32), nan=0.0, posinf=50.0, neginf=-50.0)   # no NaN reaches the regressions
+        return np.nan_to_num(np.array(X0)), np.nan_to_num(np.array(X1)), np.array(Y), F
     X0tr, X1tr, Ytr, Ftr = transitions(train); X0te, X1te, Yte, Fte = transitions(test)
     mu, sd = X1tr.mean(0), X1tr.std(0) + 1e-6
     norm = lambda X: (X - mu) / sd
@@ -111,7 +112,10 @@ def main(argv=None) -> int:
            "test_bad_rate": float(Yte.mean()), "auroc": {}}
     names = ["-logprob", "entropy", "attn_entropy", "-attn_mass"]
     for k, nm in enumerate(names):
-        res["auroc"][nm] = auroc(Fte[:, k], Yte)
+        a = auroc(Fte[:, k], Yte)
+        res["auroc"][nm] = a if a >= 0.5 else 1 - a            # a feature that works inverted is still a detector; the sign is noted
+        if a < 0.5:
+            res.setdefault("inverted", []).append(nm)
     # logistic regression over the four baseline features (torch, so no sklearn dependency)
     fmu, fsd = Ftr.mean(0), Ftr.std(0) + 1e-6
     Ftr_t = torch.tensor((Ftr - fmu) / fsd, device=device); Fte_t = torch.tensor((Fte - fmu) / fsd, device=device)
@@ -141,7 +145,7 @@ def main(argv=None) -> int:
             good = torch.relu(m + dv) * (1 - y[b])                    # into a correct token: V must drop by the margin
             bad = torch.relu(m - dv) * y[b] * w_pos                   # into a bad token: V must not drop (weighted, bad tokens are rare)
             loss = (good + bad).mean() + 1e-3 * (v(x0[b]) ** 2).mean()
-            opt.zero_grad(); loss.backward(); opt.step(); tot += float(loss) * len(b)
+            opt.zero_grad(); loss.backward(); opt.step(); tot += float(loss.detach()) * len(b)
     res["v_train_seconds"] = round(time.perf_counter() - t0, 1); res["v_last_loss"] = round(tot / len(y), 4)
     with torch.no_grad():
         dv_te = (v(torch.tensor(norm(X1te), device=device)) - v(torch.tensor(norm(X0te), device=device))).cpu().numpy()

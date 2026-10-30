@@ -161,7 +161,8 @@ def main(argv=None) -> int:
                     lp = torch.log_softmax(sc, dim=-1)
                     logp.append(float(lp[toks[s]]))
                     pr = lp.exp()
-                    ent.append(float(-(pr * lp).sum()))
+                    # suppressed tokens have logit -inf: p = 0 and p * log p must count as 0, not NaN
+                    ent.append(float(-torch.where(pr > 0, pr * lp, torch.zeros_like(pr)).sum()))
                     h = gen.decoder_hidden_states[s][-1][0, -1, :].float().cpu().numpy()   # last layer, last position
                     hidden.append(h.astype(np.float16))
                     ca_all = getattr(gen, "cross_attentions", None)
