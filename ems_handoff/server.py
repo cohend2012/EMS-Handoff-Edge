@@ -680,8 +680,9 @@ class ReplayRun(ReplayHost):
         self.transcriptions.append(record)
         self.ctl.broker.publish({"type": "transcript", "text": text, "replay_burst": number,
                                  "segment_id": clip.segment_id, **record})
+        words = list(getattr(primary, "last_words", []) or []) if result.who == getattr(primary, "name", "primary") else []
         self.manager.add_burst(text, at=entry.get("start_wall", time.time()), duration_s=clip.duration_s,
-                               feed=clip.feed, source_id=clip.segment_id)
+                               feed=clip.feed, source_id=clip.segment_id, words=words)
 
     def _poll_loop(self) -> None:
         while not self._stopping.is_set():

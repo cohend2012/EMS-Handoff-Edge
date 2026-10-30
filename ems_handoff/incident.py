@@ -88,6 +88,7 @@ class Burst:
     duration_s: float = 0.0
     feed: str = ""
     source_id: str = ""         # e.g. the corpus segment id, or "" for the live mic
+    word_probs: List[Dict[str, Any]] = field(default_factory=list)   # [{word, start, end, probability}] from the transcriber, when it keeps them
 
     @property
     def end(self) -> float:
@@ -361,8 +362,9 @@ class IncidentSession:
             covers = int(((report.get("_meta") or {}).get("session") or {}).get("covers") or 0)
             at = self.bursts[covers - 1].end if 0 < covers <= len(self.bursts) else None
             history.append((f"burst {covers}" if covers else f"report {len(history) + 1}", at, report))
+        words_by_source = {f"burst {b.number}": b.word_probs for b in self.bursts if b.word_probs}
         try:
-            return build_state(history).to_dict()
+            return build_state(history, words_by_source=words_by_source).to_dict()
         except Exception as e:  # noqa: BLE001 - the state is a view; a bad report must not take the screen down
             logger.exception("Session %s: state failed", self.id)
             return {"error": f"{type(e).__name__}: {e}"}
@@ -400,7 +402,7 @@ class IncidentManager:
         return self.sessions[-1] if self.sessions and not self.sessions[-1].closed else None
 
     def add_burst(self, text: str, at: Optional[float] = None, duration_s: float = 0.0,
-                  feed: str = "", source_id: str = "") -> Tuple[IncidentSession, Burst]:
+                  feed: str = "", source_id: str = "", words: Optional[List[Dict[str, Any]]] = None) -> Tuple[IncidentSession, Burst]:
         """Append a finished burst to the open session, or start a new one by the boundary rule."""
         at = self.clock() if at is None else at
         with self._lock:
@@ -413,7 +415,7 @@ class IncidentManager:
             if why:
                 session = self._new_session(why)
             burst = Burst(number=len(session.bursts) + 1, text=(text or "").strip(), time=at,
-                          duration_s=duration_s, feed=feed, source_id=source_id)
+                          duration_s=duration_s, feed=feed, source_id=source_id, word_probs=list(words or []))
             session.bursts.append(burst)
             session.close_due_at = None          # the call went on: the close-after-quiet deadline is re-armed after the next report
             if is_closing_cue(burst.text):

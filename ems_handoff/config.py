@@ -99,7 +99,7 @@ class Settings:
     local_whisper_fallback: bool = False         # LOCAL_WHISPER_FALLBACK: retry a collapsed 30 s window at temperature 0.2 then 0.4, no-speech gate off
     local_whisper_beam: int = 1                  # LOCAL_WHISPER_BEAM: beam width (1 = greedy; the cloud decodes with 5)
     local_whisper_vad: bool = True               # LOCAL_WHISPER_VAD (0 turns it off): Silero VAD drops silent stretches before the decode
-    local_whisper_word_conf: bool = False        # LOCAL_WHISPER_WORD_CONF=1: keep faster-whisper's per-word probability (a wrong-word detector at AUROC 0.86 to 0.88, 10-30)
+    local_whisper_word_conf: bool = True         # LOCAL_WHISPER_WORD_CONF (0 turns it off): keep faster-whisper's per-word probability, a wrong-word detector at AUROC 0.86 to 0.88 (10-30); costs about 6 % of transcript time (CS008: 15.5 against 14.7 s)
     local_whisper_redecode_beam: int = 5         # LOCAL_WHISPER_REDECODE_BEAM: beam width for the gap re-decode (greedy loops on a collapsed span; beam 5 does not)
 
     # --- live listening ----------------------------------------------------

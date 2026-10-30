@@ -366,10 +366,36 @@ class Slot:
     first: str                               # the source that first stated it
     changed: List[str] = field(default_factory=list)   # sources where the value changed
     previous: List[Any] = field(default_factory=list)
+    confidence: Optional[float] = None       # the lowest probability the transcriber gave a word of this value, in the source burst
 
     def to_dict(self) -> Dict[str, Any]:
         return {"path": self.path, "value": self.value, "first": self.first, "changed": list(self.changed),
-                "previous": list(self.previous)}
+                "previous": list(self.previous), "confidence": self.confidence}
+
+
+LOW_CONFIDENCE = 0.75    # under this the slot is shown as low confidence (large-v3's conformal line is 0.77, medium's 0.53; a conservative single line)
+
+
+def _value_tokens(value: Any) -> List[str]:
+    """The words of a value worth matching against the transcript: numbers and words of three letters or more."""
+    toks = re.findall(r"[A-Za-z0-9]+", _text_of(value).lower())
+    return [x for x in toks if x.isdigit() or len(x) >= 3]
+
+
+def slot_confidence(value: Any, words: List[Dict[str, Any]]) -> Optional[float]:
+    """The minimum transcriber probability over the transcript words that carry this value's tokens, or None when no
+    word of the value is found in the burst's words (the writer paraphrased, or the burst kept no probabilities)."""
+    if not words:
+        return None
+    toks = set(_value_tokens(value))
+    if not toks:
+        return None
+    probs = []
+    for w in words:
+        wt = re.sub(r"[^a-z0-9]", "", str(w.get("word", "")).lower())
+        if wt and wt in toks:
+            probs.append(float(w.get("probability", 1.0)))
+    return round(min(probs), 3) if probs else None
 
 
 _CLINICAL_PREFIXES = ("patient.", "chief_complaint", "mechanism_or_onset", "eta_minutes", "alert_type", "alert_level",
@@ -398,6 +424,7 @@ class PatientState:
     news2: Optional[Dict[str, Any]] = None
     missing: List[str] = field(default_factory=list)
     conflicts: List[str] = field(default_factory=list)
+    low_confidence: List[str] = field(default_factory=list)   # "vital_signs.heart_rate: 103 (0.41)" for slots under LOW_CONFIDENCE
     alert_type: str = ""
 
     def to_dict(self) -> Dict[str, Any]:
@@ -405,13 +432,15 @@ class PatientState:
                 "slots": {k: s.to_dict() for k, s in self.slots.items()},
                 "readings": [r.to_dict() for r in self.readings],
                 "flags": [f.to_dict() for f in self.flags],
-                "series": self.series, "news2": self.news2, "missing": self.missing, "conflicts": self.conflicts}
+                "series": self.series, "news2": self.news2, "missing": self.missing, "conflicts": self.conflicts,
+                "low_confidence": self.low_confidence}
 
 
 _CONFLICT_PATHS = ("patient.age", "patient.sex", "eta_minutes", "alert_type")
 
 
-def build_state(history: List[Tuple[str, Optional[float], Dict[str, Any]]]) -> PatientState:
+def build_state(history: List[Tuple[str, Optional[float], Dict[str, Any]]],
+                words_by_source: Optional[Dict[str, List[Dict[str, Any]]]] = None) -> PatientState:
     """The state after a sequence of (source, time, report), oldest first.
 
     `source` names what produced the report ("burst 2", "report 3"); vitals are read from every report, slots
@@ -455,4 +484,10 @@ def build_state(history: List[Tuple[str, Optional[float], Dict[str, Any]]]) -> P
         s = st.slots.get(path)
         if s and s.changed:
             st.conflicts.append(f"{path}: {s.previous[0]} ({s.first}) then {s.value} ({s.changed[-1]})")
+    if words_by_source:
+        for s in st.slots.values():
+            src = s.changed[-1] if s.changed else s.first
+            s.confidence = slot_confidence(s.value, words_by_source.get(src) or [])
+        st.low_confidence = sorted(f"{p}: {_text_of(s.value)[:30]} ({s.confidence:.2f})" for p, s in st.slots.items()
+                                   if s.confidence is not None and s.confidence < LOW_CONFIDENCE)
     return st

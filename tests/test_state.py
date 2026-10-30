@@ -125,7 +125,7 @@ def test_state_from_an_empty_history_or_fragments_is_calm():
     assert st.readings == [] and st.flags == [] and st.news2 is None and st.series == []
     assert st.missing == ["age", "sex", "chief complaint", "ETA"]
     d = st.to_dict()
-    assert set(d) == {"alert_type", "slots", "readings", "flags", "series", "news2", "missing", "conflicts"}
+    assert set(d) == {"alert_type", "slots", "readings", "flags", "series", "news2", "missing", "conflicts", "low_confidence"}
 
 
 def test_incident_session_snapshot_carries_the_state_with_burst_provenance():
@@ -139,7 +139,7 @@ def test_incident_session_snapshot_carries_the_state_with_burst_provenance():
     r2["_meta"] = {"session": {"covers": 2}}
     s.reports = [r1, r2]
     st = s.snapshot()["state"]
-    assert st["slots"]["eta_minutes"] == {"path": "eta_minutes", "value": 5, "first": "burst 1", "changed": ["burst 2"], "previous": [10]}
+    assert st["slots"]["eta_minutes"] == {"path": "eta_minutes", "value": 5, "first": "burst 1", "changed": ["burst 2"], "previous": [10], "confidence": None}
     assert st["readings"][0]["source"] == "burst 2" and st["readings"][0]["time"] == 1115.0
     assert any(f["name"] == "shock_index" for f in st["flags"])
     assert st["missing"] == []
@@ -237,3 +237,31 @@ def test_a_new_burst_cancels_the_close_after_quiet_deadline():
     m2 = IncidentManager(lambda text, meta: dict(_report()), quiet_s=25.0, clock=lambda: 1000.0, start_worker=False)   # the default: off
     m2.add_burst("x", at=1000.0, duration_s=5.0); m2.poll(now=1031.0); m2.run_pending(timeout=5)
     assert m2.sessions[0].close_due_at is None
+
+
+def test_slot_confidence_is_the_lowest_word_probability_behind_the_value_and_low_ones_are_listed():
+    words = [{"word": "BP", "probability": 0.99}, {"word": "84", "probability": 0.41}, {"word": "over", "probability": 0.9}, {"word": "50,", "probability": 0.97},
+             {"word": "pulse", "probability": 0.95}, {"word": "124.", "probability": 0.98}, {"word": "Wyatt.", "probability": 0.02}]
+    assert S.slot_confidence("84/50", words) == 0.41
+    assert S.slot_confidence(124, words) == 0.98
+    assert S.slot_confidence("rollover, ejected", words) is None          # no word of the value in the burst
+    assert S.slot_confidence("84/50", []) is None
+    r = _report(); r["vital_signs"]["blood_pressure"] = "84/50"
+    h = [("burst 1", None, r)]
+    st = S.build_state(h, words_by_source={"burst 1": words})
+    assert st.slots["vital_signs.blood_pressure"].confidence == 0.41 and st.slots["vital_signs.heart_rate"].confidence == 0.98
+    assert st.low_confidence == ["vital_signs.blood_pressure: 84/50 (0.41)"]
+    assert "low_confidence" in st.to_dict()
+    st2 = S.build_state(h)                                                    # no words: no confidence, no list
+    assert st2.slots["vital_signs.blood_pressure"].confidence is None and st2.low_confidence == []
+
+
+def test_incident_bursts_carry_words_into_the_state():
+    from ems_handoff.incident import IncidentManager
+    r = _report(); r["vital_signs"]["blood_pressure"] = "84/50"
+    m = IncidentManager(lambda text, meta: dict(r), quiet_s=25.0, clock=lambda: 1000.0, start_worker=False)
+    m.add_burst("BP 84 over 50, pulse 124", at=1000.0, duration_s=10.0, words=[{"word": "BP", "probability": 0.99}, {"word": "84", "probability": 0.3}, {"word": "over", "probability": 0.9}, {"word": "50", "probability": 0.9}])
+    m.poll(now=1040.0); m.run_pending(timeout=5)
+    snap = m.sessions[0].snapshot()
+    assert snap["state"]["slots"]["vital_signs.blood_pressure"]["confidence"] == 0.3
+    assert any(x.startswith("vital_signs.blood_pressure") for x in snap["state"]["low_confidence"])

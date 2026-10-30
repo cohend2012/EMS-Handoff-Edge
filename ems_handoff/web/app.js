@@ -494,6 +494,7 @@
     for (const s of st.series || []) for (const c of s.crossings || []) rows.push(`<div class="st-cross">↕ ${esc(c)}</div>`);
     if ((st.missing || []).length) rows.push(`<div class="st-missing">? ${esc(st.alert_type || "call")}: not stated: ${esc(st.missing.join(", "))}</div>`);
     for (const c of st.conflicts || []) rows.push(`<div class="st-conflict">≠ ${esc(c)}</div>`);
+    if ((st.low_confidence || []).length) rows.push(`<div class="st-conflict">~ low confidence: ${esc(st.low_confidence.join("; "))}</div>`);
     if (st.news2 && st.news2.partial === false) rows.push(`<div class="st-ok">NEWS2 ${st.news2.score} (${esc(st.news2.band)})</div>`);
     if (!rows.length) rows.push(`<div class="st-ok">state: no flags, nothing missing for ${esc(st.alert_type || "this call")}</div>`);
     el.innerHTML = rows.join("");
