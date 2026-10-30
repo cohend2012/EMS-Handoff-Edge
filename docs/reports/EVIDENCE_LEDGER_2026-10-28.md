@@ -10,12 +10,12 @@ the claim-by-claim table), CALCULATIONS_2026-10-28.md (the arithmetic) and POSTE
 |---|---|---|---|---|
 | `tests/gold` | four sample handoffs (quick, STEMI, trauma, sepsis) with a gold JSON each | 4 cases | hand-written | the pasted-text path; regression on every commit |
 | `~/labels/gold` | gold JSON for real call-sets CS001, CS008, CS014 | 3 calls | hand-labelled from the audio | report scoring on real calls |
-| `~/labels/reference` | human reference transcripts for the bursts of those three calls | 9 bursts, 612 normalised words | typed and corrected by hand from candidate transcripts | WER and n-gram scoring on real audio |
+| `~/labels/reference` | reference transcripts for the bursts of those three calls (assistant-drafted from several transcriber outputs, judgement calls marked; not human-verified) | 9 bursts, 612 normalised words | typed and corrected by hand from candidate transcripts | WER and n-gram scoring on real audio |
 | `~/datasets/synth_v1` | 200 generated radio scripts, each with text, spoken form and gold JSON; rendered in one Piper voice at clean, 20, 15, 10, 5 dB through the measured radio channel | 200 scripts, 1000 clips (plus 200 practice renders), split 140 / 30 / 30 by script | generated 2026-10-27 | transcriber curves by SNR, term error, report scoring; the only set large enough for intervals |
 | `~/datasets/synth_v1/terms.txt` | the medical term list for MTER | 149 terms, 200 occurrences in the 30 test scripts | from the lexicon and the scripts | term recall |
 | real call corpus | public radio feed, cut into call-sets with the corpus pipeline | 22 call-sets, 51 bursts, 1869 s of audio, 22 labelled rows | stages 2 to 6 of `~/labels/scripts` | replay, demo batch, hallucination review; 19 still lack a human reference |
 
-What does not exist: references for the other 19 calls, a second annotator on anything, a term list for real audio,
+What does not exist: human verification of any reference, references for the other 19 calls, a second annotator on anything, a term list for real audio,
 a second synthetic voice (XTTS clones wait for a GPU), and any audio from a real ambulance cabin.
 
 ## 2. Every evaluation run, in order

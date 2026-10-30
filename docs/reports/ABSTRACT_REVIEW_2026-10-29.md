@@ -46,7 +46,7 @@ corrector, and a 4-billion-parameter instruction model for a 25-field handoff re
 that abstain rather than invent. It was benchmarked against the bare models and against cloud baselines
 (Groq whisper-large-v3-turbo, whisper-large-v3 and gpt-oss-120b) on a 1,000-clip generated radio set (200
 scripted reports at five signal-to-noise ratios, 150-clip held-out test split) and on 22 real public-feed
-calls, three of which have human reference transcripts (612 words) and gold reports. We measured word error
+calls, three of which have reference transcripts and gold reports (612 words; drafted from several transcriber outputs and pending human verification). We measured word error
 rate, medical-term recall, a weighted report score against gold with recall and precision over stated
 facts, and the count of fabricated facts, with a Beta-Binomial posterior on per-term outcomes and a paired
 clip-level bootstrap for differences.
@@ -111,7 +111,7 @@ vital-sign criteria, stroke and STEMI documentation elements) and lists what the
 against the bare models and against cloud baselines (Groq whisper-large-v3-turbo, whisper-large-v3 and gpt-oss-120b) on
 a 1,000-clip generated radio set (200 scripted reports in one synthetic voice at five signal-to-noise ratios; a 150-clip
 test split used during development and a 150-clip validation split held out until the end) and on 22 real public-feed
-calls, three of which have human reference transcripts (612 words) and gold reports. We measured word error rate,
+calls, three of which have reference transcripts and gold reports (612 words; drafted from several transcriber outputs and pending human verification). We measured word error rate,
 medical-term recall, a weighted report score against gold with recall and precision over stated facts, and the count of
 fabricated facts, with paired clip-level bootstrap intervals and a Beta-Binomial posterior on per-term outcomes.
 
@@ -133,5 +133,5 @@ confirmed against the transcript).
 about two points of a cloud pipeline on transcript and report accuracy, with the two fields most prone to fabrication
 protected by rules, and can tell the receiver what a closing call has not stated. It is slower than the cloud; the
 measured remedy is the device's GPU, and a dedicated accelerator is the next step. These are feasibility results on a
-pilot sample (three referenced calls, one synthetic voice, one annotator), and the report stage lost two points on
-held-out scripts, so the next phase adds references for the remaining calls, a second annotator and a second voice.
+pilot sample (three referenced calls whose references await human verification, one synthetic voice), and the report stage lost two points on
+held-out scripts, so the next phase verifies the references by listening, adds references for the remaining calls, a second annotator and a second voice.

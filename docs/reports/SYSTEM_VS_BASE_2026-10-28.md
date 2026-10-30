@@ -14,7 +14,7 @@ partial numbers are marked as such). Logs: `~/datasets/synth_v1/logs/`.
 
 ## 1. How we score
 
-- **WER**, word error rate: Levenshtein edits between the transcript and a human reference (real calls) or the
+- **WER**, word error rate: Levenshtein edits between the transcript and a reference (real calls: assistant-drafted from several transcriber outputs, not human-verified) or the
   script (generated set), divided by reference words. A "point" is one percentage point, one wrong word per
   hundred spoken. `scripts/corpus/score_callsets.py`, with the spoken-unit normalisation (ETA, IV, BP, SpO2 ...).
 - **MTER**, medical term error rate: the share of the 200 occurrences of the 149 terms of `terms.txt` in the 30
@@ -210,7 +210,7 @@ dropped tail. With the corrector it is 4.6 / 5.5 %, against cloud large-v3 with 
 largest local transcriber is now within a point of the largest cloud one on both rows, at 8 s a burst. The writer
 rows over the GPU medium and GPU large-v3 transcripts are queued on the vox-ai GPU.
 
-On the nine real bursts with a human reference (section 3), the same GPU medium decode, before the corrector,
+On the nine real bursts with a reference (section 3), the same GPU medium decode, before the corrector,
 first came out at 31.5 % against 22.7 % for the CPU medium stack and 16.2 % for cloud large-v3 with our stack,
 at 4.0 s a burst against 27.4. All of the difference is one burst: on CS001 S044 the float16 decode looped
 ("Priority 1, protocol." fourteen times for the first 30 s, 57 % WER against the CPU's 22 %), and at 1.4 words a
@@ -254,7 +254,7 @@ Levers measured and rejected, with numbers in SYNTH_V1_2026-10-27.md: the temper
 of four collapses on turbo, none on medium), hotword boosting with the term list (breaks medium, 32 % WER at
 clean on clips that score 5 % plain).
 
-## 3. Transcriber, real call-sets with a human reference (CS001, CS008, CS014; 9 bursts, 597 words)
+## 3. Transcriber, real call-sets with a reference (CS001, CS008, CS014; 9 bursts, 597 words; references assistant-drafted from several transcriber outputs, not human-verified)
 
 `scripts/corpus/real_stack.py`, same scorer, pooled over 612 reference words (the earlier 597 counted differently).
 
@@ -522,7 +522,7 @@ Time to first token was never measured; the app does not stream the report.
 
 | the abstract says | what the data says | source |
 |---|---|---|
-| Twenty pre-hospital recordings | 22 real calls on disk, 3 with human references (612 words); 1000 generated clips | DATA_LAYOUT.md, section 3 |
+| Twenty pre-hospital recordings | 22 real calls on disk, 3 with assistant-drafted references (612 words, not human-verified); 1000 generated clips | DATA_LAYOUT.md, section 3 |
 | Four configurations | five model sizes and the stack components measured one at a time; the closest honest mapping is cloud large-v3 (control), medium base (baseline edge), medium + stack (precision edge), small + stack (speed edge) | section 2 |
 | Cosine similarity against the cloud control | not used; scoring against the control makes the control unbeatable. WER, term error and n-gram recall against human references and scripts | section 1 |
 | Semantic precision and recall | recall and precision over stated facts against gold JSON; term recall over 200 occurrences | sections 2, 4, 4b |

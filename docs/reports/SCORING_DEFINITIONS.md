@@ -25,8 +25,7 @@ itself, so it is exact. Transcript rows are reported per level; report rows were
 (60 reports per configuration).
 
 **Real calls.** 22 call sets recorded from a public county EMS feed, 51 bursts, 1,869 s of audio. Three call
-sets (CS001, CS008, CS014), nine bursts, 612 words, have a reference transcript typed by one person from the
-audio; those nine bursts are the only real audio with a transcript score. Those three call sets also have a
+sets (CS001, CS008, CS014), nine bursts, 612 words, have a reference transcript drafted by the assistant from several transcriber outputs read side by side (Groq turbo with two hints, Groq large-v3, local medium, Vosk), with every judgement call marked "verify" in corrections.md, not from a person listening to the audio; those nine bursts are the only real audio with a transcript score. Those three call sets also have a
 gold report; the other 19 do not, so real-call report rows (the 73-report corpus runs, the 22-call state
 replay) measure invented facts and documentation gaps against the transcript, not field accuracy against gold.
 
@@ -113,7 +112,7 @@ overstates certainty; the bootstrap is the conservative reading and is the one t
 ## 7. What these numbers are not
 
 - Not clinical accuracy judged by a clinician. Gold for the generated set is the script's own facts; gold for
-  three real calls was written by one annotator.
+  three real calls were drafted by the assistant from several transcriber outputs, not by a person listening; human verification is pending.
 - Not a measure on the 22 real calls' field accuracy: 19 of them have no gold report.
 - Not independent of the transcriber: a report row's number belongs to the transcript run it read.
 - Not comparable across hint versions: rows before 2026-10-27 used an older whisper hint.
