@@ -428,6 +428,14 @@ hallucinations cleared and 28 hits kept, third split 95.77 to 96.06 with its 4 c
 out of 82. The rule was written from errors on the validation and third splits, so those splits are no longer blind to
 it; the 110 remaining training scripts are. It ships with the pipeline from commit 175e80e's successor.
 
+The NKDA corrector rule, measured (10-30, 13:10): the three affected training scripts rerun through the writer with the
+corrected transcripts turn five of their six allergy omissions into hits (SY029 93.6 to 100.0 at both levels, SY016 87.5
+to 92.9 at clean, SY003 keeps its other faults); the sixth transcript carried a variant the rule does not match. The
+transcripts themselves move from 3.7 / 4.6 to 3.5 / 4.4 % WER on the 30 training scripts. The rule changes the transcripts
+of 12 scripts across all three splits, so every `_corr` label and writer row above was made with the corrector before this
+rule; a consistency rerun of the test-split headline under the new corrector is owed before its number is quoted beside
+these.
+
 The 8B rows (10-29): the 8B against the 4B on the same transcripts, paired over the reports the 8B finished, is +0.2
 weighted points at clean [-1.0, +1.5] and +0.3 at 5 dB [-1.3, +2.0] over the base transcripts (27 and 29 reports),
 and +1.2 [-0.3, +2.9] and +0.7 [-1.6, +3.0] over our stack (25 and 25). Every interval includes zero. The cost: the 8B
