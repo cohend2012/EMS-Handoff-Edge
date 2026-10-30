@@ -185,7 +185,7 @@ _CONTEXT_RULES: List[Tuple[str, "re.Pattern", str]] = [
     # "NKDA" spelled letter by letter comes back as "NKD day", "NKD-8", "NKDSA", "NKD, hey", "NKD is." (25 + 6 + 3 + 3 + 3
     # times over the 10-30 GPU transcripts of 12 scripts that say NKDA); the writer then never sees an allergy statement
     ("NKDA spelled",
-     re.compile(r"(?i)\bNKD(?!A\b)\s*(?:[,\-]\s*)?(?:day|8|a|sa|hey|he|eh|ay|is\s+a|is(?=\s*[.,;]|\s*$))\b"),
+     re.compile(r"(?i)\bNKD(?!A\b)\s*(?:[,\-]\s*)?(?:day|8|a|sa|hey|he|eh|ay|is\s+a(?=\s*[.,;]|\s*$)|is(?=\s*[.,;]|\s*$))\b"),
      "NKDA"),
 ]
 
