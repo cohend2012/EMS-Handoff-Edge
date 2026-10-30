@@ -239,3 +239,12 @@ legend { color: var(--muted); font-size: .85rem; padding: 0 .3rem; }
 .sync-marker { position: absolute; top: 12px; right: 12px; width: 48px; height: 48px; background: #000; border: 2px solid #000; border-radius: 4px; }
 .sync-marker.on { background: #fff; }
 @media (max-width: 900px) { .replay-grid { grid-template-columns: 1fr; } }
+
+/* the patient state: flags with their rule, what the alert type still lacks, conflicts, crossings */
+.state-line { font-size: 1.05rem; line-height: 1.45; padding: .35rem .6rem; border-left: 3px solid var(--line); background: rgba(255,255,255,.03); display: grid; gap: .15rem; }
+.state-line .st-flag { color: #ff8a80; }
+.state-line .st-flag .rule { color: var(--muted); font-size: .9em; }
+.state-line .st-missing { color: #f6c35b; }
+.state-line .st-conflict { color: #9ecbff; }
+.state-line .st-cross { color: #ff8a80; }
+.state-line .st-ok { color: var(--muted); }

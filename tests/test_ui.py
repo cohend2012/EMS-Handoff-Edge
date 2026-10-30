@@ -172,6 +172,8 @@ def test_replay_screen_shows_bursts_report_and_updating_marker(settings, page, t
         assert "burst 2 of 2" in banner and "groq" in banner and "commit" in banner
         assert "Report as of burst 2 of 2" in page.inner_text("#rpAsOf")
         assert page.inner_text("#rpChange").startswith("burst 2")
+        page.wait_for_selector("#rpState:not([hidden])", timeout=5000)
+        assert page.inner_text("#rpState").strip(), "the patient state line shows flags, missing items or an all-clear"
         # the recording's tail: a short window, so the page has something to scroll; the tour brings the bottom into view
         page.set_viewport_size({"width": 1280, "height": 400})
         assert page.evaluate("document.scrollingElement.scrollTop") == 0
@@ -189,7 +191,7 @@ def test_page_carries_the_replay_screen_and_the_sync_marker(settings, tmp_path):
     from test_replay import build
     client, _, _ = build(settings, tmp_path)
     html = client.get("/").get_data(as_text=True)
-    for needle in ('id="screen-replay"', 'id="syncMarker"', 'id="replayCard"', 'id="rpUpdating"', 'id="rpChange"',
+    for needle in ('id="screen-replay"', 'id="syncMarker"', 'id="replayCard"', 'id="rpUpdating"', 'id="rpChange"', 'id="rpState"',
                    'id="rpNewPatientBtn"', 'id="rpMergeBtn"', "Recorded call replay"):
         assert needle in html
     assert "loop" not in html.lower(), "no loop controls yet"

@@ -470,6 +470,7 @@
         $("rpDashboard").scrollTop = 0;
       }
     }
+    renderState(s.state, s.of);
     const line = s.change_lines[s.change_lines.length - 1];
     if (line && line !== ui.replay.lastChange) {
       const el = $("rpChange");
@@ -482,6 +483,22 @@
     }
     if (ev.event === "error") $("rpStage").textContent = `Extraction failed: ${ev.message}`;
   }
+  // The patient state (ems_handoff/state.py): flags with their published rule and source burst, what the
+  // declared alert type still lacks, conflicts between bursts, and vital-sign threshold crossings.
+  function renderState(st, bursts) {
+    const el = $("rpState");
+    if (!st || st.error || !bursts) { el.hidden = true; return; }
+    const rows = [];
+    for (const f of st.flags || []) rows.push(`<div class="st-flag">⚑ ${esc(f.text)} (${esc(f.source)}) <span class="rule">${esc(f.rule)}</span></div>`);
+    for (const s of st.series || []) for (const c of s.crossings || []) rows.push(`<div class="st-cross">↕ ${esc(c)}</div>`);
+    if ((st.missing || []).length) rows.push(`<div class="st-missing">? ${esc(st.alert_type || "call")}: not stated: ${esc(st.missing.join(", "))}</div>`);
+    for (const c of st.conflicts || []) rows.push(`<div class="st-conflict">≠ ${esc(c)}</div>`);
+    if (st.news2 && st.news2.partial === false) rows.push(`<div class="st-ok">NEWS2 ${st.news2.score} (${esc(st.news2.band)})</div>`);
+    if (!rows.length) rows.push(`<div class="st-ok">state: no flags, nothing missing for ${esc(st.alert_type || "this call")}</div>`);
+    el.innerHTML = rows.join("");
+    el.hidden = false;
+  }
+
   function renderReplayCaption(ev) {
     const box = $("rpCaptions");
     if (!ev.final && !ev.partial && !(ev.segments && ev.segments.length)) return;
