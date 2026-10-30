@@ -6,7 +6,8 @@ def test_spelled_nkda_variants_become_nkda():
                   "lisinopril, and aliquiz. NKD-8. Family states",
                   "hypertension. NKDSA. Requesting a STEMI alert",
                   "alert and oriented. NKD, hey, we're about four minutes out",
-                  "No past history. NKD is. ETA five"):
+                  "No past history. NKD is. ETA five",
+                  "history includes hypertension. NKD is A. Requesting a STEMI alert"):
         out, applied = _apply_context_rules(heard)
         assert "NKDA" in out and "NKD " not in out and "NKD-" not in out and "NKDSA" not in out, (heard, out)
         assert applied and applied[-1].category == "NKDA spelled"
