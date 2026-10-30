@@ -27,11 +27,11 @@ from the whole session, will show fewer. The replay over session-cumulative repo
 - **No crossings.** Twenty-one readings over 22 calls: the radio report states vitals once. Only CS021
   (seven bursts) carried two readings. Serial-vitals observations need the monitor feed or the cabin
   audio; on the radio alone they will be rare, which is itself a finding for the paper.
-- **The stroke documentation gap is real and matches the literature.** Of the four stroke calls, three
-  did not state anticoagulant use or a deficit / scale, two did not state last known well or a glucose.
-  Wisconsin EMS documented last known well in 19 % of stroke runs in 2018; the ask rule has its first
-  target.
-- **Trauma calls did not state a respiratory rate** in four of four. Respiratory rate is a field-triage
+- **The stroke documentation gap is real and matches the literature.** Over the merged slots seven calls
+  carry a STROKE type at some burst; six of them never state anticoagulant use, four state no deficit or
+  scale, four no blood glucose, three no last known well. Wisconsin EMS documented last known well in 19 %
+  of stroke runs in 2018; the ask rule has its first target.
+- **Trauma calls did not state a respiratory rate** in five of five. Respiratory rate is a field-triage
   red criterion (< 10 or > 29), so the missing line is worth showing.
 - **NEWS2 is always partial on the radio** (temperature is never stated, consciousness often), so the
   screen must show it as "partial, missing temperature" or not at all. Scores of 7 and 8 appeared on

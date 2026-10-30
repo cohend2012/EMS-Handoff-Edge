@@ -450,7 +450,7 @@ def build_state(history: List[Tuple[str, Optional[float], Dict[str, Any]]]) -> P
         st.flags = flags_for(st.readings[-1])
         st.news2 = news2(st.readings[-1])
     st.series = series(st.readings)
-    st.missing = missing_documentation(latest) if latest else []
+    st.missing = missing_documentation(latest)      # the common floor is missing until something is stated
     for path in _CONFLICT_PATHS:
         s = st.slots.get(path)
         if s and s.changed:
