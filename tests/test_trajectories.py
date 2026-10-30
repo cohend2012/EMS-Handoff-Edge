@@ -7,13 +7,14 @@ T = importlib.util.module_from_spec(spec); spec.loader.exec_module(T)
 
 def test_align_words_labels_correct_substituted_inserted_and_reports_deleted_spans():
     ref = "medic 14 priority 1 stroke alert 57 year old male eta 10".split()
-    hyp = "medic 14 priority 1 stroke alert 97 year old male thank you".split()
+    hyp = "medic 14 priority 1 stroke alert 97 year old male thank you very much".split()
     labels, deleted = T.align_words(ref, hyp)
     assert labels[:6] == ["correct"] * 6
     assert labels[6] == "substituted"                       # 57 -> 97
     assert labels[7:10] == ["correct"] * 3
-    assert "inserted" in labels[10:]                         # "thank you" has no counterpart
-    assert any(span[2] in ("eta 10", "eta", "10") for span in deleted)   # the dropped tail is a deletion span
+    assert labels[10:].count("inserted") >= 2                # four words where the reference had two: at least two insertions
+    labels2, deleted2 = T.align_words(ref, "medic 14 priority 1 stroke alert 57 year old male".split())
+    assert labels2 == ["correct"] * 10 and deleted2 == [(10, 11, "eta 10")]   # the dropped tail is one deletion span
 
 
 def test_align_words_handles_empty_sides():
