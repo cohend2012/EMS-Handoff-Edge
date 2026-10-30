@@ -334,6 +334,7 @@ are compared at the one-point level only within one device.
 | GPU large-v3 fp16, plain decode (base; 10-30) | local qwen3:4b-instruct, vox-ai GPU | rules on (base transcripts, GPU, largest model) | 60 | 96.0 | 95.4 | 95.4 / 95.2 % | 97.0 / 96.8 % | 0.13 / 0.13 | 90 % | 100 % | 87 / 87 % | 52 |
 | GPU large-v3 fp16, our stack (10-30) | local qwen3:4b-instruct, vox-ai GPU | rules on, lexicon retrieval OFF (HANDOFF_USE_LEXICON=0); 59 of 60, SY101 at 5 dB malformed JSON | 59 | 95.0 | 94.7 | 94.0 / 94.4 % | 97.3 / 98.0 % | 0.10 / 0.14 | 97 % | 100 % | 83 % | 48 |
 | GPU large-v3 fp16, our stack (10-30) | local qwen3:4b-instruct, vox-ai GPU | rules on, COMPACT OUTPUT (writer told to omit empty fields; HANDOFF_COMPACT_OUTPUT=1) | 60 | 96.0 | 95.4 | 95.7 / 94.7 % | 96.6 / 96.3 % | 0.17 / 0.23 | 90 % | 100 % | 83 / 87 % | 48 |
+| **held-out check**: GPU large-v3 fp16, our stack, on the 30 VALIDATION scripts (10-30) | local qwen3:4b-instruct, vox-ai GPU | rules on, lexicon on; 59 of 60, SY185 at 5 dB malformed JSON | 59 | 94.6 | 93.6 | 95.2 / 94.3 % | 95.8 / 95.3 % | 0.30 / 0.34 | 97 / 93 % | 100 % | 92 / 96 % | 50 |
 
 The GPU local stack row (10-29): the first full local system number with the day's decode fixes and the GPU transcripts (medium fp16 on cohendynamics, hint, span re-decode, corrector, then the 4B writer with rules on vox-ai) is 95.3 weighted at clean and 94.2 at 5 dB. Paired against the CPU local stack on the same clips it is +1.6 points at clean [+0.1, +3.4] and +0.6 at 5 dB [-0.3, +1.7]; against the cloud stack's 96.8 / 95.1 it is -1.5 at clean [-3.9, +0.9] and -1.1 at 5 dB [-3.9, +1.6] (30 and 28 pairs). So the GPU transcripts close the local-against-cloud gap of section 5 (which was -3.0 [-5.6, -0.6] at clean) to a difference whose interval now includes zero. The same transcripts without the corrector give the identical row: the corrector changed three of the sixty GPU transcripts (SY028 at 5 dB, SY079 clean, and SY117 at 5 dB, the clip whose report failed either way) and none of the changes moved a report score, so on this set the corrector's value is in the transcript metric (4.6 to 4.5 % WER), not in the report. Against the CPU base writer row (95.7 / 93.9, medium without a hint) the GPU hint + re-decode row is -0.4 [-1.8, +1.4] at clean and +0.3 [-0.8, +1.4] at 5 dB, and against the cloud base row (95.2 / 94.2) +0.1 [-2.3, +2.6] and -0.0 [-2.2, +2.2]: the local writer over GPU transcripts is level with the cloud base system. There is no GPU row with a plain base decode (no hint, no re-decode) yet. The rows over the large-v3 GPU transcripts are running.
 
@@ -370,6 +371,16 @@ instruction buys 6 % of the writer's time for a possible half point: not worth s
 nulls; it is the prose sections (handoff_summary, hospital_recommendations, data_quality and the assessment text), so the
 writer lever is to take those out of the model's job and render them from the state, or the slot-state delta write
 (STATEFUL_PIPELINE.md), not a shorter instruction.
+
+The held-out report row (10-30, 10:25): the same local system on the 30 validation scripts, never opened while the
+decode or the prompt were tuned, scores 94.6 / 93.6 against the test split's 96.6 / 95.3: -2.1 at clean [-5.0, +0.7] and
+-1.7 at 5 dB [-4.8, +1.5] by an unpaired bootstrap (different scripts, so no pairing). Hallucinations rise from 0.17 / 0.20
+to 0.30 / 0.34 per report (19 against 11 over the 60), omissions 29 against 23, wrong 18 against 16; alert type right
+97 / 93 % against 90 %. The spread is by family: fragment, obstetric and psychiatric scripts score 100, STEMI and chest
+pain 97 to 98, stroke 95, trauma 93, and the medical (85.0, n = 5), arrest (87.9) and sepsis (88.4) families carry the
+loss; the worst report (SY185 clean, 75.6) has two hallucinations and a wrong level. So the report headline is a
+test-split number with about two points of optimism, and the cloud stack has only been run on the test split, so
+"level with the cloud" is a test-split statement until the cloud runs on the validation scripts (queued, Groq).
 
 The 8B rows (10-29): the 8B against the 4B on the same transcripts, paired over the reports the 8B finished, is +0.2
 weighted points at clean [-1.0, +1.5] and +0.3 at 5 dB [-1.3, +2.0] over the base transcripts (27 and 29 reports),

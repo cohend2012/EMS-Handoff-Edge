@@ -67,6 +67,7 @@ unless marked cloud.
 | 10-30 | large-v3 GPU noise curve at 20 / 15 / 10 dB through the whisper server (eval_set --provider remote), while vox-ai's writer ran | 90 clips | 14 min | 4.5 / 4.4 / 5.0 % against cloud large-v3's 3.8 / 3.6 / 4.0 (+0.7 to +0.9, intervals excluding or touching zero), term recall equal; full local curve 4.6 / 4.5 / 4.4 / 5.0 / 5.5 % | evals/large-v3_gpu_fp16_hint_rd5d_curve |
 | 10-30 | Held-out check: large-v3 GPU, shipped decode, on the 30 VALIDATION scripts (never used while tuning), five levels | 150 clips | 20 min | 4.1 / 4.3 / 4.6 / 4.9 / 5.7 % against the test split's 4.6 / 4.5 / 4.4 / 5.0 / 5.5: within 0.5 points everywhere; term error 12.2 against 9.0 % at 5 dB; validation report row running | evals/large-v3_gpu_fp16_hint_rd5d_VAL |
 | 10-30 | Compact-output writer row (omit empty fields) over the large-v3 GPU stack transcripts | 60 | 50 min | 96.0 / 95.4 against 96.6 / 95.3 (-0.6 [-1.4, +0.0] at clean); 748 against 806 output tokens, 48.5 against 51.6 s: 6 % faster for a possible half point, not shipped; the bulk of the output is the prose sections, not the nulls | reports/*_compact |
+| 10-30 | Held-out report row: the local system (GPU large-v3 stack, 4B writer) on the 30 VALIDATION scripts | 59 of 60 | 52 min | 94.6 / 93.6 against the test split's 96.6 / 95.3: -2.1 [-5.0, +0.7], -1.7 [-4.8, +1.5] unpaired; hallucinations 0.30 / 0.34 against 0.17 / 0.20; the medical, arrest and sepsis families carry the loss; cloud on the validation split queued | reports/large-v3_gpu_fp16_hint_rd5d_VAL_corr__qwen3-4b-instruct |
 
 Regression on every commit: 245 tests under `.venv/bin/python -m pytest` (2 min), including the pipeline on the four
 gold samples with a fake model, the re-decode and its loop guard, the rules switch, and the transcript checks.
@@ -141,6 +142,6 @@ recall, P = 99.2 %). The precision-from-filtering claim, the 1.5 to 2 times spee
 outperformed the cloud" do not; the defensible statements are "within a point of the cloud on the same model
 class", "3 to 6 points better than the bare model on real audio", "runs disconnected", and "abstains rather than
 invents". After 10-29 the local transcript on the second device's GPU is within a point of the same cloud model and
-the local report over large-v3 GPU transcripts is level with the cloud stack (96.6 / 95.3 against 96.8 / 95.1, -0.1 [-2.4, +2.0]), at a fifth of real time; the
+the local report over large-v3 GPU transcripts is level with the cloud stack on the test split (96.6 / 95.3 against 96.8 / 95.1, -0.1 [-2.4, +2.0]) and about two points lower on the held-out validation split (94.6 / 93.6, cloud not yet run there), at a fifth of real time; the
 speed claim still belongs to the hardware, not to the stack, and an 8B writer bought nothing measurable. Twenty-two calls with three references and thirty synthetic scripts in one voice is a pilot, and every
 number above should be read with that sample size in front of it.
