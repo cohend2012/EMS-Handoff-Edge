@@ -334,6 +334,39 @@ _NOT_STATED_BEFORE = re.compile(
 _NOT_STATED_AFTER = re.compile(r"^\W*(?:no|nope|negative|not)\b", re.I)
 
 
+_DESTINATIONS = ("cath lab", "trauma bay", "resuscitation bay", "critical care", "general ed")
+_REQUEST_WORDS = re.compile(r"request|activat|notif|alert|please have|need (?:the|a)|standing by|stand by|be ready|prepar|team|page|call ahead", re.I)
+_ETA_PHRASE = re.compile(r"\b(?:minutes?|mins?|see you|how do you copy|copy|eta)\b", re.I)
+
+
+def ground_activation(report: Dict[str, Any], text: str) -> Optional[str]:
+    """The activation request is what the crew asked the hospital for. Two inventions seen on 10-30 are cleared:
+    an ETA or closing phrase written as the request ("see you in approximately 20 minutes"), and a bare destination
+    name ("Cath Lab", "Resuscitation Bay") when the transcript never asks for it near that term. Returns the note
+    added to data_quality.assumptions, or None when nothing changed."""
+    hr = report.get("hospital_recommendations") or {}
+    val = hr.get("activation_requested")
+    if not val or not isinstance(val, str):
+        return None
+    v = val.strip()
+    if _ETA_PHRASE.search(v) and not _REQUEST_WORDS.search(v):
+        hr["activation_requested"] = None
+        return f"Activation request cleared: '{v[:40]}' is a time or closing phrase, not a request"
+    if v.lower().rstrip(".") in _DESTINATIONS:
+        low = text.lower()
+        term = v.lower().rstrip(".")
+        near = False
+        for m in re.finditer(re.escape(term.split()[0]), low):
+            window = low[max(0, m.start() - 80):m.end() + 80]
+            if _REQUEST_WORDS.search(window):
+                near = True
+                break
+        if not near:
+            hr["activation_requested"] = None
+            return f"Activation request cleared: '{v}' is a destination name and the transcript never asks for it"
+    return None
+
+
 def alert_from_words(text: str) -> Optional[Tuple[str, str]]:
     """(alert_type, the word that names it) when the transcript states an alert word positively, else None.
 
@@ -680,6 +713,9 @@ class ReportPipeline:
         fix_text = text
         report["data_quality"]["assumptions"].extend(ground_history_defaults(report, fix_text))
         report["data_quality"]["assumptions"].extend(ground_claims(report, fix_text))
+        note = ground_activation(report, fix_text)
+        if note:
+            report["data_quality"]["assumptions"].append(note)
         if report["alert_type"] == "UNCLEAR":
             hit = alert_from_words(fix_text)
             if hit:

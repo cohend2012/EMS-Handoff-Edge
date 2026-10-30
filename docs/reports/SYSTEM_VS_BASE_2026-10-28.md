@@ -418,6 +418,16 @@ or "NKD, hey", so the writer never sees an allergy statement and abstains; that 
 The six heart-rate "wrong" rows are the gold's second, weight-1 heart-rate field, the rhythm phrase ("sinus tach"),
 missing from the report's assessment; the heart-rate number itself was right in every case.
 
+A grounding rule from the held-out errors (10-30, 13:30): seven of the hallucinations across the three splits were the
+activation-request field holding an ETA or closing phrase ("see you in approximately 20 minutes", twice) or a bare
+destination name the transcript never asked for ("Cath Lab", "Resuscitation Bay", five times). The new rule
+(`ground_activation`) clears a time or closing phrase, and clears a destination name unless a request word (requesting,
+activate, notify, alert, team, have ready) occurs within 80 characters of that term in the transcript. Applied to the
+saved reports and rescored: test split unchanged (no such case; 30 hits kept), validation 94.06 to 94.30 with its 3
+hallucinations cleared and 28 hits kept, third split 95.77 to 96.06 with its 4 cleared and 24 hits kept. Zero hits lost
+out of 82. The rule was written from errors on the validation and third splits, so those splits are no longer blind to
+it; the 110 remaining training scripts are. It ships with the pipeline from commit 175e80e's successor.
+
 The 8B rows (10-29): the 8B against the 4B on the same transcripts, paired over the reports the 8B finished, is +0.2
 weighted points at clean [-1.0, +1.5] and +0.3 at 5 dB [-1.3, +2.0] over the base transcripts (27 and 29 reports),
 and +1.2 [-0.3, +2.9] and +0.7 [-1.6, +3.0] over our stack (25 and 25). Every interval includes zero. The cost: the 8B

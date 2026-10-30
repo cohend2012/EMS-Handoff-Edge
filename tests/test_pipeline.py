@@ -566,3 +566,19 @@ def test_facts_only_parse_accepts_a_reply_without_the_prose_sections(monkeypatch
     r = parse_report(reply)
     assert r["handoff_summary"]["one_liner"] is None and r["data_quality"]["confidence"] == "MEDIUM"   # blanks (MEDIUM when the model said nothing); render_prose fills them
     assert r["hospital_recommendations"]["activation_requested"] == "Cath lab"
+
+
+def test_ground_activation_clears_time_phrases_and_unrequested_destination_names():
+    from ems_handoff.pipeline import blank_report, ground_activation
+    r = blank_report(); r["hospital_recommendations"]["activation_requested"] = "See you in approximately 20 minutes"
+    note = ground_activation(r, "Priority 2 chest pain, ETA 20 minutes, see you in approximately 20 minutes.")
+    assert r["hospital_recommendations"]["activation_requested"] is None and "time or closing phrase" in note
+    r = blank_report(); r["hospital_recommendations"]["activation_requested"] = "Cath Lab"
+    note = ground_activation(r, "Patient was seen at the cath lab last year. No ST elevation today. ETA 8.")
+    assert r["hospital_recommendations"]["activation_requested"] is None and "destination name" in note
+    r = blank_report(); r["hospital_recommendations"]["activation_requested"] = "Cath Lab"
+    assert ground_activation(r, "Inferior STEMI, requesting cath lab activation, ETA 8.") is None     # asked for: kept
+    assert r["hospital_recommendations"]["activation_requested"] == "Cath Lab"
+    r = blank_report(); r["hospital_recommendations"]["activation_requested"] = "Trauma team activation"
+    assert ground_activation(r, "Rollover, priority 1, trauma team activation requested.") is None     # a request phrase: kept
+    r = blank_report(); assert ground_activation(r, "anything") is None                                # nothing to clear
