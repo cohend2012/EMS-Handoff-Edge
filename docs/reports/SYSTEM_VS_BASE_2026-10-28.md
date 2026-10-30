@@ -73,6 +73,7 @@ From SYNTH_V1_2026-10-27.md, one scorer over every row. Local = faster-whisper i
 | local medium, GPU fp16, every 10-29 fix, hint trimmed to 220 tokens | hint (fit) | 4.6 % | 7.0 % | 9.0 % | 13.5 % | 0.925 | 0.881 | 0.12x |
 | local medium, GPU fp16, every 10-29 fix, hint = sentence + radio phrases only | hint (short) | 5.5 % | 7.9 % | 9.5 % | 13.0 % | 0.910 | 0.864 | 0.12x |
 | local large-v3, GPU fp16, every 10-29 fix, through the whisper server (10-30): the noise curve at 20 / 15 / 10 dB | hint | 4.5 / 4.4 / 5.0 % | | 8.0 / 8.0 / 9.0 % | | 0.920 / 0.918 / 0.908 | | 9 s per clip over the wire |
+| **held-out check**: local large-v3, GPU fp16, every 10-29 fix, on the 30 VALIDATION scripts never used while tuning (10-30), clean / 20 / 15 / 10 / 5 dB | hint | 4.1 / 4.3 / 4.6 / 4.9 / 5.7 % | | 8.8 / 8.3 / 8.8 / 9.4 / 12.2 % | | 0.934 / 0.932 / 0.928 / 0.920 / 0.903 | | 8 s per clip |
 | local large-v3-turbo (the app default until today) | hint | 12.8 % | 10.8 % | 21.5 % | 16.0 % | 0.881 | 0.840 | 0.8x |
 | local large-v3-turbo | hint + gap re-decode, before the loop guard | 13.4 % | 10.8 % | 21.5 % | 16.0 % | 0.875 | 0.840 | 0.8x |
 | local large-v3-turbo | hint + gap re-decode, with the loop guard (shipped) | 12.6 % | 10.8 % | 21.5 % | 16.0 % | 0.881 | 0.840 | 0.8x |
@@ -98,6 +99,15 @@ Against the CPU medium curve of 10-27 it is -0.4 / -2.1 / -0.3 points at 20 / 15
 one collapsed clip (SY-family row at 22.8 %) that the re-decode now rescues. The curve was produced by eval_set
 `--provider remote` through the whisper server while vox-ai's writer ran the lexicon row: the first run with both GPUs
 working on different jobs at once.
+
+The held-out check (10-30): every decode fix of 10-29 was developed while looking at failures on the 30 test scripts, so
+the test rows are tuned on the set they are scored on. The 30 validation scripts (same generator, same voice and channel,
+stratified by family, never opened during tuning) give large-v3 on the GPU 4.1 / 4.3 / 4.6 / 4.9 / 5.7 % WER at clean / 20 /
+15 / 10 / 5 dB against the test split's 4.6 / 4.5 / 4.4 / 5.0 / 5.5 %: within 0.5 points at every level, in both directions,
+with no collapsed or looping clip (worst validation clip 8.2 % WER). Term error is higher on the unseen scripts at 5 dB
+(12.2 against 9.0 %), so the term-recall figures carry about three points of optimism from tuning while the WER figures
+carry none that this check can see. The validation report row (same 4B writer, clean and 5 dB) is running; until it lands
+the report-stage numbers remain test-split numbers.
 
 Hint ablation on the GPU (10-29, late): the app's hint is 780 characters, 243 whisper tokens, and faster-whisper keeps
 only the last 223 tokens of a prompt, so the opening sentence ("The following is a paramedic radio report.
