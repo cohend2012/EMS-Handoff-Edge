@@ -1,5 +1,10 @@
 # Lyapunov stability gauge: Phase 1 and Phase 2 results (2026-10-30)
 
+**Status 14:00: PROVISIONAL.** A dataset guard added after these numbers were written finds the Phase 1 dump failing two
+invariants (19 clips with far fewer tokens than reference words, down to 0.27 per word; long-script WER 0.173 against a
+trusted band near 0.09). The numbers below are therefore from a dump that still loses output on some clips, and the
+verdict is not final until a dump passes the guard. See LYAPUNOV_MATH_2026-10-30.md section 7.
+
 Plan: `docs/plans/LYAPUNOV_STT_PLAN.md`. Scripts: `scripts/corpus/trajectories.py` (Phase 1), `scripts/corpus/stability_gauge.py`
 (Phase 2). Hardware: the PyTorch 2.7 container on cohendynamics (GPU); the whisper server was stopped for the dump.
 

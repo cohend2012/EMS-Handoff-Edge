@@ -74,6 +74,40 @@ def load(traj_dir: Path):
     return clips
 
 
+def check_dataset(clips, traj_dir: Path, expected_wer: float = 0.09, tol: float = 0.05) -> dict:
+    """Invariants that would have caught the two 10-30 mistakes (30 s truncation, NaN entropies). Any failure aborts.
+
+    1. tokens per reference word within [0.8, 3.0] on every clip longer than 30 words (truncation drops it below 0.6);
+    2. no NaN or infinity in any feature column;
+    3. the dump's mean per-clip WER on the long scripts within `tol` of the trusted scorer's WER for the same model;
+    4. bad-token rate between 3 and 25 %.
+    """
+    import csv
+    problems = []
+    rows = list(csv.DictReader(open(traj_dir / "summary.tsv"), delimiter="\t"))
+    ratios = [(r["id"], r["snr"], int(r["tokens"]) / max(1, int(r["ref_words"]))) for r in rows if int(r["ref_words"]) > 30]
+    low = [(i, s, round(x, 2)) for i, s, x in ratios if x < 0.8]; high = [(i, s, round(x, 2)) for i, s, x in ratios if x > 3.0]
+    if low or high:
+        problems.append(f"tokens per reference word out of [0.8, 3.0] on {len(low) + len(high)} clips (truncation or runaway): {(low + high)[:5]}")
+    for c in clips:
+        for k in ("hidden", "logprob", "entropy", "attn_entropy", "attn_mass"):
+            if not np.isfinite(c[k]).all():
+                problems.append(f"{c['file']}: non-finite values in {k}")
+                break
+    long_wer = [float(r["wer"]) for r in rows if int(r["ref_words"]) > 30]
+    mean_wer = float(np.mean(long_wer)) if long_wer else float("nan")
+    if not (expected_wer - tol <= mean_wer <= expected_wer + tol):
+        problems.append(f"mean WER on long scripts {mean_wer:.3f} is outside {expected_wer:.2f} +/- {tol:.2f}: the dump does not match the trusted scorer")
+    bad = sum(int(c["bad"][c["keep"]].sum()) for c in clips); tot = sum(int(c["keep"].sum()) for c in clips)
+    rate = bad / max(1, tot)
+    if not (0.03 <= rate <= 0.25):
+        problems.append(f"bad-token rate {rate:.3f} outside [0.03, 0.25]: labels suspect")
+    report = {"clips": len(clips), "tokens": tot, "bad_rate": round(rate, 4), "mean_wer_long_scripts": round(mean_wer, 4),
+              "tokens_per_ref_word_min_max": (round(min(x for _, _, x in ratios), 2), round(max(x for _, _, x in ratios), 2)) if ratios else None,
+              "problems": problems}
+    return report
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[1])
     ap.add_argument("--traj", type=Path, required=True)
@@ -82,12 +116,21 @@ def main(argv=None) -> int:
     ap.add_argument("--epochs", type=int, default=30)
     ap.add_argument("--margin", type=float, default=0.1)
     ap.add_argument("--alarm", type=float, default=0.05, help="conformal false-alarm rate on correct tokens")
+    ap.add_argument("--expected-wer", type=float, default=0.09, help="the trusted scorer's WER for this model on these scripts (guard 3)")
+    ap.add_argument("--check-only", action="store_true", help="run the dataset guard and stop")
     args = ap.parse_args(argv)
     import torch
     torch.manual_seed(args.seed); rng = np.random.default_rng(args.seed)
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
     clips = load(args.traj)
+    guard = check_dataset(clips, args.traj, expected_wer=args.expected_wer)
+    print("dataset guard:", json.dumps(guard, indent=1))
+    if guard["problems"]:
+        print("ABORT: the dataset fails its invariants; nothing was trained.")
+        return 2
+    if args.check_only:
+        return 0
     sids = sorted({c["sid"] for c in clips}); rng.shuffle(sids)
     n_train = int(0.7 * len(sids)); train_ids = set(sids[:n_train])
     train = [c for c in clips if c["sid"] in train_ids]; test = [c for c in clips if c["sid"] not in train_ids]

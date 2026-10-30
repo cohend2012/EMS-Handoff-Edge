@@ -91,3 +91,18 @@ decoder.
     python3 scripts/corpus/trajectories.py --set /data --split train --snr inf 5 --model openai/whisper-small --out /data/trajectories/small_train
     python3 scripts/corpus/stability_gauge.py --traj /data/trajectories/small_train --out /data/trajectories/gauge_small
     # results.json, results.md, dv_test.npz (per-transition dV, label and the four baseline features)
+
+## 7. The guard, and why sections 4 and 5 are provisional (added 14:00)
+
+Two mistakes reached the first two runs because training started before the data was checked: the feature extractor's
+30 s truncation, and NaN entropies from suppressed logits. `stability_gauge.py` now refuses to train unless the dump passes:
+
+1. tokens per reference word in [0.8, 3.0] on every script longer than 30 words;
+2. no NaN or infinity in any feature;
+3. mean long-script WER within 0.05 of the trusted scorer's WER for the same model on the same clips;
+4. bad-token rate in [0.03, 0.25].
+
+Run on the dump that produced sections 4 and 5, the guard fails on 1 (19 clips, minimum 0.27 tokens per word) and on 3
+(0.173 against a band near 0.09). So that dump still loses output on some clips, and every number above is provisional
+until a dump passes. The trusted-scorer run for the same model and clips (faster-whisper small, no hint, GPU) is in
+progress to set the band exactly and to find, clip by clip, where the PyTorch decode diverges.
