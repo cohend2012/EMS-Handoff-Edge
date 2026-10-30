@@ -63,6 +63,7 @@ unless marked cloud.
 | 10-30 | 4B report rows over the plain-decode GPU medium transcripts (vox-ai GPU) | 60 | 52 min | 94.1 / 94.1; the GPU stack is +1.2 [-0.7, +3.5] at clean and +0.1 [-1.4, +1.7] at 5 dB over it at the report stage; large-v3 base row running | reports/medium_gpu_fp16_nohint__qwen3-4b-instruct |
 | 10-30 | 4B report rows over the plain-decode GPU large-v3 transcripts (vox-ai GPU) | 60 | 52 min | 96.0 / 95.4; the stack adds +0.7 [-0.7, +2.2] / -0.1 [-1.5, +1.2] over it; plain local large-v3 + 4B is +0.7 / +1.0 over plain cloud turbo + 120B (intervals through zero); the report matrix is complete bar the cloud rules-off remainder | reports/large-v3_gpu_fp16_nohint__qwen3-4b-instruct |
 | 10-30 | Lexicon retrieval off, 4B writer over the large-v3 GPU stack transcripts (the RAG ablation) | 59 of 60 | 52 min | 95.0 / 94.7 against 96.6 / 95.1 with it on: +1.6 [-0.2, +3.3] at clean, +0.4 [-1.3, +2.0] at 5 dB, recall 94.0 to 96.1 % (P = 0.92); lever ranking: rules 5.8, lexicon 1.6, transcript stack 0.7, corrector 0, 8B writer within noise | reports/large-v3_gpu_fp16_hint_rd5d_corr__qwen3-4b-instruct_nolex |
+| 10-30 | CS008 end to end, split pipeline (whisper server on the cohendynamics GPU, 4B on vox-ai) x 3, and one box the same morning | 4 runs | 6 min | split 70.4 / 71.0 / 74.5 s wall (transcript 15 to 21 s, writer 50 to 52 s); one box 134.6 s (67 + 65 s); the split pipeline halves the time to report; the writer is now 70 % of it | logs/split2_2026-10-30.log |
 
 Regression on every commit: 245 tests under `.venv/bin/python -m pytest` (2 min), including the pipeline on the four
 gold samples with a fake model, the re-decode and its loop guard, the rules switch, and the transcript checks.
@@ -119,6 +120,7 @@ generated set for the same model (large-v3) and zero on the real bursts for turb
 | the corrector pass over saved transcripts | seconds |
 | one report-stage run, 60 reports, local | 50 min (50 s per report); cloud 25 min paced, 3 s per report |
 | replay of one real call through the live server with a recording | 2 to 4 min |
+| one real call end to end, headless: one box 135 s; split pipeline (GPU whisper on the other Jetson) 70 to 75 s | |
 | the demo batch, 22 calls x 2 providers, recorded | 12.5 h |
 | the full test suite | 2 min |
 | rendering the generated set (Piper, five SNRs) | 2 h; XTTS clones 8 min per script on this CPU |

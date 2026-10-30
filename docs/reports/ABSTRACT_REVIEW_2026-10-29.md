@@ -16,7 +16,7 @@ moved.
 | "grounding rules cut unsupported claims from 98 to 32" | ROUND2.md, 73 real-corpus reports | correct |
 | "completely eliminated fabricated code-status entries (from 50 to zero)" | invented *allergies* went 50 to 0; invented *code status* went 23 to 0 | wrong pairing: "invented allergy entries from 50 to zero and code-status entries from 23 to zero" |
 | "disabling these rules dropped clinical agreement from 100 % to 67 %" | section 4: with the rules off, the *alert level* (set by the stated-priority rule) was right 67 % against 100 %; weighted score fell 5.8 points [4.1, 7.5]; hallucinations 0.2 to 0.7 per report | name the measure: "alert-level agreement with gold"; add the weighted-score and hallucination numbers, which are the stronger result |
-| "calls were processed in 143 seconds without cell service" | the offline run of CS008 (84.5 s of audio): whisper 66 s, writer 74 s, 143 s wall, every outbound connection blocked | correct for one call on one device; the average real call is 85 s of audio, so CS008 is representative; with whisper on the second device's GPU the same call is about 85 to 90 s |
+| "calls were processed in 143 seconds without cell service" | the offline run of CS008 (84.5 s of audio): whisper 66 s, writer 74 s, 143 s wall, every outbound connection blocked | correct for one call on one device; the average real call is 85 s of audio, so CS008 is representative; with whisper on the second device's GPU the same call measured 70 to 75 s over three runs on 10-30 |
 | "cloud processing took 14 seconds" | not measured as one number: the cloud control in the offline test failed to connect by design; the cloud transcript runs at 0.07 x real time (about 6 s for CS008) and the cloud report at about 3 s, so 9 to 14 s is plausible but has no row | either measure it (one replay of CS008 with the cloud provider, timing logged) or say "about ten seconds" with the two component rates cited |
 | "well within the standard debriefing window" | no source for the window's length | cite one, or drop |
 | "safely abstain rather than invent clinical data" | 0 invented allergy / code status on 73 real reports; 0.10 to 0.24 hallucinations per report on the generated set, not zero | keep "abstain rather than invent" for the two rule-protected fields; do not say hallucination-free anywhere |
@@ -61,7 +61,7 @@ from 50 and 23 to zero; turning them off on the same transcripts cost 5.4 to 5.8
 [3.8, 7.5], raised fabricated facts from 0.2 to 0.7 per report and dropped alert-level agreement from
 100 % to 67 %. The local report score over the largest local model's transcripts was level with the cloud pipeline (96.6 / 95.3
 against 96.8 / 95.1, difference -0.1 [-2.4, +2.0]). An average real call (85 s of audio) was processed in 143 s with every
-outbound connection blocked, and in about 85 s with the transcript on the second device's GPU.
+outbound connection blocked, and in 70 to 75 s with the transcript on the second device's GPU (three runs).
 
 **Conclusion.** An edge device can produce a grounded handoff report from radio audio with no network,
 within a point or two of a cloud pipeline on transcript and report accuracy, and with the two fields most
