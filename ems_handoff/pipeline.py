@@ -524,6 +524,11 @@ def parse_guidance(text: str) -> Optional[List[dict]]:
 
 
 
+def compact_output() -> bool:
+    """HANDOFF_COMPACT_OUTPUT=1 asks the writer to omit empty fields (fill_blanks restores them); a latency lever under test."""
+    return os.environ.get("HANDOFF_COMPACT_OUTPUT", "0").strip().lower() in ("1", "true", "yes", "on")
+
+
 def rules_enabled() -> bool:
     """HANDOFF_REPORT_RULES=0 turns the post-model grounding rules off (ablation runs only)."""
     return os.environ.get("HANDOFF_REPORT_RULES", "1").strip().lower() not in ("0", "false", "no", "off")
@@ -571,7 +576,7 @@ class ReportPipeline:
         if suspects:
             context = f"{context}\n{suspects}" if context else suspects
         self.last_context, self.last_reference = context, ""
-        prompt = extraction_prompt(self.attribution).format(ems_report=fix.text, lexicon_context=context)
+        prompt = extraction_prompt(self.attribution, compact=compact_output()).format(ems_report=fix.text, lexicon_context=context)
 
         # 3. extract
         t0 = time.perf_counter()

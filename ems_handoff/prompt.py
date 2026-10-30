@@ -162,10 +162,24 @@ ATTRIBUTION_GUIDANCE = (
 _SCHEMA_END = "  }}\n}}\n"
 
 
-def extraction_prompt(attribution: bool = False) -> str:
-    """The extraction prompt template; with ``attribution`` the "sources" entry and its guidance line."""
-    if not attribution:
-        return EXTRACTION_PROMPT
-    assert EXTRACTION_PROMPT.count(_SCHEMA_END) == 1
-    text = EXTRACTION_PROMPT.replace(_SCHEMA_END, ATTRIBUTION_SCHEMA, 1)
-    return text.replace("/no_think\n", ATTRIBUTION_GUIDANCE, 1)
+COMPACT_GUIDANCE = (
+    "- Output only the fields the report gives a value for. Leave out every field that would be null, an empty "
+    "string or an empty list, and leave out a whole section when all of its fields would be. The receiving system "
+    "restores the full structure with nulls, so nothing is lost; what you save is output, which is most of the "
+    "time a report takes on this device. Always keep alert_type, alert_level, data_quality and handoff_summary.\n"
+)
+
+
+def extraction_prompt(attribution: bool = False, compact: bool = False) -> str:
+    """The extraction prompt template; with ``attribution`` the "sources" entry and its guidance line; with
+    ``compact`` the model is told to omit empty fields (the pipeline's fill_blanks restores the structure)."""
+    text = EXTRACTION_PROMPT
+    if attribution:
+        assert EXTRACTION_PROMPT.count(_SCHEMA_END) == 1
+        text = text.replace(_SCHEMA_END, ATTRIBUTION_SCHEMA, 1)
+    if compact:
+        text = text.replace("Still return the full structure.", "Return the fields that have a value (see the last guidance line).", 1)
+        text = text.replace("/no_think\n", COMPACT_GUIDANCE + "/no_think\n", 1)
+    if attribution:
+        text = text.replace("/no_think\n", ATTRIBUTION_GUIDANCE, 1)
+    return text

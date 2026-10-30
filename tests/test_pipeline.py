@@ -496,3 +496,19 @@ def test_grounding_rules_can_be_switched_off_for_ablation(monkeypatch):
     assert run(text, llm=FakeLLM([reply]))[2].rules is False
     monkeypatch.setenv("HANDOFF_REPORT_RULES", "1")
     assert run(text, llm=FakeLLM([reply]))[2].rules is True
+
+
+def test_compact_output_mode_changes_only_the_guidance(monkeypatch):
+    from ems_handoff.prompt import extraction_prompt, COMPACT_GUIDANCE
+    from ems_handoff import pipeline as P
+    plain = extraction_prompt()
+    compact = extraction_prompt(compact=True)
+    assert COMPACT_GUIDANCE.strip() not in plain and COMPACT_GUIDANCE.strip() in compact
+    assert "Still return the full structure." in plain and "Still return the full structure." not in compact
+    assert compact.count("/no_think") == 1 and compact.index(COMPACT_GUIDANCE.strip()) < compact.index("/no_think")
+    both = extraction_prompt(attribution=True, compact=True)
+    assert "sources" in both and COMPACT_GUIDANCE.strip() in both
+    monkeypatch.delenv("HANDOFF_COMPACT_OUTPUT", raising=False)
+    assert P.compact_output() is False
+    monkeypatch.setenv("HANDOFF_COMPACT_OUTPUT", "1")
+    assert P.compact_output() is True
