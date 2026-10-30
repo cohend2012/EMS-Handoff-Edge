@@ -139,45 +139,58 @@ def main(argv=None) -> int:
             if not wav.exists():
                 print(f"[skip] {wav} missing", flush=True); continue
             x = load_wav(wav)
-            feats = processor(x, sampling_rate=SAMPLE_RATE, return_tensors="pt").input_features.to(device, dtype)
             t0 = time.perf_counter()
-            with torch.no_grad():
-                gen = model.generate(feats, return_dict_in_generate=True, output_scores=True, output_hidden_states=True,
-                                     output_attentions=True, max_new_tokens=440, language="en", task="transcribe",
-                                     prompt_ids=prompt_ids)
-            seq = gen.sequences[0].tolist()
-            steps = len(gen.scores)
-            gen_tokens = seq[-steps:]                       # the tokens the steps produced, in order
-            logp, ent, peak, aent, mass = [], [], [], [], []
-            hidden = []
-            for s in range(steps):
-                sc = gen.scores[s][0].float()
-                lp = torch.log_softmax(sc, dim=-1)
-                logp.append(float(lp[gen_tokens[s]]))
-                p = lp.exp()
-                ent.append(float(-(p * lp).sum()))
-                h = gen.decoder_hidden_states[s][-1][0, -1, :].float().cpu().numpy()   # last layer, last position
-                hidden.append(h.astype(np.float16))
-                ca_all = getattr(gen, "cross_attentions", None)
-                if ca_all and s < len(ca_all) and ca_all[s]:
-                    ca = ca_all[s][-1][0].float()                 # last layer: heads x q x T_enc
-                    a = ca[:, -1, :].mean(dim=0)                  # mean over heads, last query position
-                    a = a / (a.sum() + 1e-9)
-                    pk = int(a.argmax()); peak.append(pk)
-                    aent.append(float(-(a * (a + 1e-12).log()).sum()))
-                    w = 25                                        # 25 frames = 0.5 s of encoder time around the peak
-                    lo, hi = max(0, pk - w), min(a.numel(), pk + w)
-                    mass.append(float(a[lo:hi].sum()))
-                else:                                             # no attention weights returned: leave the columns empty
-                    peak.append(-1); aent.append(float("nan")); mass.append(float("nan"))
-            text = tok.decode(gen_tokens, skip_special_tokens=True).strip()
-            pieces = [tok.decode([t]) for t in gen_tokens]
+            # Whisper sees 30 s at a time and the feature extractor truncates to that, so a clip is decoded in 30 s
+            # windows and the per-token arrays are concatenated; a word cut at a window edge is label noise we accept.
+            WIN = 30 * SAMPLE_RATE
+            gen_tokens, logp, ent, peak, aent, mass, hidden, window_of_token = [], [], [], [], [], [], [], []
+            for wi, start in enumerate(range(0, max(1, len(x)), WIN)):
+                seg = x[start:start + WIN]
+                if len(seg) < SAMPLE_RATE // 2:
+                    break
+                feats = processor(seg, sampling_rate=SAMPLE_RATE, return_tensors="pt").input_features.to(device, dtype)
+                with torch.no_grad():
+                    gen = model.generate(feats, return_dict_in_generate=True, output_scores=True, output_hidden_states=True,
+                                         output_attentions=True, max_new_tokens=440, language="en", task="transcribe",
+                                         prompt_ids=prompt_ids)
+                seq = gen.sequences[0].tolist()
+                steps = len(gen.scores)
+                toks = seq[-steps:]                           # the tokens the steps produced, in order
+                for s in range(steps):
+                    sc = gen.scores[s][0].float()
+                    lp = torch.log_softmax(sc, dim=-1)
+                    logp.append(float(lp[toks[s]]))
+                    pr = lp.exp()
+                    ent.append(float(-(pr * lp).sum()))
+                    h = gen.decoder_hidden_states[s][-1][0, -1, :].float().cpu().numpy()   # last layer, last position
+                    hidden.append(h.astype(np.float16))
+                    ca_all = getattr(gen, "cross_attentions", None)
+                    if ca_all and s < len(ca_all) and ca_all[s]:
+                        ca = ca_all[s][-1][0].float()             # last layer: heads x q x T_enc
+                        a = ca[:, -1, :].mean(dim=0)              # mean over heads, last query position
+                        a = a / (a.sum() + 1e-9)
+                        pk = int(a.argmax()); peak.append(pk + wi * 1500)   # encoder frames are 20 ms: 1500 per window
+                        aent.append(float(-(a * (a + 1e-12).log()).sum()))
+                        w = 25                                    # 25 frames = 0.5 s of encoder time around the peak
+                        lo, hi = max(0, pk - w), min(a.numel(), pk + w)
+                        mass.append(float(a[lo:hi].sum()))
+                    else:                                         # no attention weights returned: leave the columns empty
+                        peak.append(-1); aent.append(float("nan")); mass.append(float("nan"))
+                    window_of_token.append(wi)
+                gen_tokens.extend(toks)
+                del gen
+            steps = len(gen_tokens)
+            text = " ".join(t_.strip() for t_ in (tok.decode(gen_tokens[i:j], skip_special_tokens=True)
+                            for i, j in zip([0] + [k for k in range(1, steps) if window_of_token[k] != window_of_token[k - 1]],
+                                            [k for k in range(1, steps) if window_of_token[k] != window_of_token[k - 1]] + [steps])) if t_.strip()).strip()
+            pieces = [tok.decode([t_]) for t_ in gen_tokens]
             # token -> word index (a piece starting with a space, or the first content piece, starts a word)
             word_of_token, widx = [], -1
             for pc, t in zip(pieces, gen_tokens):
                 if t >= tok.eos_token_id and pc.strip() == "":
                     word_of_token.append(-1); continue
-                if pc.startswith(" ") or widx < 0:
+                k_ = len(word_of_token)
+                if pc.startswith(" ") or widx < 0 or (k_ > 0 and window_of_token[k_] != window_of_token[k_ - 1]):
                     widx += 1
                 word_of_token.append(widx)
             hyp_words_raw = [""] * (widx + 1)
@@ -205,7 +218,7 @@ def main(argv=None) -> int:
                                 entropy=np.array(ent, dtype=np.float32), attn_peak=np.array(peak, dtype=np.int32),
                                 attn_entropy=np.array(aent, dtype=np.float32), attn_mass_window=np.array(mass, dtype=np.float32),
                                 hidden=np.stack(hidden) if hidden else np.zeros((0, 1), np.float16),
-                                label=np.array(label, dtype=object), text=text, reference=ref_text,
+                                label=np.array(label, dtype=object), window=np.array(window_of_token, dtype=np.int16), text=text, reference=ref_text,
                                 deleted=json.dumps(deleted))
             counts = {l: label.count(l) for l in ("correct", "substituted", "inserted", "loop")}
             rows.append({"id": sid, "snr": tag, "wer": rate, "edits": edits, "ref_words": nref, "tokens": steps, **counts,
