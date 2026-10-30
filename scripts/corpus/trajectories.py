@@ -116,7 +116,8 @@ def main(argv=None) -> int:
     device = "cuda" if torch.cuda.is_available() else "cpu"
     dtype = torch.float16 if device == "cuda" else torch.float32
     processor = WhisperProcessor.from_pretrained(args.model)
-    model = WhisperForConditionalGeneration.from_pretrained(args.model, torch_dtype=dtype).to(device).eval()
+    # eager attention: the fused (SDPA) kernels return no attention weights, and the cross-attention statistics need them
+    model = WhisperForConditionalGeneration.from_pretrained(args.model, torch_dtype=dtype, attn_implementation="eager").to(device).eval()
     tok = processor.tokenizer
     prompt_ids = None
     if args.hint:
@@ -157,14 +158,18 @@ def main(argv=None) -> int:
                 ent.append(float(-(p * lp).sum()))
                 h = gen.decoder_hidden_states[s][-1][0, -1, :].float().cpu().numpy()   # last layer, last position
                 hidden.append(h.astype(np.float16))
-                ca = gen.cross_attentions[s][-1][0].float()      # last layer: heads x q x T_enc
-                a = ca[:, -1, :].mean(dim=0)                      # mean over heads, last query position
-                a = a / (a.sum() + 1e-9)
-                peak.append(int(a.argmax()))
-                aent.append(float(-(a * (a + 1e-12).log()).sum()))
-                w = 25                                            # 25 frames = 0.5 s of encoder time around the peak
-                lo, hi = max(0, peak[-1] - w), min(a.numel(), peak[-1] + w)
-                mass.append(float(a[lo:hi].sum()))
+                ca_all = getattr(gen, "cross_attentions", None)
+                if ca_all and s < len(ca_all) and ca_all[s]:
+                    ca = ca_all[s][-1][0].float()                 # last layer: heads x q x T_enc
+                    a = ca[:, -1, :].mean(dim=0)                  # mean over heads, last query position
+                    a = a / (a.sum() + 1e-9)
+                    pk = int(a.argmax()); peak.append(pk)
+                    aent.append(float(-(a * (a + 1e-12).log()).sum()))
+                    w = 25                                        # 25 frames = 0.5 s of encoder time around the peak
+                    lo, hi = max(0, pk - w), min(a.numel(), pk + w)
+                    mass.append(float(a[lo:hi].sum()))
+                else:                                             # no attention weights returned: leave the columns empty
+                    peak.append(-1); aent.append(float("nan")); mass.append(float("nan"))
             text = tok.decode(gen_tokens, skip_special_tokens=True).strip()
             pieces = [tok.decode([t]) for t in gen_tokens]
             # token -> word index (a piece starting with a space, or the first content piece, starts a word)
