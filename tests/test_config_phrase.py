@@ -129,6 +129,7 @@ def test_local_transcriber_redecodes_a_long_wordless_gap():
 
     rng = np.random.default_rng(0)
     audio = (0.1 * rng.standard_normal(60 * SAMPLE_RATE)).astype(np.float32)   # speech-like level throughout
+    audio[45 * SAMPLE_RATE:] *= 0.01                                            # ...and trailing silence
     t = LocalTranscriber(dataclasses.replace(load_settings(), local_whisper_redecode=True), model_size="tiny.en")
     t._model = FakeModel()
     text = t.transcribe(audio)
@@ -167,6 +168,7 @@ def test_local_whisper_redecode_uses_beam_5_on_the_span_and_greedy_on_the_clip()
     assert load_settings({"LOCAL_WHISPER_REDECODE_BEAM": "3"}).local_whisper_redecode_beam == 3
     rng = np.random.default_rng(0)
     audio = (0.1 * rng.standard_normal(60 * SAMPLE_RATE)).astype(np.float32)
+    audio[45 * SAMPLE_RATE:] *= 0.01
     t = LocalTranscriber(dataclasses.replace(load_settings(), local_whisper_redecode=True), model_size="tiny.en")
     t._model = FakeModel()
     assert t.transcribe(audio) == "vitals are pressure 80 over 55 any questions"
@@ -193,6 +195,7 @@ def test_local_transcriber_discards_a_re_decode_that_loops():
 
     rng = np.random.default_rng(0)
     audio = (0.1 * rng.standard_normal(60 * SAMPLE_RATE)).astype(np.float32)
+    audio[45 * SAMPLE_RATE:] *= 0.01
     t = LocalTranscriber(dataclasses.replace(load_settings(), local_whisper_redecode=True), model_size="tiny.en")
     t._model = FakeModel()
     assert t.transcribe(audio) == "vitals are thank you"                 # the loop is not spliced in
@@ -251,6 +254,8 @@ def test_local_transcriber_trims_the_lead_in_seam_of_a_re_decoded_span():
 
     assert _trim_seam("temp of 96.1 and", "96.1, and blood glucose 231", 8) == "blood glucose 231"
     assert _trim_seam("vitals are", "pressure 80 over 55", 8) == "pressure 80 over 55"
+    assert _trim_seam("satting at 94% on 4 liters nasal cannula temp of", "24% on 4 liters, nasal cannula, temp of 96.1, and blood glucose 231", 8) == "96.1, and blood glucose 231"
+    assert _trim_seam("rate of 127", "the patient is on 4 liters", 8) == "the patient is on 4 liters"   # no run, nothing dropped
 
     class Seg:
         def __init__(self, start, end, text):
@@ -268,3 +273,35 @@ def test_local_transcriber_trims_the_lead_in_seam_of_a_re_decoded_span():
     t = LocalTranscriber(dataclasses.replace(load_settings(), local_whisper_redecode=True), model_size="tiny.en")
     t._model = FakeModel()
     assert t.transcribe(audio) == "satting at 94 percent, temp of 96.1 and blood glucose 231 any questions"
+
+
+def test_local_transcriber_redecodes_speech_after_the_last_worded_segment():
+    import dataclasses
+    import numpy as np
+    from ems_handoff.transcribe import LocalTranscriber, SAMPLE_RATE
+
+    class Seg:
+        def __init__(self, start, end, text):
+            self.start, self.end, self.text = start, end, text
+
+    calls = []
+
+    class FakeModel:
+        def transcribe(self, audio, **kw):
+            calls.append(round(len(audio) / SAMPLE_RATE, 1))
+            if len(audio) > 50 * SAMPLE_RATE:      # the first pass stops at 36 s of a 60 s clip
+                return iter([Seg(0.0, 30.0, " ".join(f"w{i}" for i in range(60))), Seg(30.0, 36.0, "Paramedic 700 to clear.")]), None
+            return iter([Seg(0.0, 26.0, "GCS 12. Two large-bore IVs. ETA seven minutes. Paramedic 700 to clear.")]), None
+
+    rng = np.random.default_rng(0)
+    audio = (0.1 * rng.standard_normal(60 * SAMPLE_RATE)).astype(np.float32)
+    t = LocalTranscriber(dataclasses.replace(load_settings(), local_whisper_redecode=True), model_size="tiny.en")
+    t._model = FakeModel()
+    text = t.transcribe(audio)
+    assert text.endswith("w59 Paramedic 700 to clear. GCS 12. Two large-bore IVs. ETA seven minutes. Paramedic 700 to clear.")
+    assert calls == [60.0, 27.0] and "36.0-60.0" in t.last_notes[0]
+    # a quiet tail (the clip's trailing silence) is left alone
+    audio[36 * SAMPLE_RATE:] *= 0.01
+    calls.clear(); t.last_notes = []
+    t.transcribe(audio)
+    assert calls == [60.0] and not t.last_notes

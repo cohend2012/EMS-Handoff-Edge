@@ -120,6 +120,15 @@ still collapsed (44 and 38 %), which the per-clip diagnostic below explains. Med
 lead-in gives 5.3 / 7.0 %, the best local medium row with today's hint (greedy 7.1, old re-decode 5.9): SY078
 goes 45 to 11 % (148 words for 139, the seam repeats a few words), and no clip got worse.
 
+Two more fixes from those rows (18:10). The seam: the lead-in re-said "24% on 4 liters, nasal cannula, temp
+of" against "94% on 4 liters nasal cannula temp of", one word off at the start, so the exact-prefix trim did
+nothing; the trim now lets the matched run start up to three words in. The two turbo clips: decoded again with
+the lead-in code both come back whole (118 and 120 words, correct endings), and the eval's miss came from the
+first pass returning a short segment with the rest of the clip left wordless, which the rules skipped as
+trailing silence; speech after the last worded segment (6 s or more at speech level) is now a gap like any
+other. `large-v3-turbo_hint_rd5c` (running, lead-in without these two) and the `_rd5d` rows for turbo and
+medium (queued, every fix) measure the result.
+
 \* The medium re-decode rows were run with the day's revised hint, which by itself moved the clean row from 4.8 to
 7.1 % (two clips collapsed the other way; SYNTH_V1_2026-10-27.md); against that same-hint run the re-decode is a
 1.2-point gain made of one clip (SY078, 44.6 % to 20.9 %) with 149 of 150 clips identical. Read the local "ours"

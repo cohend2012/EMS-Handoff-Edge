@@ -195,7 +195,8 @@ class LocalTranscriber:
         the middle of the report gone (medium on the generated set, 3 clips in 300, see
         SYNTH_V1_2026-10-27.md). The collapse is a property of the window, not the audio: the same span
         decoded on its own comes out whole. So any gap between worded segments that is long and as loud as
-        the speech around it is decoded again alone and spliced in. Leading and trailing silence is left.
+        the speech around it is decoded again alone and spliced in, as is speech after the last worded
+        segment; leading silence is left.
         The span is decoded with a beam (LOCAL_WHISPER_REDECODE_BEAM, 5): decoded greedily on its own it can
         loop instead (large-v3-turbo gave "ETA ten minutes" 25 times for SY074), and the loop guard below then
         has to discard it, which left the four collapsed turbo windows on the generated set unrescued; with
@@ -212,6 +213,13 @@ class LocalTranscriber:
         for (a_end), (b_start) in zip([c[1] for c in covered[:-1]], [c[0] for c in covered[1:]]):
             if b_start - a_end >= self.GAP_SECONDS and rms(a_end, b_start) >= self.GAP_RMS_RATIO * speech_rms:
                 gaps.append((a_end, b_start))
+        # Speech after the last worded segment: the collapsed window sometimes comes back as a short segment
+        # ("Bleeding ETA ten minutes. Paramedic 700 to clear.") with the rest of the clip left wordless; a tail
+        # that is long and at speech level is a gap like any other. Leading silence is still left alone.
+        audio_end = len(x) / SAMPLE_RATE
+        last_end = max(s.end for s in worded)
+        if audio_end - last_end >= self.GAP_SECONDS and rms(last_end, audio_end) >= self.GAP_RMS_RATIO * speech_rms:
+            gaps.append((last_end, audio_end))
         # A collapsed window shows up as one long segment with a few words ("Thank you." or "We'll see you next
         # time." for 30 s: large-v3-turbo on SY055, SY074, SY184), and a repeating window as one long segment with
         # too many ("blood pressure 93 over 48, rate of 127, ..." three times, or "13." sixty times: SY078, SY188).
@@ -266,16 +274,21 @@ class _Shifted:
         self.start, self.end, self.text = seg.start + offset, seg.end + offset, seg.text
 
 
-def _trim_seam(before: str, text: str, max_words: int) -> str:
+def _trim_seam(before: str, text: str, max_words: int, skip: int = 3) -> str:
     """Drop from the start of `text` the longest run of words (up to max_words) that repeats the end of `before`,
-    ignoring case and punctuation: the lead-in of a re-decoded span re-says the previous segment's tail."""
+    ignoring case and punctuation: the lead-in of a re-decoded span re-says the previous segment's tail. The
+    run may start up to `skip` words in, because the first word of the lead-in is often cut ("24% on 4 liters
+    nasal cannula temp of" for "94% on 4 liters nasal cannula temp of"); a run of one word is only taken at the
+    very start."""
     def norm(w: str) -> str:
         return "".join(c for c in w.lower() if c.isalnum())
     prev = [norm(w) for w in before.split()][-max_words:]
     new = text.split()
+    normed = [norm(w) for w in new]
     for k in range(min(max_words, len(prev), len(new)), 0, -1):
-        if prev[-k:] == [norm(w) for w in new[:k]]:
-            return " ".join(new[k:])
+        for j in range(0, (skip + 1) if k >= 2 else 1):
+            if j + k <= len(new) and prev[-k:] == normed[j:j + k]:
+                return " ".join(new[j + k:])
     return text
 
 
