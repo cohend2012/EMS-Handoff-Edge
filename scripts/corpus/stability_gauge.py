@@ -167,6 +167,15 @@ def main(argv=None) -> int:
                         "test_detection_rate": float((dv_te[Yte == 1] > q).mean()),
                         "guarantee": "P(alarm | correct token) <= alpha + 1/(n_cal+1) on exchangeable test tokens; tokens within a clip are not independent, so read the realised rate"}
 
+    # the Lyapunov property itself, measured: on the test transitions, how often V fell into a correct token and how often it
+    # failed to fall into a bad one; and the same with the training margin
+    good_te, bad_te = dv_te[Yte == 0], dv_te[Yte == 1]
+    res["decrease_property"] = {
+        "P(dV < 0 | correct)": float((good_te < 0).mean()), "P(dV <= -margin | correct)": float((good_te <= -m).mean()),
+        "P(dV >= 0 | bad)": float((bad_te >= 0).mean()), "P(dV >= margin | bad)": float((bad_te >= m).mean()),
+        "mean dV | correct": float(good_te.mean()), "mean dV | bad": float(bad_te.mean()),
+        "train P(dV < 0 | correct)": float((dv_tr[Ytr == 0] < 0).mean()), "train P(dV >= 0 | bad)": float((dv_tr[Ytr == 1] >= 0).mean())}
+    np.savez_compressed(args.out / "dv_test.npz", dv=dv_te, bad=Yte, features=Fte)
     best_single = max(v_ for k, v_ in res["auroc"].items() if k in names)
     logistic = res["auroc"]["logistic(4 baselines)"]; dv = res["auroc"]["dV (learned V)"]
     res["stop_rule"] = {"best_single_baseline": best_single, "logistic_baselines": logistic, "dV": dv,
@@ -180,7 +189,9 @@ def main(argv=None) -> int:
     for k, v_ in res["auroc"].items():
         md.append(f"| {k} | {v_:.3f} |")
     c = res["conformal"]
-    md += ["", f"Conformal threshold on dV at alpha = {c['alpha']}: {c['threshold_dV']:.4f}; realised false-alarm rate on correct test tokens {100 * c['test_false_alarm_rate']:.1f} %, detection rate on bad test tokens {100 * c['test_detection_rate']:.1f} %.", "",
+    dp = res["decrease_property"]
+    md += ["", "Decrease property on the test transitions: " + "; ".join(f"{k} = {v_:.3f}" for k, v_ in dp.items()), ""]
+    md += [f"Conformal threshold on dV at alpha = {c['alpha']}: {c['threshold_dV']:.4f}; realised false-alarm rate on correct test tokens {100 * c['test_false_alarm_rate']:.1f} %, detection rate on bad test tokens {100 * c['test_detection_rate']:.1f} %.", "",
            f"Stop rule: best single baseline {best_single:.3f}, logistic over baselines {logistic:.3f}, dV {dv:.3f}: **{'continue' if res['stop_rule']['continue'] else 'stop'}**."]
     (args.out / "results.md").write_text("\n".join(md) + "\n")
     print("\n".join(md))
