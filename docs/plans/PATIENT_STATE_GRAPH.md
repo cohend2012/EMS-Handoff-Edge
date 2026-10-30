@@ -112,7 +112,7 @@ the same flags, checklists and asks apply. The rule that nothing is inferred tha
 | state module: slots with provenance, readings, derived values, flags with rules, partial NEWS2, series with crossings, per-alert checklist, conflicts; in every session snapshot | done 10-29, 10 tests, suite 255 | replay the 22 calls through the headless path and count: flags per call, crossings, missing items per alert type, conflicts; review the list with the clinical co-authors (which flags are right, which thresholds to confirm) |
 | state on screen: badge, slot board, flag line, missing line | next | the same replay, viewed; a short review with a medic |
 | ask rule on the closing cue | next, after the screen | asks per call and precision against gold on the 22 calls |
-| whisper span confidence and two-burst agreement as evidence weights | after slot state (STATEFUL_PIPELINE.md) | flags that carry "low confidence" against the reference transcripts |
+| whisper span confidence and two-burst agreement as evidence weights | measured 10-30: faster-whisper's per-word probability detects a wrong word at AUROC 0.864 [0.844, 0.882] on held-out generated scripts (LYAPUNOV_MATH section 11); next: carry it into the slots | flags that carry "low confidence" against the reference transcripts |
 | averages with three or more readings; the ECG-time and LKW-time slots | with the slot-state writer | the 60 synthetic reports plus the real bursts |
 | monitor and camera feeds as evidence layers | later, hardware | |
 

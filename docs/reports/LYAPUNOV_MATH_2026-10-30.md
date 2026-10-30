@@ -214,3 +214,48 @@ Consequences, stated plainly:
   numbers; (B) the production decoder itself with word timestamps on, which gives a probability per word and, per
   segment, the average log-probability, no-speech probability and compression ratio: the per-word detector the app can
   use today, measured on the same scripts with the same labels (`scripts/corpus/word_confidence.py`).
+
+## 11. The production decoder's own confidence (15:15): the detector the app can use today
+
+faster-whisper small, VAD on, greedy, no hint (the trusted decode), word timestamps on, over the same 140 training scripts:
+280 clips, 7,139 held-out words of which 566 wrong, 315 reference words deleted (1.2 %, against 7.4 % in the Hugging Face
+dump). Split by script, same protocol as section 8.
+
+# Production decoder confidence as a detector (word_gauge)
+
+Clips 280; test words 7139, bad 566; deleted reference words 315 (1.2 % of the reference, invisible to a word detector); test segments 814, bad 61.
+
+| word-level score | AUROC |
+|---|---|
+| 1 - word probability | 0.864 |
+| -segment avg_logprob | 0.619 |
+| segment no_speech_prob (inverted) | 0.502 |
+| segment compression_ratio (inverted) | 0.543 |
+| logistic(word p, segment stats) | 0.862 |
+
+Checks on 1 - p: {"bootstrap 95 % over test scripts": [0.8443006398435543, 0.8816103021307182], "permuted labels (control)": 0.48908749198321216, "per level": {"snr5": 0.8706111538573212, "snrinf": 0.8523130134025075}}
+Conformal: {"alpha": 0.05, "threshold_1_minus_p": 0.478515625, "test_false_alarm": 0.05400882397687509, "test_detection": 0.3480565371024735}
+
+| segment-level score | AUROC |
+|---|---|
+| -avg_logprob | 0.707 |
+| no_speech_prob | 0.519 |
+| compression_ratio (inverted) | 0.584 |
+| -words per second (inverted) | 0.536 |
+| logistic(all segment stats) | 0.709 |
+
+Reading: **the probability faster-whisper already attaches to each word detects a wrong word at AUROC 0.864, interval
+[0.844, 0.882] over held-out scripts, permutation control 0.49, 0.85 at clean and 0.87 at 5 dB.** A conformal threshold
+set on the training split's correct words gives 5.4 % false alarms and 34.8 % detection on the held-out words, as the
+recipe promised. Segment-level statistics are weak for collapsed or bad segments (average log-probability 0.707, 61 of
+814 segments bad), which is consistent with the product decode having few collapses to detect. The segment statistics add
+nothing to the word probability (logistic 0.862).
+
+So the per-token confidence the patient-state layer needs exists in the decoder we ship, costs nothing, and is now
+measured: word probability, thresholded by the conformal recipe. The Hugging Face hidden-state classifier (section 8,
+0.915 on a different decode) is the academic upper bound; it needs a model we do not run in production and a dump that
+passes the guard, and it is parked unless someone wants that bound tightened (the fallback-decode path returned no
+per-step scores on its first try and would need the long-form generation API taken apart).
+
+Next in the product: carry each word's probability into the state module's slots as the belief weight the state-graph
+plan described, and show low-confidence values ("SBP 84, low confidence") on the slot board.

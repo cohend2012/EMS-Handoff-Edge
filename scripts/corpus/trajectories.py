@@ -159,6 +159,11 @@ def main(argv=None) -> int:
                     gen = model.generate(feats, return_dict_in_generate=True, output_scores=True, output_hidden_states=True,
                                          output_attentions=True, max_new_tokens=440, language="en", task="transcribe",
                                          prompt_ids=prompt_ids, **extra)
+                if isinstance(gen, dict):                      # the long-form / fallback path returns a plain dict
+                    from types import SimpleNamespace
+                    gen = SimpleNamespace(**gen)
+                if not hasattr(gen, "scores") or gen.scores is None:
+                    raise RuntimeError("this generate path returned no per-step scores; the fallback decode cannot give per-token trajectories")
                 seq = gen.sequences[0].tolist()
                 steps = len(gen.scores)
                 toks = seq[-steps:]                           # the tokens the steps produced, in order
