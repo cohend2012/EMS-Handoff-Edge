@@ -278,3 +278,32 @@ the threshold is calibrated per model, from the correct words of a held-out set,
 
 Verdict: the per-word probability is a stable, free, model-agnostic confidence at 0.86 to 0.88; it goes into the app
 as the belief weight on every slot the state layer carries.
+
+## 13. Fusion (2026-10-31 00:40): a Kalman filter over the word sequence, and fusion across models
+
+Same per-word data and split as section 12 (faster-whisper, 140 training scripts, 70/30 by script, seed 0). Script in the
+session scratchpad (fusion.py), reproducible from the fw_*_train dumps on cohendynamics.
+
+Scalar Kalman filter on the word log-odds of being wrong, z_t = log((1 - p_t) / p_t): state x_t = mu + a (x_{t-1} - mu) + w,
+w ~ N(0, q); z_t = x_t + v, v ~ N(0, r); a, q, r chosen on the train split; the RTS smoother runs over the finished burst.
+
+| model | raw 1 - p | causal filter | RTS smoother | logistic(raw, smoother, prior) |
+|---|---|---|---|---|
+| small | 0.864 | 0.868 | 0.875 | 0.873 |
+| medium | 0.883 | 0.886 | 0.889 | 0.888 |
+| large-v3 | 0.860 | 0.865 | 0.867 | 0.867 |
+
+large-v3 smoother minus raw, paired bootstrap over held-out scripts: +0.007 [+0.002, +0.011]. Real and small: wrong words
+cluster, and the smoother borrows that from the neighbours.
+
+Fusion across models (large-v3 words, the medium and small word overlapping in time): large-v3 alone 0.860; + medium's
+probability and agreement 0.871; + medium + small 0.878. Words all three agree on are wrong 2.2 % of the time, against
+4.8 % otherwise. The alignment is crude (time overlap and exact normalised text, so "8" against "eight" counts as a
+disagreement; only 21 % of words agree), so this is a lower bound.
+
+Reading: as in a complementary filter, gain comes from signals whose errors differ. The models' independent errors give
+the largest gain (+0.018); the time context gives +0.007; the learned V added +0.008 on top of four baselines from the
+same decoder (section 8), because it mostly re-measures the decoder's own uncertainty. The hidden state itself carries more
+(0.915 against 0.826, section 8) but on a decode that failed the guard and is not available from faster-whisper. These are
+detection gains (which words to distrust), not WER gains; WER moves only if a flag triggers an action (re-decode, a
+second model's word, or asking the crew).
