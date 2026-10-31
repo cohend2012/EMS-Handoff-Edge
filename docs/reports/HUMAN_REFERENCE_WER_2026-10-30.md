@@ -56,3 +56,34 @@ misheard most; shorthand such as "duoneb" is transcribed literally; speaker labe
 
 Limits: one listener, no second-listener agreement yet; base-hospital and unit names she could not make out are
 written as she heard them; 12 call sets and 2 bursts inside these 10 calls are not read yet.
+
+## 2026-10-31 01:00: live decode settings and a same-model vote (22 bursts)
+
+Constraint: everything must run live. The cohendynamics GPU holds one large-v3 (about 600 MB left free), so no second
+model; vox-ai's 4.7 GB "free" exists only while Ollama has unloaded the writer. The server now takes per-request decode
+options on the one loaded model (scripts/whisper_server.py: ?hint=0, ?beam=N, ?vad=0, ?pad=S; commit ee80222), and each
+of Lois's 22 bursts was decoded nine ways through it. Script and raw output in the session scratchpad (sweep.py,
+sweep.json); scoring as above (pooled WER, paired burst bootstrap against the live decode).
+
+| setting | WER | vs live | 95 % interval | GPU s / burst |
+|---|---|---|---|---|
+| live (hint, greedy, VAD) | 16.6 % | | | 6.4 |
+| no hint | 16.0 % | -0.6 | -1.8 to +0.7 | 6.0 |
+| beam 5 | 15.4 % | -1.2 | -2.7 to +0.6 | 7.8 |
+| beam 5, no hint | 16.7 % | +0.1 | -1.8 to +2.0 | 7.0 |
+| VAD off | 22.6 % | +6.2 | -0.9 to +20.4 | 7.5 |
+| 0.5 s padding | 16.4 % | -0.2 | -1.8 to +1.1 | 6.5 |
+| VAD off + padding | 16.0 % | -0.6 | -2.2 to +0.7 | 6.4 |
+| band-pass 250-3800 Hz + normalise | 19.3 % | +2.8 | +1.2 to +5.0 | 6.4 |
+| band-pass + beam 5 | 17.7 % | +1.2 | -0.2 to +2.9 | 7.9 |
+
+ROVER vote of three decodes (alignment to the live decode, majority per slot):
+- named before the sweep, live + no hint + beam 5: **15.6 %, -1.0 [-1.6, -0.4]**, 20 s of GPU per burst (an average burst
+  is 36.6 s, so it runs in real time);
+- best of the 36 trios, live + beam-5-no-hint + VAD-off-padded: 15.0 %, -1.6 [-2.9, -0.6]; picked from 36 on the same
+  bursts, so it is not quoted as a result until it holds on unread bursts.
+
+The live decode scored 16.6 % here against 16.1 % in the 2026-10-30 19:10 run of the same server on the same bursts; the
+cause is not yet found (all rows in this table come from the same run). For comparison, a vote over all nine saved
+transcripts including the cloud ones reaches 13.5 %, and a local vote with Whisper medium is worse than large-v3 alone
+(+0.9). Band-pass filtering hurts and is dropped.
