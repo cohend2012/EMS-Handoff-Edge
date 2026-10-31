@@ -158,3 +158,9 @@ invents". After 10-29 the local transcript on the second device's GPU is within 
 the local report over large-v3 GPU transcripts is level with the cloud stack on the test split (96.6 / 95.3 against 96.8 / 95.1, -0.1 [-2.4, +2.0]; 96.9 / 95.6 under the 10-30 corrector) and on the held-out validation split 94.6 / 93.6 against the cloud's 95.8 / 93.8 (-1.3 [-3.6, +1.2]; the held-out scripts are harder for both), at a fifth of real time; the
 speed claim still belongs to the hardware, not to the stack, and an 8B writer bought nothing measurable. Twenty-two calls with three references and thirty synthetic scripts in one voice is a pilot, and every
 number above should be read with that sample size in front of it.
+
+## 2026-10-30 evening: first human-reference real-audio WER
+
+Lois Sayrs live reads, 22 bursts in 10 calls, 1,489 words (docs/reports/HUMAN_REFERENCE_WER_2026-10-30.md).
+Groq large-v3 14.7 to 15.0 %, Groq turbo base 18.1 %, local medium 20.7 to 21.0 %. Our transcript stack on real audio:
+-0.3 points [-2.3, +1.5], no measurable gain. The earlier 25.7 to 22.7 % claim against assistant drafts is withdrawn.
