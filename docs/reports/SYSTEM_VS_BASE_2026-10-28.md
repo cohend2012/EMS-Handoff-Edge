@@ -609,3 +609,19 @@ Time to first token was never measured; the app does not stream the report.
   `report_set.py` resumes it when the cap resets. The cloud base row is in (60 of 60, 10-29).
 - Term list for the real references, so MTER exists on real audio.
 - Paired bootstrap intervals over clips for every before-and-after difference (FINETUNE_PLAN.md section 4).
+
+
+## 2026-10-30 evening: the pure starting point (cloud 120B with none of our stack)
+
+The earlier "cloud turbo, base" row ran the 120B writer with our grounding rules on. The pure starting point (Groq turbo
+transcripts with no hint and no corrector, gpt-oss-120b, rules off, lexicon off; label
+`groq_nohint__gpt-oss-120b_norules_nolex`) ran tonight: 48 of 60 reports before Groq's free-tier 200,000 tokens-per-day
+cap (service tier on_demand), the rest resumes when the window frees.
+
+| row | reports | weighted clean / 5 dB | halluc / report clean / 5 dB | extract s |
+|---|---|---|---|---|
+| cloud 120B, no stack (pure base) | 25 / 23 | 94.3 / 93.4 | 0.24 / 0.26 | 2 |
+| ours: GPU large-v3 + stack + corrector v2, 4B writer + rules | same scripts | 96.4 / 95.3 | 0.17 / 0.17 (all 60 reports) | 51 / 52 |
+
+Paired (ours minus pure base, posterior.py): clean +2.2 [-0.1, +4.4], 5 dB +1.9 [-0.6, +4.6]; recall P(ours better)
+0.95 clean, 0.83 at 5 dB. Rules-on cloud against the pure base: +0.3 [-2.1, +2.3] and +0.8 [-1.6, +2.7].
