@@ -625,3 +625,18 @@ cap (service tier on_demand), the rest resumes when the window frees.
 
 Paired (ours minus pure base, posterior.py): clean +2.2 [-0.1, +4.4], 5 dB +1.9 [-0.6, +4.6]; recall P(ours better)
 0.95 clean, 0.83 at 5 dB. Rules-on cloud against the pure base: +0.3 [-2.1, +2.3] and +0.8 [-1.6, +2.7].
+
+## 2026-10-30 night: pure starting point complete (60 of 60)
+
+Groq's window freed at 23:49 and the last 7 reports ran. Full row `groq_nohint__gpt-oss-120b_norules_nolex`:
+
+| row | reports | weighted clean / 5 dB | recall clean / 5 dB | precision clean / 5 dB | halluc / report | extract s |
+|---|---|---|---|---|---|---|
+| cloud 120B, no stack (pure base) | 30 / 30 | 94.6 / 93.6 | 93.7 / 93.0 | 95.3 / 95.5 | 0.27 / 0.27 | 2 / 3 |
+| ours: GPU large-v3 + stack + corrector v2, 4B writer + rules | 30 / 30 | 96.9 / 95.6 | 96.4 / 94.7 | 96.9 / 96.8 | 0.17 / 0.17 | 51 / 52 |
+
+Paired (ours minus pure base, posterior.py, 60 reports): clean **+2.3 [+0.2, +4.2]**, 5 dB +2.0 [-0.2, +4.2]. Recall
+P(ours better) 0.96 clean, 0.84 at 5 dB; precision 0.86 / 0.82. On clean audio the interval now excludes zero: the
+two-Jetson system writes better reports than the cloud 120B starting point, with about 37 % fewer invented facts, at about
+25 times the latency. At 5 dB the lead is likely, not proven. Generated scripts only; real-call report scoring still needs
+a clinician answer key.

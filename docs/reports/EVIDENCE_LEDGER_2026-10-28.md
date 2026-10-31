@@ -165,3 +165,8 @@ Lois Sayrs live reads, 22 bursts in 10 calls, 1,489 words (docs/reports/HUMAN_RE
 Groq large-v3 14.7 to 15.0 %, Groq turbo base 18.1 %, local medium 20.7 to 21.0 %. Our transcript stack on real audio:
 -0.3 points [-2.3, +1.5], no measurable gain. The earlier 25.7 to 22.7 % claim against assistant drafts is withdrawn.
 Local GPU large-v3 + stack (cohendynamics): 16.1 %, -2.0 points against the turbo start [-8.2, +2.2], +1.4 against cloud large-v3 [+0.1, +2.7].
+
+## 2026-10-30 night
+
+- Pure cloud base complete, 60 of 60: ours minus cloud 120B no-stack, clean +2.3 [+0.2, +4.2] (interval excludes 0), 5 dB +2.0 [-0.2, +4.2]; invented facts 0.17 against 0.27. SYSTEM_VS_BASE.
+- Base-hospital name rules in the corrector: hospital-name recall 11/17 to 13/17 on the GPU path against Lois's reads, WER 16.1 to 15.7 %, in-sample; 0 false fires on 1,830 synthetic transcripts. HOSPITAL_NAMES_2026-10-30.md.

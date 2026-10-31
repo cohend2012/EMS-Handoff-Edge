@@ -187,7 +187,63 @@ _CONTEXT_RULES: List[Tuple[str, "re.Pattern", str]] = [
     ("NKDA spelled",
      re.compile(r"(?i)\bNKD(?!A\b)\s*(?:[,\-]\s*)?(?:day|8|a|sa|hey|he|eh|ay|is\s+a(?=\s*[.,;]|\s*$)|is(?=\s*[.,;]|\s*$))\b"),
      "NKDA"),
+    # Base-hospital names, from Lois Sayrs's reads of 10 real calls (2026-10-30): the names are the most misheard words
+    ("Germantown",
+     re.compile(r"(?i)\bgerman[ -]town\b"),
+     "Germantown"),
+    # "Holy gosh, Germantown copies", "We crashed German town copies", "Polycross Germantown Online" (CS002)
+    ("Holy Cross",
+     re.compile(r"(?i)\b(?:holy\s+(?:gosh|cow|crust)|polycross|holly\s*cross|we\s+crashed)"
+                r"(?=[,.]?\s+(?:germantown|copies|online|is\s+clear|this\s+is)\b)"),
+     "Holy Cross"),
+    # a burst opening "Holy cow, <one to three words> copies" is the base answering (CS002 on large-v3)
+    ("Holy Cross (base answering)",
+     re.compile(r"(?i)^holy\s+(?:gosh|cow|crust)(?=,(?:\s+\w+){1,3}\s+(?:copies|online)\b)"),
+     "Holy Cross"),
+    # "Suburban L9, this is", "I'm Irving on 9, this is": "online" heard as a number (CS004)
+    ("online heard as L9",
+     re.compile(r"(?i)(?<=[a-z]) (?:L-?9|on 9|on nine|el nine)(?=[,.])"),
+     " online"),
+    # "Medic729", "Medics 715": unit names as the crews say them
+    ("unit number",
+     re.compile(r"\b(Medic|Ambulance|Engine|Paramedic|Truck|Rescue)s?\s?(\d{2,4})\b", re.I),
+     r"\1 \2"),
 ]
+
+# Base hospitals heard on the Montgomery County feeds, and the word each is recognisable by when Whisper garbles the rest
+# ("CineGroves online", "Cady Grove's online"). Only a span in a radio frame ("<name> online", "<name> copies",
+# "<name> is clear", at the start of a sentence) is rewritten, and only when exactly one stem matches.
+BASE_HOSPITALS: Dict[str, str] = {
+    "Shady Grove": r"groves?", "Holy Cross": r"cross|crost", "Suburban": r"suburb\w*",
+    "Germantown": r"germ\w*town", "White Oak": r"white\s?oak", "Sibley": r"sibley",
+}
+_FRAME_RE = re.compile(r"(?:(?<=^)|(?<=[.?!]\s))((?:[A-Za-z']+,?\s){0,4}?[A-Za-z']+?)(?:'s)?"
+                       r"(?=,?\s+(?:online|copies|is\s+clear)\b)")
+
+
+def _apply_hospital_frames(text: str) -> Tuple[str, List["Correction"]]:
+    """Rewrite a garbled base-hospital name in a radio frame to the hospital its stem names."""
+    applied: List[Correction] = []
+
+    def _sub(m: "re.Match") -> str:
+        span = m.group(1)
+        rest = re.sub(r"[\s,]+", " ", span).strip()
+        for name in BASE_HOSPITALS:
+            rest = re.sub(rf"(?i)\b{name}\b", "", rest).strip()
+        if rest in ("", "is") or rest.lower() == "is":
+            return m.group(0)                                   # already a hospital name
+        if re.match(r"(?i)^holy cross,?\s", span):
+            new = "Holy Cross, Germantown"                      # "Holy Cross, Sturm and Tau copies": the second campus
+        else:
+            hit = [n for n, rx in BASE_HOSPITALS.items() if re.search(rf"(?i)(?:{rx})$", span.rstrip(",' "))]
+            if len(hit) != 1:
+                return m.group(0)
+            new = hit[0]
+        applied.append(Correction(original=m.group(0), replacement=new, canonical=new,
+                                  category="base hospital", score=1.0))
+        return new
+
+    return _FRAME_RE.sub(_sub, text), applied
 
 def _apply_context_rules(text: str) -> Tuple[str, List["Correction"]]:
     """Run the explicit rule layer. Returns (new_text, corrections_applied)."""
@@ -295,6 +351,8 @@ class TranscriptCorrector:
 
         # explicit context rules run first, on the raw text
         text, rule_hits = _apply_context_rules(text)
+        text, frame_hits = _apply_hospital_frames(text)
+        rule_hits += frame_hits
         result = CorrectionResult(text="")
         result.corrections.extend(rule_hits)
         out: List[str] = []
