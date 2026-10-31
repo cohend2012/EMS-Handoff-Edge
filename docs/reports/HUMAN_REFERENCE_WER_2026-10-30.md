@@ -16,6 +16,7 @@ Interval: 95 % bootstrap over bursts.
 |---|---|---|---|---|---|
 | cloud_large_ours (Groq large-v3 + our stack) | 22 | 1489 | 219 | 14.7 % | 11.5 to 18.9 |
 | Groq large-v3 raw | 22 | 1489 | 223 | 15.0 % | 12.3 to 18.4 |
+| gpu_large_v3_ours (cohendynamics GPU, large-v3 fp16, our stack, run 2026-10-30 19:10) | 22 | 1489 | 240 | 16.1 % | not bootstrapped |
 | assistant consensus drafts | 18 | 1135 | 170 | 15.0 % | 11.9 to 19.3 |
 | Groq turbo, radio prompt | 22 | 1489 | 255 | 17.1 % | 13.8 to 21.7 |
 | cloud_base (Groq turbo, the whisper-flow start) | 22 | 1489 | 270 | 18.1 % | 12.1 to 28.7 |
@@ -34,6 +35,9 @@ Paired differences (B minus A, points of WER, burst bootstrap):
 | cloud_large_ours minus Groq large-v3 raw | -0.3 | -1.8 to +1.3 | 0.60 |
 | local_ours minus cloud_large_ours | +6.0 | +2.3 to +10.5 | 0.00 |
 | local_ours minus cloud_base | +2.6 | -5.4 to +9.5 | 0.25 |
+| gpu_large_v3_ours minus cloud_base (local GPU against the whisper-flow start) | -2.0 | -8.2 to +2.2 | 0.77 |
+| gpu_large_v3_ours minus cloud_large_ours | +1.4 | +0.1 to +2.7 | 0.01 |
+| gpu_large_v3_ours minus local_ours (GPU large-v3 against CPU medium) | -4.6 | -8.5 to -1.5 | 1.00 |
 
 What this changes:
 
@@ -41,8 +45,9 @@ What this changes:
    number must not be presented as real-call accuracy.
 2. The earlier real-audio claim "the stack reduced WER from 25.7 % to 22.7 %" (assistant-drafted references, 612 words)
    does not hold against human references. The stack's effect on real audio is -0.3 points, interval spanning zero.
-3. The best real-audio transcript is large-v3. The local CPU medium path is 6.0 points worse. The GPU large-v3 path on
-   cohendynamics has no saved real-call transcripts yet; it is the next row to run on these 22 bursts.
+3. The best real-audio transcript is large-v3. Cloud large-v3 is 14.7 %. Our local GPU large-v3 path is 16.1 %, 1.4
+   points behind cloud large-v3, 2.0 points ahead of the turbo starting point (interval spans zero) and 4.6 points ahead
+   of the CPU medium path. On real audio the GPU Jetson is what makes the local system competitive.
 4. The assistant consensus drafts were 15 % wrong. They could never have stood in for a listener.
 
 Lois's observations from listening (her words, summarised): openings are often cut off because the medic talks before

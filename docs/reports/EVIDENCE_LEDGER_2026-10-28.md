@@ -164,3 +164,4 @@ number above should be read with that sample size in front of it.
 Lois Sayrs live reads, 22 bursts in 10 calls, 1,489 words (docs/reports/HUMAN_REFERENCE_WER_2026-10-30.md).
 Groq large-v3 14.7 to 15.0 %, Groq turbo base 18.1 %, local medium 20.7 to 21.0 %. Our transcript stack on real audio:
 -0.3 points [-2.3, +1.5], no measurable gain. The earlier 25.7 to 22.7 % claim against assistant drafts is withdrawn.
+Local GPU large-v3 + stack (cohendynamics): 16.1 %, -2.0 points against the turbo start [-8.2, +2.2], +1.4 against cloud large-v3 [+0.1, +2.7].
