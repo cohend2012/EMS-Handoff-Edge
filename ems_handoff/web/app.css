@@ -249,3 +249,11 @@ legend { color: var(--muted); font-size: .85rem; padding: 0 .3rem; }
 .state-line .st-cross { color: #ff8a80; }
 .state-line .st-ok { color: var(--muted); }
 .state-line .st-ask { color: #fff; font-weight: 700; background: rgba(246,195,91,.18); border-left: 3px solid var(--amber); padding: .2rem .5rem; margin-left: -.6rem; }
+
+/* the call's state as one badge, and the slot board (LIVE_STATE_PLAN.md section 3) */
+.state-badge { display:inline-block; font: 600 .9rem Arial, Helvetica, sans-serif; letter-spacing:.04em; text-transform:uppercase; padding:.2rem .6rem; border-radius:999px; border:1px solid var(--line); color:var(--muted); }
+.state-badge.open { color:#9ecbff; border-color:#9ecbff; } .state-badge.writing { color:#f6c35b; border-color:#f6c35b; }
+.state-badge.closing { color:#ff8a80; border-color:#ff8a80; } .state-badge.done { color:#5bc48a; border-color:#5bc48a; }
+.slot-board summary { cursor:pointer; color:var(--muted); font-size:.95rem; padding:.2rem 0; }
+.slot-board table { width:100%; border-collapse:collapse; font-size:.95rem; } .slot-board th, .slot-board td { text-align:left; padding:.2rem .5rem; border-bottom:1px solid var(--line); vertical-align:top; }
+.slot-board td.low { color:#ff8a80; font-weight:600; } .slot-board td.src { color:var(--muted); white-space:nowrap; }

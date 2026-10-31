@@ -470,6 +470,7 @@
         $("rpDashboard").scrollTop = 0;
       }
     }
+    renderBadge(s);
     renderState(s.state, s.of, s.ask);
     const line = s.change_lines[s.change_lines.length - 1];
     if (line && line !== ui.replay.lastChange) {
@@ -485,7 +486,36 @@
   }
   // The patient state (ems_handoff/state.py): flags with their published rule and source burst, what the
   // declared alert type still lacks, conflicts between bursts, and vital-sign threshold crossings.
+  // One word for where the call is: open (bursts arriving), writing (an extraction running), closing (a closing cue or
+  // the silence close, the full pass and the ask), handed off (New patient pressed or the session closed).
+  function renderBadge(s) {
+    const el = $("rpBadge");
+    let cls = "open", text = `open · burst ${s.of} of this call`;
+    if (s.updating) { cls = "writing"; text = `writing · burst ${s.of}`; }
+    if (s.closing) { cls = "closing"; text = `closing · ${s.closing}`; }
+    if (s.closed) { cls = "done"; text = "handed off"; }
+    if (!s.of) { cls = ""; text = "listening"; }
+    el.className = "state-badge " + cls; el.textContent = text; el.hidden = false;
+  }
+
+  function renderSlots(st) {
+    const box = $("rpSlots"), rows = $("rpSlotRows");
+    const slots = st && st.slots ? Object.values(st.slots) : [];
+    if (!slots.length) { box.hidden = true; return; }
+    const order = ["alert_type", "alert_level", "eta_minutes", "patient.age", "patient.sex", "chief_complaint", "mechanism_or_onset"];
+    slots.sort((a, b) => (order.indexOf(a.path) === -1 ? 99 : order.indexOf(a.path)) - (order.indexOf(b.path) === -1 ? 99 : order.indexOf(b.path)) || a.path.localeCompare(b.path));
+    rows.innerHTML = slots.map(sl => {
+      const val = Array.isArray(sl.value) ? sl.value.map(v => typeof v === "object" ? (v.intervention || JSON.stringify(v)) : v).join("; ") : (typeof sl.value === "object" && sl.value !== null ? JSON.stringify(sl.value) : String(sl.value));
+      const conf = sl.confidence === null || sl.confidence === undefined ? "" : sl.confidence.toFixed(2);
+      const low = sl.confidence !== null && sl.confidence !== undefined && sl.confidence < 0.75;
+      const from = sl.changed && sl.changed.length ? `${esc(sl.first)} → ${esc(sl.changed[sl.changed.length - 1])}` : esc(sl.first);
+      return `<tr><td>${esc(sl.path)}</td><td>${esc(val.slice(0, 80))}</td><td class="src">${from}</td><td class="${low ? "low" : ""}">${conf}${low ? " low" : ""}</td></tr>`;
+    }).join("");
+    box.hidden = false;
+  }
+
   function renderState(st, bursts, ask) {
+    renderSlots(st);
     const el = $("rpState");
     if (!st || st.error || !bursts) { el.hidden = true; return; }
     const rows = [];
