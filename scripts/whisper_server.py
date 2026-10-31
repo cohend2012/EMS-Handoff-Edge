@@ -15,6 +15,7 @@ Standard library only (the container has no Flask). One request at a time: the m
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import io
 import json
 import sys
@@ -23,6 +24,7 @@ import time
 import wave
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from urllib.parse import parse_qs, urlparse
 
 import numpy as np
 
@@ -76,10 +78,31 @@ def make_handler(transcriber: LocalTranscriber, settings):
                 audio = wav_to_float(data)
             except Exception as e:  # noqa: BLE001
                 return self._send(400, {"error": f"bad wav: {e}"})
+            # Per-request decode options on the one loaded model (no second model fits beside large-v3 on this box):
+            # ?hint=0 drops the vocabulary prompt, ?beam=N sets the beam, ?vad=0 turns Silero off, ?pad=S adds S seconds
+            # of silence before and after the burst. A second opinion is a second decode of the same weights.
+            q = parse_qs(urlparse(self.path).query)
+            opt = lambda k: (q.get(k) or [None])[0]
+            if opt("pad"):
+                pad = np.zeros(int(float(opt("pad")) * SAMPLE_RATE), dtype=np.float32)
+                audio = np.concatenate([pad, audio, pad])
             t0 = time.perf_counter()
             try:
                 with _lock:
-                    text = transcriber.transcribe(audio)
+                    saved = (transcriber.hint, transcriber.settings)
+                    try:
+                        if opt("hint") == "0":
+                            transcriber.hint = ""
+                        changes = {}
+                        if opt("beam"):
+                            changes["local_whisper_beam"] = int(opt("beam"))
+                        if opt("vad"):
+                            changes["local_whisper_vad"] = opt("vad") != "0"
+                        if changes:
+                            transcriber.settings = dataclasses.replace(transcriber.settings, **changes)
+                        text = transcriber.transcribe(audio)
+                    finally:
+                        transcriber.hint, transcriber.settings = saved
             except TranscriptionError as e:
                 return self._send(500, {"error": str(e)})
             self._send(200, {"text": text, "seconds": round(time.perf_counter() - t0, 2),
